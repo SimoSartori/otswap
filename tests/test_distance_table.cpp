@@ -24,7 +24,9 @@
  *  @brief The sampled redshift to comoving distance relation.
  */
 
+#include <algorithm>
 #include <cmath>
+#include <string>
 #include <vector>
 
 #include "otswap/OT.h"
@@ -213,6 +215,55 @@ int main ()
     // The growth rate need not be monotonic.
     const DistanceTable wiggly({0., 1., 2.}, {0., 100., 180.}, {0.8, 0.5, 0.9});
     check_close(wiggly.growthRateAt(1.), 0.5, 1.e-12, "a non-monotonic f is accepted");
+  }
+
+  group("toCartesian round-trips through redshiftAt, and its errors name the object");
+  {
+    const DistanceTable t(0.3, 0.7, -0.9, 0.1, 0., 2., 2000);
+    const double pi = 3.14159265358979323846;
+
+    // Objects all over the sky and the redshift range, including both
+    // poles' neighbourhoods and z = 0. The largest redshift stays below the
+    // table's last node, where the radius recomputed from x, y, z can
+    // exceed the last tabulated distance by a rounding error.
+    std::vector<double> sky;
+    for (int i = 0; i < 400; ++i) {
+      sky.push_back(2. * pi * (i % 37) / 37.);
+      sky.push_back(-1.5 + 3. * (i % 23) / 22.);
+      sky.push_back(1.99 * (i % 101) / 100.);
+    }
+
+    const std::vector<double> xyz = toCartesian(sky, t);
+    check(xyz.size() == sky.size(), "three Cartesian coordinates per object");
+
+    double zErr = 0., raErr = 0., decErr = 0.;
+    for (std::size_t i = 0; i < sky.size() / 3; ++i) {
+      const double x = xyz[3*i], y = xyz[3*i+1], z = xyz[3*i+2];
+      const double r = std::sqrt(x*x + y*y + z*z);
+      zErr = std::max(zErr, std::fabs(t.redshiftAt(r) - sky[3*i+2]));
+      if (r > 0.) {
+        double ra = std::atan2(y, x);
+        if (ra < 0.) ra += 2. * pi;
+        raErr = std::max(raErr, std::fabs(std::remainder(ra - sky[3*i], 2. * pi)));
+        decErr = std::max(decErr, std::fabs(std::asin(z / r) - sky[3*i+1]));
+      }
+    }
+    check_close(zErr, 0., 1.e-12, "redshiftAt of the Cartesian radius recovers every redshift");
+    check_close(raErr, 0., 1.e-12, "the right ascension is recovered");
+    check_close(decErr, 0., 1.e-12, "and so is the declination");
+
+    check(toCartesian({}, t).empty(), "an empty sky array gives an empty result");
+    check_throws([&] { toCartesian({0.1, 0.2}, t); }, "a size that is not a multiple of three raises");
+    check_throws([&] { toCartesian({0.1, 0.2, std::nan("")}, t); }, "a non-finite entry raises");
+
+    bool named = false;
+    try {
+      toCartesian({0.1, 0.2, 0.5, 0.1, 0.2, 2.5}, t);
+    }
+    catch (const Error& e) {
+      named = std::string(e.what()).find("object 1") != std::string::npos;
+    }
+    check(named, "a redshift outside the table raises, naming the object");
   }
 
   return report("test_distance_table");

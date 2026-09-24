@@ -190,6 +190,32 @@ double otswap::internal::representative (const MpsProfile& profile)
 // ============================================================================
 
 
+std::vector<double> otswap::toCartesian (const std::vector<double>& sky,
+                                         const DistanceTable& distances)
+{
+  const std::size_t nObjects = internal::check_coordinates(sky, "the sky array", true);
+
+  std::vector<double> cartesian(3 * nObjects);
+
+  for (std::size_t i = 0; i < nObjects; ++i) {
+    double distance = 0.;
+    try {
+      distance = distances.distanceAt(sky[3*i+2]);
+    }
+    catch (const Error& e) {
+      throw Error("object " + std::to_string(i) + " of the sky array: " + e.what());
+    }
+    internal::to_cartesian(sky[3*i], sky[3*i+1], distance,
+                           cartesian[3*i], cartesian[3*i+1], cartesian[3*i+2]);
+  }
+
+  return cartesian;
+}
+
+
+// ============================================================================
+
+
 otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracersSky,
                                              const std::vector<double>& randomsSky,
                                              const double skyAreaDeg2,
@@ -207,17 +233,8 @@ otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracersS
   const internal::MpsProfile profile =
     internal::mps_profile(tracersSky, skyAreaDeg2, nBins, distances);
 
-  std::vector<double> tracers(3 * nObjects), randoms(3 * nRandoms);
-
-  for (std::size_t i = 0; i < nObjects; ++i)
-    internal::to_cartesian(tracersSky[3*i], tracersSky[3*i+1],
-                           distances.distanceAt(tracersSky[3*i+2]),
-                           tracers[3*i], tracers[3*i+1], tracers[3*i+2]);
-
-  for (std::size_t i = 0; i < nRandoms; ++i)
-    internal::to_cartesian(randomsSky[3*i], randomsSky[3*i+1],
-                           distances.distanceAt(randomsSky[3*i+2]),
-                           randoms[3*i], randoms[3*i+1], randoms[3*i+2]);
+  const std::vector<double> tracers = toCartesian(tracersSky, distances);
+  const std::vector<double> randoms = toCartesian(randomsSky, distances);
 
   std::vector<double> mps(nObjects);
   for (std::size_t i = 0; i < nObjects; ++i)

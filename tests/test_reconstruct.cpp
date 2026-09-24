@@ -486,15 +486,18 @@ int main ()
     check(fromSky.displacement.size() == 3 * nLc, "and returns a field of the right size");
 
     // The same run with the Cartesian coordinates supplied must give the
-    // same answer: the second overload only skips the conversion.
-    std::vector<double> cart(3 * nLc), randomCart(3 * nLc);
+    // same answer: the second overload only skips the conversion, and
+    // toCartesian is the conversion the first one performs.
+    const std::vector<double> cart = toCartesian(sky, distances);
+    const std::vector<double> randomCart = toCartesian(randomSky, distances);
+
+    bool sameConversion = true;
     for (std::size_t i = 0; i < nLc; ++i) {
-      internal::to_cartesian(sky[3*i], sky[3*i+1], distances.distanceAt(sky[3*i+2]),
-                             cart[3*i], cart[3*i+1], cart[3*i+2]);
-      internal::to_cartesian(randomSky[3*i], randomSky[3*i+1],
-                             distances.distanceAt(randomSky[3*i+2]),
-                             randomCart[3*i], randomCart[3*i+1], randomCart[3*i+2]);
+      double x, y, z;
+      internal::to_cartesian(sky[3*i], sky[3*i+1], distances.distanceAt(sky[3*i+2]), x, y, z);
+      if (x != cart[3*i] || y != cart[3*i+1] || z != cart[3*i+2]) sameConversion = false;
     }
+    check(sameConversion, "toCartesian is the per-object conversion, bit for bit");
 
     const Result fromCartesian =
       reconstructLightcone(cart, randomCart, sky, randomSky, skyAreaDeg2, nBins,

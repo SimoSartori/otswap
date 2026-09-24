@@ -304,6 +304,28 @@ namespace otswap {
                          const Config& config);
 
   /**
+   *  @brief Convert sky coordinates to Cartesian comoving coordinates.
+   *
+   *  Object i at right ascension ra, declination dec and redshift z maps
+   *  to x = d cos(dec) cos(ra), y = d cos(dec) sin(ra), z = d sin(dec),
+   *  with d = distances.distanceAt(z). reconstructLightcone converts its
+   *  sky arrays with this function, so Cartesian arrays made with it are
+   *  exactly the ones that overload uses.
+   *
+   *  @param sky sky coordinates, 3 * nObjects entries, ordered right
+   *  ascension, declination, redshift; angles in radians. May be empty.
+   *
+   *  @return Cartesian coordinates in the distance table's unit, Mpc/h,
+   *  3 * nObjects entries ordered x, y, z.
+   *
+   *  @exception Error if the array's size is not a multiple of three, if
+   *  an entry is not finite, or if a redshift falls outside the distance
+   *  table; the message names the object.
+   */
+  std::vector<double> toCartesian (const std::vector<double>& sky,
+                                   const DistanceTable& distances);
+
+  /**
    *  @brief Reconstruct in lightcone geometry, from sky coordinates.
    *
    *  The mean particle separation is measured from the tracers
@@ -364,6 +386,8 @@ namespace otswap {
    *
    *  @warning No check verifies that the Cartesian coordinates agree with
    *  the sky ones under the given cosmology; disagreement is silent.
+   *  Arrays made with toCartesian and the same distance table agree
+   *  exactly, and give the same result as the sky overload.
    */
   Result reconstructLightcone (const std::vector<double>& tracers,
                                const std::vector<double>& randoms,
