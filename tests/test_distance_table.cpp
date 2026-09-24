@@ -288,7 +288,7 @@ int main ()
     check_throws([&] { supplied.distanceAt(-1.e-12); }, "and raises beyond it");
   }
 
-  group("the default table covers [0, 10] to a relative error below 1e-6");
+  group("the default table: relative error below 1e-6 for z >= 0.01, absolute below 2e-5 Mpc/h");
   {
     // Direct comoving distance, by composite Simpson on 1/E(z).
     auto direct = [] (const double z, const double OmegaM, const double w0, const double wa) {
@@ -304,26 +304,37 @@ int main ()
       return 2997.92458 * sum * h / 3.;
     };
 
+    // The interpolation error peaks at the midpoints between samples: this
+    // gives the midpoint of the default grid's interval holding z.
+    const double step = 10. / (50000. - 1.);
+    auto midpoint = [step] (const double z) { return (std::floor(z / step) + 0.5) * step; };
+
     for (const double wa : {0., 0.5}) {
       const double w0 = (wa == 0.) ? -1. : -0.8;
       const DistanceTable t(0.3, 0.7, w0, wa);
       check(t.minRedshift() == 0. && t.maxRedshift() == 10., "the default range is [0, 10]");
 
-      // The error is largest in the first interval, where the distance
-      // vanishes: check its midpoint, and points across the range.
-      const double step = 10. / (2000000. - 1.);
-      for (const double z : {0.5 * step, 0.37, 3.3, 9.99}) {
-        const double d = direct(z, 0.3, w0, wa);
-        check_close(t.distanceAt(z) / d, 1., 1.e-6, "distanceAt is within 1e-6 of the direct value");
-        check_close(t.redshiftAt(d) / z, 1., 1.e-6, "and redshiftAt inverts it to 1e-6");
+      for (const double z0 : {0.01, 0.37, 3.3, 9.99}) {
+        const double z = midpoint(z0), d = direct(z, 0.3, w0, wa);
+        check_close(t.distanceAt(z) / d, 1., 1.e-6, "for z >= 0.01, distanceAt is within 1e-6 relative");
+        check_close(t.redshiftAt(d) / z, 1., 1.e-6, "and redshiftAt too");
+      }
+
+      // Over the whole range, including the first interval, where the
+      // relative error is largest, and the points of largest absolute error.
+      for (const double z0 : {0., 0.0093, 0.2313, 1., 9.99}) {
+        const double z = midpoint(z0), d = direct(z, 0.3, w0, wa);
+        check_close(t.distanceAt(z), d, 2.e-5, "distanceAt is within 2e-5 Mpc/h");
+        check_close(direct(t.redshiftAt(d), 0.3, w0, wa), d, 2.e-5,
+                    "and redshiftAt, as a distance along the line of sight, too");
       }
     }
 
     const DistanceTable lcdm(0.3, 0.7, -1., 0.);
-    for (const double z : {0., 0.5, 2., 9.}) {
-      const double reference = f_lcdm(1. / (1. + z), 0.3);
+    for (const double z0 : {0., 0.5, 2., 9.}) {
+      const double z = midpoint(z0), reference = f_lcdm(1. / (1. + z), 0.3);
       check_close(lcdm.growthRateAt(z) / reference, 1., 1.e-6,
-                  "growthRateAt is within 1e-6 of the closed-form LCDM value");
+                  "growthRateAt is within 1e-6 relative over the whole range");
     }
   }
 

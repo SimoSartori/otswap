@@ -159,12 +159,17 @@ namespace otswap {
      *  Samples nSamples points over [zMin, zMax] and integrates 1/E(z).
      *  Non-flat cosmologies are served by the table constructor below.
      *
-     *  With the default range and sampling, the relative error of
-     *  distanceAt, redshiftAt and growthRateAt against the direct
-     *  computation stays below 1e-6 over [0, 10], for flat LCDM and for
-     *  w0 = -0.8, wa = 0.5. It is largest in the first interval, where
-     *  the distance vanishes, and falls as 1/nSamples there. The table
-     *  holds three arrays of nSamples doubles.
+     *  With the default range and sampling, for flat LCDM and for
+     *  w0 = -0.8, wa = 0.5, against the direct computation:
+     *  - the relative error of distanceAt, redshiftAt and growthRateAt is
+     *    below 1e-6 for z >= 0.01, and that of growthRateAt over the whole
+     *    range;
+     *  - the absolute error of distanceAt, and that of redshiftAt expressed
+     *    as a distance along the line of sight, is below 2e-5 Mpc/h over
+     *    the whole of [0, 10].
+     *  Below z = 0.01 the relative error of the distances grows, because
+     *  the distance itself vanishes at z = 0 while the absolute error does
+     *  not. The table holds three arrays of nSamples doubles.
      *
      *  The growth rate f = dlnD/dlna is sampled on the same grid, by
      *  integrating the linear growth equation from deep in matter
@@ -184,7 +189,7 @@ namespace otswap {
      *  @exception Error if any parameter is out of range.
      */
     DistanceTable (double OmegaM, double h, double w0, double wa,
-                   double zMin = 0., double zMax = 10., unsigned nSamples = 2000000);
+                   double zMin = 0., double zMax = 10., unsigned nSamples = 50000);
 
     /**
      *  @brief Build from a table the caller has computed.
