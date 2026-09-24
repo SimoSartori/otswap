@@ -23,3 +23,31 @@ wheel.packages = ["python/otswap"]
 OTSWAP_BUILD_PYTHON = "ON"
 OTSWAP_BUILD_TESTS = "OFF"
 OTSWAP_BUILD_EXAMPLES = "OFF"
+
+[tool.cibuildwheel]
+# The builds of meshsearch: CPython from 3.9 to 3.14, and 3.14t, on manylinux
+# for x86_64 and aarch64 and on macOS for x86_64 and arm64. PyPy is not in the
+# default build set, and nanobind does not support it. CPython 3.15 is skipped
+# until the project is built and tested against it; the free-threaded build
+# has its own identifier, cp315t, and needs its own selector.
+skip = ["*_i686", "*-musllinux_*", "cp315-*", "cp315t-*"]
+build-verbosity = 1
+# zlib and cfitsio (and libomp on macOS), from pinned, checksummed releases
+before-all = "bash {project}/tools/wheels/build_deps.sh {project}/build/wheel-deps"
+environment = { CFITSIO_ROOT = "$PWD/build/wheel-deps", ZLIB_ROOT = "$PWD/build/wheel-deps" }
+# the full suite, the bit-identity tests against the C++ library included
+test-requires = "pytest"
+test-command = "bash {project}/tools/wheels/test_wheel.sh {project} {wheel}"
+
+[tool.cibuildwheel.linux]
+repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel} && python {project}/tools/wheels/check_dependencies.py {dest_dir}"
+
+[tool.cibuildwheel.macos]
+# one arm64 runner builds both, and tests both: the x86_64 wheels are
+# cross-built and then run under Rosetta
+archs = ["arm64", "x86_64"]
+# meshsearch's deployment target; arm64 wheels start at 11.0 in any case
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.13", CFITSIO_ROOT = "$PWD/build/wheel-deps", ZLIB_ROOT = "$PWD/build/wheel-deps", OpenMP_ROOT = "$PWD/build/wheel-deps/omp" }
+# the libomp of the architecture being built, which delocate then bundles
+before-build = "bash {project}/tools/wheels/select_omp.sh {project}/build/wheel-deps"
+repair-wheel-command = "delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel} && python {project}/tools/wheels/check_dependencies.py {dest_dir}"

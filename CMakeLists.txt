@@ -45,8 +45,9 @@ FetchContent_MakeAvailable(meshsearch)
 # External dependencies
 # ---------------------------------------------------------------------------
 
-# AppleClang needs to be pointed at a libomp; Homebrew's is the usual one.
-if (APPLE AND NOT DEFINED OpenMP_ROOT)
+# AppleClang needs to be pointed at a libomp; Homebrew's is the usual one,
+# used unless OpenMP_ROOT is set, as a CMake variable or in the environment.
+if (APPLE AND NOT DEFINED OpenMP_ROOT AND NOT DEFINED ENV{OpenMP_ROOT})
   foreach (candidate /opt/homebrew/opt/libomp /usr/local/opt/libomp)
     if (EXISTS ${candidate}/include/omp.h)
       set(OpenMP_ROOT ${candidate})
@@ -67,6 +68,15 @@ if (NOT CFITSIO_INCLUDE_DIR OR NOT CFITSIO_LIBRARY)
   message(FATAL_ERROR
     "cfitsio was not found. Set CFITSIO_ROOT, or pass -DCFITSIO_INCLUDE_DIR "
     "and -DCFITSIO_LIBRARY.")
+endif()
+
+# A static cfitsio brings its own dependency, zlib, to every link; a shared
+# one resolves it itself.
+if (CFITSIO_LIBRARY MATCHES "\\${CMAKE_STATIC_LIBRARY_SUFFIX}$")
+  find_package(ZLIB REQUIRED)
+  set(CFITSIO_LIBRARIES ${CFITSIO_LIBRARY} ZLIB::ZLIB)
+else()
+  set(CFITSIO_LIBRARIES ${CFITSIO_LIBRARY})
 endif()
 
 # ---------------------------------------------------------------------------
@@ -130,7 +140,7 @@ target_compile_features(otswap PUBLIC cxx_std_17)
 
 target_link_libraries(otswap
   PUBLIC  meshsearch
-  PRIVATE ${CFITSIO_LIBRARY} otswap_healpix)
+  PRIVATE ${CFITSIO_LIBRARIES} otswap_healpix)
 
 if (OpenMP_CXX_FOUND)
   target_link_libraries(otswap PUBLIC OpenMP::OpenMP_CXX)
@@ -153,7 +163,7 @@ if (OTSWAP_BUILD_TESTS)
     target_link_libraries(${test_name} PRIVATE otswap)
     target_include_directories(${test_name} PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR})
-    target_link_libraries(${test_name} PRIVATE ${CFITSIO_LIBRARY} otswap_healpix)
+    target_link_libraries(${test_name} PRIVATE ${CFITSIO_LIBRARIES} otswap_healpix)
     if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
       target_compile_options(${test_name} PRIVATE -Wall -Wextra)
     endif()
