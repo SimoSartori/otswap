@@ -25,12 +25,14 @@ OTSWAP_BUILD_TESTS = "OFF"
 OTSWAP_BUILD_EXAMPLES = "OFF"
 
 [tool.cibuildwheel]
-# The builds of meshsearch: CPython from 3.9 to 3.14, and 3.14t, on manylinux
-# for x86_64 and aarch64 and on macOS for x86_64 and arm64. PyPy is not in the
-# default build set, and nanobind does not support it. CPython 3.15 is skipped
-# until the project is built and tested against it; the free-threaded build
-# has its own identifier, cp315t, and needs its own selector.
-skip = ["*_i686", "*-musllinux_*", "cp315-*", "cp315t-*"]
+# CPython from 3.9 to 3.14, on manylinux for x86_64 and aarch64 and on macOS
+# for x86_64 and arm64. PyPy is not in the default build set, and nanobind
+# does not support it. The free-threaded 3.14t is skipped: the extension is
+# not declared free-threaded, so it would re-enable the GIL on import.
+# CPython 3.15 is skipped until the project is built and tested against it;
+# its free-threaded build has its own identifier, cp315t, and needs its own
+# selector.
+skip = ["*_i686", "*-musllinux_*", "cp314t-*", "cp315-*", "cp315t-*"]
 build-verbosity = 1
 # zlib and cfitsio (and libomp on macOS), from pinned, checksummed releases
 before-all = "bash {project}/tools/wheels/build_deps.sh {project}/build/wheel-deps"
