@@ -68,17 +68,39 @@ if (NOT CFITSIO_INCLUDE_DIR OR NOT CFITSIO_LIBRARY)
     "and -DCFITSIO_LIBRARY.")
 endif()
 
-find_path(HEALPIX_INCLUDE_DIR healpix_base.h
-  HINTS ${HEALPIX_ROOT} ENV HEALPIX_ROOT
-  PATH_SUFFIXES include/healpix_cxx include healpix_cxx)
-find_library(HEALPIX_LIBRARY NAMES healpix_cxx
-  HINTS ${HEALPIX_ROOT} ENV HEALPIX_ROOT PATH_SUFFIXES lib)
+# ---------------------------------------------------------------------------
+# Healpix, vendored
+#
+# The subset of HEALPix 3.82 otswap uses, copied unmodified into
+# extern/healpix (see its README). It is third-party code that must not be
+# edited, so its warnings are suppressed, for these files only, and its
+# include directories are marked SYSTEM so that its headers do not raise
+# warnings in otswap's own translation units either. It needs nothing
+# besides the C++ standard library.
+# ---------------------------------------------------------------------------
 
-if (NOT HEALPIX_INCLUDE_DIR OR NOT HEALPIX_LIBRARY)
-  message(FATAL_ERROR
-    "healpix_cxx was not found. Set HEALPIX_ROOT to a Healpix C++ installation "
-    "(the directory holding include/healpix_cxx and lib), or pass "
-    "-DHEALPIX_INCLUDE_DIR and -DHEALPIX_LIBRARY.")
+set(OTSWAP_HEALPIX_DIR ${CMAKE_CURRENT_SOURCE_DIR}/extern/healpix)
+
+add_library(otswap_healpix STATIC
+  ${OTSWAP_HEALPIX_DIR}/Healpix_cxx/healpix_base.cc
+  ${OTSWAP_HEALPIX_DIR}/Healpix_cxx/healpix_tables.cc
+  ${OTSWAP_HEALPIX_DIR}/cxxsupport/error_handling.cc
+  ${OTSWAP_HEALPIX_DIR}/cxxsupport/geom_utils.cc
+  ${OTSWAP_HEALPIX_DIR}/cxxsupport/pointing.cc
+  ${OTSWAP_HEALPIX_DIR}/cxxsupport/string_utils.cc)
+
+set_target_properties(otswap_healpix PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_features(otswap_healpix PUBLIC cxx_std_17)
+
+target_include_directories(otswap_healpix SYSTEM
+  PUBLIC
+    $<BUILD_INTERFACE:${OTSWAP_HEALPIX_DIR}/Healpix_cxx>
+    $<BUILD_INTERFACE:${OTSWAP_HEALPIX_DIR}/cxxsupport>)
+
+if (MSVC)
+  target_compile_options(otswap_healpix PRIVATE /w)
+else()
+  target_compile_options(otswap_healpix PRIVATE -w)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -101,14 +123,13 @@ target_include_directories(otswap
     $<INSTALL_INTERFACE:include>
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CFITSIO_INCLUDE_DIR}
-    ${HEALPIX_INCLUDE_DIR})
+    ${CFITSIO_INCLUDE_DIR})
 
 target_compile_features(otswap PUBLIC cxx_std_17)
 
 target_link_libraries(otswap
   PUBLIC  meshsearch
-  PRIVATE ${CFITSIO_LIBRARY} ${HEALPIX_LIBRARY})
+  PRIVATE ${CFITSIO_LIBRARY} otswap_healpix)
 
 if (OpenMP_CXX_FOUND)
   target_link_libraries(otswap PUBLIC OpenMP::OpenMP_CXX)
@@ -130,8 +151,8 @@ if (OTSWAP_BUILD_TESTS)
     add_executable(${test_name} tests/${test_name}.cpp)
     target_link_libraries(${test_name} PRIVATE otswap)
     target_include_directories(${test_name} PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR} ${HEALPIX_INCLUDE_DIR})
-    target_link_libraries(${test_name} PRIVATE ${CFITSIO_LIBRARY} ${HEALPIX_LIBRARY})
+      ${CMAKE_CURRENT_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR})
+    target_link_libraries(${test_name} PRIVATE ${CFITSIO_LIBRARY} otswap_healpix)
     if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
       target_compile_options(${test_name} PRIVATE -Wall -Wextra)
     endif()
