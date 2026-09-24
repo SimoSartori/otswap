@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -222,15 +223,13 @@ int main ()
     const DistanceTable t(0.3, 0.7, -0.9, 0.1, 0., 2., 2000);
     const double pi = 3.14159265358979323846;
 
-    // Objects all over the sky and the redshift range, including both
-    // poles' neighbourhoods and z = 0. The largest redshift stays below the
-    // table's last node, where the radius recomputed from x, y, z can
-    // exceed the last tabulated distance by a rounding error.
+    // Objects all over the sky and the whole redshift range, including
+    // both poles' neighbourhoods and both ends of the table.
     std::vector<double> sky;
     for (int i = 0; i < 400; ++i) {
       sky.push_back(2. * pi * (i % 37) / 37.);
       sky.push_back(-1.5 + 3. * (i % 23) / 22.);
-      sky.push_back(1.99 * (i % 101) / 100.);
+      sky.push_back(2. * (i % 101) / 100.);
     }
 
     const std::vector<double> xyz = toCartesian(sky, t);
@@ -264,6 +263,68 @@ int main ()
       named = std::string(e.what()).find("object 1") != std::string::npos;
     }
     check(named, "a redshift outside the table raises, naming the object");
+  }
+
+  group("a value within a few rounding errors of either end is taken to be at it");
+  {
+    const double eps = std::numeric_limits<double>::epsilon();
+    const DistanceTable t(0.3, 0.7, -1., 0., 0.1, 2., 500);
+    const double dLo = t.distanceAt(0.1), dHi = t.distanceAt(2.);
+
+    check(t.distanceAt(2. * (1. + 2. * eps)) == dHi, "just above the largest redshift");
+    check(t.distanceAt(0.1 * (1. - 2. * eps)) == dLo, "just below the smallest redshift");
+    check(t.redshiftAt(dHi * (1. + 4. * eps)) == 2., "just above the largest distance");
+    check(t.redshiftAt(dLo * (1. - 4. * eps)) == 0.1, "just below the smallest distance");
+    check(t.growthRateAt(2. * (1. + 2. * eps)) == t.growthRateAt(2.), "the growth rate too");
+
+    check_throws([&] { t.distanceAt(2. + 1.e-12); }, "further above the range still raises");
+    check_throws([&] { t.distanceAt(0.1 - 1.e-12); }, "and further below it");
+    check_throws([&] { t.redshiftAt(dHi * (1. + 1.e-12)); }, "for distances as well");
+    check_throws([&] { t.growthRateAt(2. + 1.e-12); }, "and for the growth rate");
+
+    const DistanceTable supplied({0., 1., 2.}, {0., 100., 180.});
+    check(supplied.redshiftAt(180. * (1. + 4. * eps)) == 2., "a supplied table has the same tolerance");
+    check(supplied.distanceAt(-1.e-16) == 0., "at its lower end too");
+    check_throws([&] { supplied.distanceAt(-1.e-12); }, "and raises beyond it");
+  }
+
+  group("the default table covers [0, 10] to a relative error below 1e-6");
+  {
+    // Direct comoving distance, by composite Simpson on 1/E(z).
+    auto direct = [] (const double z, const double OmegaM, const double w0, const double wa) {
+      auto invE = [&] (const double x) {
+        const double opz = 1. + x;
+        const double de = std::exp(3. * (1. + w0 + wa) * std::log(opz) - 3. * wa * x / opz);
+        return 1. / std::sqrt(OmegaM * opz * opz * opz + (1. - OmegaM) * de);
+      };
+      const int m = 2000;
+      const double h = z / m;
+      double sum = invE(0.) + invE(z);
+      for (int k = 1; k < m; ++k) sum += (k % 2 ? 4. : 2.) * invE(k * h);
+      return 2997.92458 * sum * h / 3.;
+    };
+
+    for (const double wa : {0., 0.5}) {
+      const double w0 = (wa == 0.) ? -1. : -0.8;
+      const DistanceTable t(0.3, 0.7, w0, wa);
+      check(t.minRedshift() == 0. && t.maxRedshift() == 10., "the default range is [0, 10]");
+
+      // The error is largest in the first interval, where the distance
+      // vanishes: check its midpoint, and points across the range.
+      const double step = 10. / (2000000. - 1.);
+      for (const double z : {0.5 * step, 0.37, 3.3, 9.99}) {
+        const double d = direct(z, 0.3, w0, wa);
+        check_close(t.distanceAt(z) / d, 1., 1.e-6, "distanceAt is within 1e-6 of the direct value");
+        check_close(t.redshiftAt(d) / z, 1., 1.e-6, "and redshiftAt inverts it to 1e-6");
+      }
+    }
+
+    const DistanceTable lcdm(0.3, 0.7, -1., 0.);
+    for (const double z : {0., 0.5, 2., 9.}) {
+      const double reference = f_lcdm(1. / (1. + z), 0.3);
+      check_close(lcdm.growthRateAt(z) / reference, 1., 1.e-6,
+                  "growthRateAt is within 1e-6 of the closed-form LCDM value");
+    }
   }
 
   return report("test_distance_table");

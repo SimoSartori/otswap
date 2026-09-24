@@ -159,6 +159,13 @@ namespace otswap {
      *  Samples nSamples points over [zMin, zMax] and integrates 1/E(z).
      *  Non-flat cosmologies are served by the table constructor below.
      *
+     *  With the default range and sampling, the relative error of
+     *  distanceAt, redshiftAt and growthRateAt against the direct
+     *  computation stays below 1e-6 over [0, 10], for flat LCDM and for
+     *  w0 = -0.8, wa = 0.5. It is largest in the first interval, where
+     *  the distance vanishes, and falls as 1/nSamples there. The table
+     *  holds three arrays of nSamples doubles.
+     *
      *  The growth rate f = dlnD/dlna is sampled on the same grid, by
      *  integrating the linear growth equation from deep in matter
      *  domination and taking f from the solution. It is not approximated
@@ -171,12 +178,13 @@ namespace otswap {
      *  @param wa dark energy equation of state, evolution term
      *  @param zMin lower end of the sampled range; must be non-negative
      *  @param zMax upper end; must exceed zMin
-     *  @param nSamples sampling points; must be at least two
+     *  @param nSamples sampling points, uniform in redshift; must be at
+     *  least two
      *
      *  @exception Error if any parameter is out of range.
      */
     DistanceTable (double OmegaM, double h, double w0, double wa,
-                   double zMin, double zMax, unsigned nSamples = 1000);
+                   double zMin = 0., double zMax = 10., unsigned nSamples = 2000000);
 
     /**
      *  @brief Build from a table the caller has computed.
@@ -195,14 +203,21 @@ namespace otswap {
     DistanceTable (std::vector<double> redshift, std::vector<double> distance,
                    std::vector<double> growthRate = {});
 
-    /// Comoving distance at z. Throws outside the sampled range.
+    /// Comoving distance at z. Throws outside the sampled range. A value
+    /// outside it by at most 8 rounding errors of the range's largest
+    /// magnitude is taken to be at the nearer end, so that values computed
+    /// from the table's own ends, such as the radius of a position
+    /// converted at the largest redshift, are accepted. The same holds for
+    /// redshiftAt and growthRateAt.
     double distanceAt (double z) const;
 
-    /// Redshift at a comoving distance. Throws outside the sampled range.
+    /// Redshift at a comoving distance. Throws outside the sampled range,
+    /// with the end tolerance of distanceAt.
     double redshiftAt (double distance) const;
 
     /// Growth rate f = dlnD/dlna at z. Throws outside the sampled range,
-    /// and when the table carries no growth rate.
+    /// with the end tolerance of distanceAt, and when the table carries
+    /// no growth rate.
     double growthRateAt (double z) const;
 
     /// True when the table carries a growth rate.

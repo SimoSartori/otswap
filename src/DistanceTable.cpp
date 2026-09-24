@@ -61,6 +61,30 @@ namespace {
   // error the table itself carries.
   constexpr unsigned kSimpsonSteps = 4;
 
+  // A lookup outside a table's range by at most this many rounding errors
+  // of the range's largest magnitude is taken to be at the nearer end.
+  // Values computed from the table's own ends, such as the radius of a
+  // position converted at the largest redshift, land that close to it.
+  constexpr double kEndToleranceInRoundingErrors = 8.;
+
+  // Clamps value to [lo, hi] when it lies outside by no more than the end
+  // tolerance, and returns false when it lies further outside.
+  bool clamp_to_range (double& value, const double lo, const double hi)
+  {
+    const double tolerance = kEndToleranceInRoundingErrors *
+      std::numeric_limits<double>::epsilon() * std::max(std::fabs(lo), std::fabs(hi));
+
+    if (value < lo) {
+      if (lo - value > tolerance) return false;
+      value = lo;
+    }
+    else if (value > hi) {
+      if (value - hi > tolerance) return false;
+      value = hi;
+    }
+    return true;
+  }
+
   double one_over_E (const double z, const double OmegaM,
                      const double w0, const double wa)
   {
@@ -297,12 +321,12 @@ otswap::DistanceTable::DistanceTable (std::vector<double> redshift,
 // ============================================================================
 
 
-double otswap::DistanceTable::distanceAt (const double z) const
+double otswap::DistanceTable::distanceAt (double z) const
 {
   if (!std::isfinite(z))
     throw Error("the requested redshift is not finite");
 
-  if (z < m_redshift.front() || z > m_redshift.back())
+  if (!clamp_to_range(z, m_redshift.front(), m_redshift.back()))
     throw Error("the redshift " + std::to_string(z) + " is outside the tabulated range [" +
                 std::to_string(m_redshift.front()) + ", " +
                 std::to_string(m_redshift.back()) + "]");
@@ -320,12 +344,12 @@ double otswap::DistanceTable::distanceAt (const double z) const
 // ============================================================================
 
 
-double otswap::DistanceTable::redshiftAt (const double distance) const
+double otswap::DistanceTable::redshiftAt (double distance) const
 {
   if (!std::isfinite(distance))
     throw Error("the requested comoving distance is not finite");
 
-  if (distance < m_distance.front() || distance > m_distance.back())
+  if (!clamp_to_range(distance, m_distance.front(), m_distance.back()))
     throw Error("the comoving distance " + std::to_string(distance) +
                 " is outside the tabulated range [" + std::to_string(m_distance.front()) +
                 ", " + std::to_string(m_distance.back()) + "]");
@@ -343,7 +367,7 @@ double otswap::DistanceTable::redshiftAt (const double distance) const
 // ============================================================================
 
 
-double otswap::DistanceTable::growthRateAt (const double z) const
+double otswap::DistanceTable::growthRateAt (double z) const
 {
   if (m_growthRate.empty())
     throw Error("this distance table carries no growth rate: it was built from arrays "
@@ -352,7 +376,7 @@ double otswap::DistanceTable::growthRateAt (const double z) const
   if (!std::isfinite(z))
     throw Error("the requested redshift is not finite");
 
-  if (z < m_redshift.front() || z > m_redshift.back())
+  if (!clamp_to_range(z, m_redshift.front(), m_redshift.back()))
     throw Error("the redshift " + std::to_string(z) + " is outside the tabulated range [" +
                 std::to_string(m_redshift.front()) + ", " +
                 std::to_string(m_redshift.back()) + "]");
