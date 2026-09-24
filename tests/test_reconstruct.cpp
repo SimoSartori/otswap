@@ -330,6 +330,51 @@ int main ()
     check(one.displacement != different.displacement, "a different seed gives a different run");
   }
 
+  group("the cell size affects speed only, never the result");
+  {
+    Config c;
+    c.nRealizations = 2;
+    c.seed = 4321;
+
+    std::vector<double> supply;
+    for (unsigned r = 0; r < c.nRealizations; ++r) {
+      const std::vector<double> block = lattice(nSide, spacing, 4.0, 500 + r);
+      supply.insert(supply.end(), block.begin(), block.end());
+    }
+
+    const DistanceTable distances(0.3, 0.7, -1., 0., 0., 1.5, 4000);
+    std::mt19937 rng(77);
+    std::vector<double> sky(3 * 1200), randomSky(3 * 2400);
+    for (std::vector<double>* s : {&sky, &randomSky})
+      for (std::size_t i = 0; i < s->size(); i += 3) {
+        (*s)[i]   = internal::uniform_real(rng, 0.2, 0.6);
+        (*s)[i+1] = internal::uniform_real(rng, -0.2, 0.2);
+        (*s)[i+2] = internal::uniform_real(rng, 0.5, 0.9);
+      }
+
+    c.cellSize = 4.;
+    const Result boxRef = reconstructBox(tracers, {}, spacing, c);
+    const Result givenRef = reconstructBox(tracers, supply, spacing, c);
+    const Result coneRef = reconstructLightcone(sky, randomSky, 1500., 3, distances, c);
+
+    for (const double cellSize : {1., 2., 8.}) {
+      c.cellSize = cellSize;
+      const std::string at = " at cell size " + std::to_string((int)cellSize) + " as at 4";
+      const Result box = reconstructBox(tracers, {}, spacing, c);
+      const Result given = reconstructBox(tracers, supply, spacing, c);
+      const Result cone = reconstructLightcone(sky, randomSky, 1500., 3, distances, c);
+      check(box.matchedRandom == boxRef.matchedRandom &&
+            box.displacement == boxRef.displacement,
+            "box, generated randoms: the same result" + at);
+      check(given.matchedRandom == givenRef.matchedRandom &&
+            given.displacement == givenRef.displacement,
+            "box, randoms given: the same result" + at);
+      check(cone.matchedRandom == coneRef.matchedRandom &&
+            cone.displacement == coneRef.displacement,
+            "lightcone: the same result" + at);
+    }
+  }
+
   group("randoms outside the tracers' bounding box are accepted");
   {
     // The randoms reach a full spacing beyond the tracers on every side.

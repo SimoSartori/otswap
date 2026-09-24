@@ -220,9 +220,15 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
       for (const unsigned i : starters) {
         if (paired[i]) continue;
 
+        // The grid returns the ball in cell order, which depends on the cell
+        // size; sorted by index, the pairs drawn from it below do not. The
+        // nearest-random list needs no sorting: it is ordered by distance,
+        // nearest first, so only randoms at exactly equal distances could
+        // come in an order that depends on the cell size.
         std::vector<unsigned> close =
           tracerCopy.closeObjects(tracerX[i], tracerY[i], tracerZ[i],
                                   kSeedingRadiusInMps * mps[i]);
+        std::sort(close.begin(), close.end());
 
         unsigned toRemove = std::min((unsigned)kMaxPairsPerStarter, (unsigned)close.size());
         if (toRemove == 0) continue;
