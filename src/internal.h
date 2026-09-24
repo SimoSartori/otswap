@@ -130,6 +130,8 @@ namespace otswap {
     /// Set validRealizations and meanDisplacement from displacement and
     /// valid: the count of valid realizations per object, and the mean
     /// over them, summed in realization order; NaN where there are none.
+    /// When the two arrays already have their sizes they are overwritten in
+    /// place, so their data pointers do not change.
     void summarize (Result& result);
 
     /// Sky to Cartesian: x = distance cos(dec) cos(ra),

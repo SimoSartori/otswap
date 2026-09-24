@@ -13,6 +13,7 @@ endif()
 
 option(OTSWAP_BUILD_TESTS "Build the C++ test suite" ON)
 option(OTSWAP_BUILD_EXAMPLES "Build the examples" ON)
+option(OTSWAP_BUILD_PYTHON "Build the Python bindings" OFF)
 
 # ---------------------------------------------------------------------------
 # meshsearch
@@ -158,6 +159,14 @@ if (OTSWAP_BUILD_TESTS)
     endif()
     add_test(NAME ${test_name} COMMAND ${test_name})
   endforeach()
+
+  # Runs the library on raw input files for the Python tests, which compare
+  # its outputs with those of the bindings; not a test by itself.
+  add_executable(cpp_reference tests/cpp_reference.cpp)
+  target_link_libraries(cpp_reference PRIVATE otswap)
+  if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(cpp_reference PRIVATE -Wall -Wextra)
+  endif()
 endif()
 
 if (OTSWAP_BUILD_EXAMPLES)
@@ -166,4 +175,23 @@ if (OTSWAP_BUILD_EXAMPLES)
   if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(example_box PRIVATE -Wall -Wextra)
   endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# Python bindings
+#
+# The extension module otswap._otswap, installed into the otswap package of
+# python/otswap. Built by pip through scikit-build-core (see pyproject.toml).
+# ---------------------------------------------------------------------------
+
+if (OTSWAP_BUILD_PYTHON)
+  find_package(Python 3.9 REQUIRED COMPONENTS Interpreter Development.Module)
+  execute_process(COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+    OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
+  find_package(nanobind CONFIG REQUIRED)
+
+  nanobind_add_module(otswap_python NB_STATIC python/otswap_python.cpp)
+  set_target_properties(otswap_python PROPERTIES OUTPUT_NAME _otswap)
+  target_link_libraries(otswap_python PRIVATE otswap)
+  install(TARGETS otswap_python LIBRARY DESTINATION otswap)
 endif()

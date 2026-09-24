@@ -394,8 +394,12 @@ void otswap::internal::summarize (Result& result)
   const std::size_t nObjects = result.nObjects;
   const unsigned nRealizations = result.nRealizations;
 
-  result.meanDisplacement.assign(3 * nObjects, 0.);
-  result.validRealizations.assign(nObjects, 0u);
+  // Resized only when the sizes differ, then overwritten in place: a filter
+  // never moves the memory these arrays occupy.
+  result.meanDisplacement.resize(3 * nObjects);
+  result.validRealizations.resize(nObjects);
+  std::fill(result.meanDisplacement.begin(), result.meanDisplacement.end(), 0.);
+  std::fill(result.validRealizations.begin(), result.validRealizations.end(), 0u);
 
   for (std::size_t i = 0; i < nObjects; ++i) {
     unsigned kept = 0;
