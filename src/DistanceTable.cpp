@@ -23,7 +23,7 @@ namespace {
   // Speed of light in km/s. With H0 = 100 h km/s/Mpc, the Hubble distance
   // c/H0 is (c/100) / h Mpc, which is c/100 Mpc/h. The table is in Mpc/h,
   // so h cancels out of the comoving distance and only enters if a caller
-  // converts to Mpc. It is still validated, because a non-positive h is a
+  // converts to Mpc. h is validated regardless: a non-positive h is a
   // caller error whatever the unit.
   constexpr double kSpeedOfLight = 299792.458;
 

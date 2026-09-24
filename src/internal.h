@@ -35,17 +35,20 @@ namespace otswap {
     /// count rather than a sum of fractions.
     constexpr double kMaskAllowedAbove = 0.;
 
-    /// Uniform integer in [0, bound). Replaces
-    /// std::uniform_int_distribution, which is not specified across
-    /// implementations.
+    /// Uniform integer in [0, bound), by Lemire's multiply-and-reject method
+    /// on the engine's 32-bit output. Unlike std::uniform_int_distribution,
+    /// whose algorithm the standard leaves open, it yields the same sequence
+    /// on every toolchain.
     unsigned uniform_int (std::mt19937& rng, unsigned bound);
 
-    /// Uniform double in [lo, hi). Replaces
-    /// std::uniform_real_distribution, for the same reason.
+    /// Uniform double in [lo, hi), from 53 random bits of two engine
+    /// outputs. The same sequence on every toolchain, which
+    /// std::uniform_real_distribution does not guarantee.
     double uniform_real (std::mt19937& rng, double lo, double hi);
 
-    /// Fisher-Yates shuffle over uniform_int. Replaces std::shuffle, for
-    /// the same reason.
+    /// Fisher-Yates shuffle over uniform_int, from the last element down.
+    /// The same permutation on every toolchain, which std::shuffle does not
+    /// guarantee.
     template <typename T>
     void shuffle (std::vector<T>& v, std::mt19937& rng)
     {
@@ -85,8 +88,8 @@ namespace otswap {
     void check_random_supply (std::size_t nRandoms, std::size_t nObjects,
                               unsigned nRealizations);
 
-    /// The smallest catalog the neighbour lookup can serve, and the
-    /// neighbours held per tracer. Defined in Reconstruct.cpp.
+    /// The smallest catalog accepted: one more than the neighbours held
+    /// per tracer. Defined in Reconstruct.cpp.
     std::size_t min_objects ();
 
     /// One reconstruction, shared by both geometries.
@@ -115,7 +118,8 @@ namespace otswap {
     /// over them, summed in realization order; NaN where there are none.
     void summarize (Result& result);
 
-    /// Sky to Cartesian, in the CosmoBolognaLib convention.
+    /// Sky to Cartesian: x = distance cos(dec) cos(ra),
+    /// y = distance cos(dec) sin(ra), z = distance sin(dec).
     void to_cartesian (double ra, double dec, double distance,
                        double& x, double& y, double& z);
 

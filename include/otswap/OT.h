@@ -56,9 +56,9 @@ namespace otswap {
   /**
    *  @brief Free parameters of the reconstruction.
    *
-   *  The multipliers that govern the search radius, the neighbourhood
-   *  size and the initial pairing are deliberately absent: they are
-   *  internal constants, calibrated once, not knobs.
+   *  The multipliers that govern the seeding radius, the neighbourhood
+   *  size and the initial pairing are absent: they are internal constants
+   *  of the algorithm, not parameters.
    */
   struct Config {
 
@@ -338,8 +338,9 @@ namespace otswap {
    *  coordinates already computed.
    *
    *  Identical to the overload above, except that the conversion is
-   *  skipped. The sky coordinates are still required: their redshifts
-   *  drive mps(z), and they are written to the output table.
+   *  skipped. The sky coordinates are still required: the tracers'
+   *  redshifts drive mps(z), and the sky random array must describe the
+   *  same objects as the Cartesian one.
    *
    *  @param tracers Cartesian coordinates, 3 * nObjects entries.
    *  @param randoms Cartesian coordinates of the randoms.

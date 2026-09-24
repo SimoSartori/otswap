@@ -31,9 +31,9 @@ namespace {
   // is far more likely to be a mistyped column list than a real table.
   constexpr std::size_t kMaxAsciiColumnIndex = 4095;
 
-  // Significant digits written to ASCII. Carried over unchanged from the
-  // CosmoBolognaLib writer, so that its output format is preserved; it
-  // does not round-trip a double exactly.
+  // Significant digits written to ASCII, the same as CosmoBolognaLib's
+  // table writer, so that files from either are formatted alike. Nine
+  // digits do not round-trip a double exactly.
   constexpr int kAsciiPrecision = 9;
 
   bool has_extension (const std::string& file, const std::string& ext)

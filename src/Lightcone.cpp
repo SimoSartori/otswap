@@ -233,12 +233,10 @@ otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracers,
   const std::size_t nObjectsSky = internal::check_coordinates(tracersSky, "the tracer sky array");
 
   // randomsSky is not read by this overload: mps(z) is measured from the
-  // tracers, and Result carries no sky columns. It is still checked, and
-  // the check stays, because the two random arrays are required to
-  // describe the same objects. A caller that has them out of step has a
-  // real error, and this is the only place that can see it; the pair is
-  // otherwise consumed by the sky overload, where a mismatch would be
-  // silent and would corrupt the conversion.
+  // tracers, and Result carries no sky columns. It is validated all the
+  // same, and its object count must equal the Cartesian random array's,
+  // because the two arrays are required to describe the same randoms; a
+  // caller whose arrays are out of step gets an error here.
   const std::size_t nRandomsSky = internal::check_coordinates(randomsSky, "the random sky array");
 
   if (nObjects != nObjectsSky)
