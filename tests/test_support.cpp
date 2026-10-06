@@ -246,5 +246,32 @@ int main ()
     }
   }
 
+  group("an Error records where it was constructed, and its message stays the message alone");
+  {
+    const int line = __LINE__ + 1;
+    const Error here("a message");
+    check(std::string(here.what()) == "a message", "what() holds the message alone");
+    check(std::string(here.file()).find("test_support.cpp") != std::string::npos,
+          "file() names this file");
+    check(std::string(here.function()) == "main", "function() names this function");
+    check(here.line() == line, "line() is the line of the construction");
+
+    const Error elsewhere("message", "some/file.cpp", "f", 7);
+    check(std::string(elsewhere.file()) == "some/file.cpp" && std::string(elsewhere.function()) == "f" &&
+          elsewhere.line() == 7, "an explicit location is kept");
+
+    try {
+      internal::check_random_supply(1, 10, 1);
+      check(false, "a supply too small raises");
+    }
+    catch (const Error& e) {
+      check(std::string(e.file()).find("Support.cpp") != std::string::npos &&
+            std::string(e.function()) == "check_random_supply" && e.line() > 0,
+            "a library error carries the location of its throw site");
+      check(std::string(e.what()).find("Support.cpp") == std::string::npos,
+            "which its message does not mention");
+    }
+  }
+
   return report("test_support");
 }

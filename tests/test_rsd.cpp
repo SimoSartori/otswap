@@ -563,7 +563,8 @@ int main ()
     const Result light = reconstructLightcone(sky, randomsSky, 800., 1, table, config);
     const std::vector<double> cart = toCartesian(sky, table);
 
-    for (const auto& c : {std::make_pair(&box, &tracers), std::make_pair(&light, &cart)}) {
+    const std::pair<const Result*, const std::vector<double>*> cases[] = {{&box, &tracers}, {&light, &cart}};
+    for (const auto& c : cases) {
       const Result& r = *c.first;
       const std::vector<double>& t = *c.second;
       double worst = 0.;

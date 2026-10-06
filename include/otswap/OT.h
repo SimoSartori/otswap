@@ -50,9 +50,39 @@ namespace otswap {
   /// from inside a parallel region too. The neighbour search of the
   /// redshift-space correction raises meshsearch::Error, a
   /// std::runtime_error, for positions that span no volume.
+  ///
+  /// An Error records where it was constructed: the source file, the
+  /// function and the line. The location is not part of what(), which
+  /// holds the message alone. An error raised by a shared helper, or
+  /// rethrown with context after a parallel region or a lookup, carries
+  /// the location of that helper or of the rethrow.
   class Error : public std::runtime_error {
   public:
-    explicit Error (const std::string& what) : std::runtime_error(what) {}
+
+    /// @param what the message, returned by what()
+    /// @param file,function,line the location; left to their defaults,
+    /// they are those of the expression that constructs the Error
+    explicit Error (const std::string& what,
+                    const char* file = __builtin_FILE(),
+                    const char* function = __builtin_FUNCTION(),
+                    int line = __builtin_LINE())
+      : std::runtime_error(what), m_file(file), m_function(function), m_line(line) {}
+
+    /// Source file in which the Error was constructed, as the compiler
+    /// named it.
+    const char* file () const noexcept { return m_file; }
+
+    /// Name of the function in which the Error was constructed.
+    const char* function () const noexcept { return m_function; }
+
+    /// Line at which the Error was constructed.
+    int line () const noexcept { return m_line; }
+
+  private:
+
+    const char* m_file;
+    const char* m_function;
+    int m_line;
   };
 
   // ==========================================================================
