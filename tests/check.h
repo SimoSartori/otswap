@@ -44,8 +44,8 @@ namespace {
     ++failures;
   }
 
-  void check_close (const double a, const double b, const double tolerance,
-                    const std::string& what)
+  [[maybe_unused]] void check_close (const double a, const double b, const double tolerance,
+                                     const std::string& what)
   {
     check(std::fabs(a-b) <= tolerance,
           what + " (got " + std::to_string(a) + ", expected " + std::to_string(b) +

@@ -324,7 +324,9 @@ NB_MODULE(_otswap, m)
 
   // -------------------------------------------------------------------- Mask
 
-  nb::class_<otswap::Mask>(m, "Mask", "Binary HEALPix mask read from a FITS file. Immutable.")
+  nb::class_<otswap::Mask>(m, "Mask",
+                           "HEALPix mask read from a FITS file: a pixel is observed when its "
+                           "value is greater than 0. Immutable.")
     .def("__init__", [] (otswap::Mask* self, nb::handle fitsFile) {
           new (self) otswap::Mask(to_string(fitsFile, "fits_file"));
         }, "fits_file"_a.none())

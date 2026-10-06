@@ -30,6 +30,7 @@
 #include <cmath>
 #include <limits>
 
+#include "detmath.h"
 #include "internal.h"
 
 namespace {
@@ -91,12 +92,13 @@ namespace {
     const double opz = 1. + z;
     const double matter = OmegaM * opz * opz * opz;
 
-    const double exponent = 3. * (1. + w0 + wa) * std::log1p(z) - 3. * wa * z / opz;
+    const double exponent =
+      3. * (1. + w0 + wa) * otswap::internal::det_log1p(z) - 3. * wa * z / opz;
     if (!std::isfinite(exponent))
       throw otswap::Error("the dark-energy density exponent is not finite at z = " +
                           std::to_string(z));
 
-    const double darkEnergy = (1. - OmegaM) * std::exp(exponent);
+    const double darkEnergy = (1. - OmegaM) * otswap::internal::det_exp(exponent);
     const double E2 = matter + darkEnergy;
 
     if (!std::isfinite(E2) || E2 <= 0.)
@@ -111,7 +113,8 @@ namespace {
   // factor. It is the CPL form written with 1+z = 1/a.
   double f_DE (const double a, const double w0, const double wa)
   {
-    return std::pow(a, -3. * (1. + w0 + wa)) * std::exp(-3. * wa * (1. - a));
+    return otswap::internal::det_pow(a, -3. * (1. + w0 + wa)) *
+           otswap::internal::det_exp(-3. * wa * (1. - a));
   }
 
 

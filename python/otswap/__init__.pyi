@@ -147,19 +147,23 @@ def to_cartesian(
 # ---------------------------------------------------------------------------
 
 class Mask:
-    """Binary HEALPix mask read from a FITS file: 1 for an observed pixel, 0
-    for an unobserved one. Immutable."""
+    """HEALPix mask read from a FITS file. Immutable.
+
+    A pixel is observed when its value is greater than 0, fractional values
+    included; 0, negative values, NaN and UNSEEN mark an unobserved pixel.
+    No value is used as a weight."""
 
     def __init__(self, fits_file: str) -> None:
         """NSIDE and ORDERING are read from the file header; RING and NESTED
-        are both supported. Raises if any pixel value is neither 0 nor 1."""
+        are both supported. Any pixel value is accepted."""
 
     @property
     def nside(self) -> int: ...
 
     @property
     def sky_area_deg2(self) -> float:
-        """Area covered by the observed pixels, in square degrees."""
+        """Area covered by the observed pixels, in square degrees: their
+        count times the pixel area, whatever their values."""
 
     def allows(
         self,
@@ -168,7 +172,9 @@ class Mask:
         *,
         angle_unit: AngleUnit,
     ) -> NDArray[np.bool_]:
-        """Whether each direction falls in an observed pixel."""
+        """Whether each direction falls in an observed pixel. Raises if a
+        right ascension is not finite, or a declination is not in
+        [-90, 90] degrees."""
 
 
 # ---------------------------------------------------------------------------

@@ -365,6 +365,10 @@ def test_mask_allows_broadcasts(band_mask):
     lambda m: m.allows([1.0, 2.0], [1.0, 2.0, 3.0], angle_unit="deg"),
     lambda m: m.allows([1.0], [1.0], angle_unit="radians"),
     lambda m: m.allows(["a"], [1.0], angle_unit="deg"),
+    lambda m: m.allows([1.0], [np.nan], angle_unit="deg"),
+    lambda m: m.allows([np.inf], [1.0], angle_unit="deg"),
+    lambda m: m.allows([1.0], [np.nextafter(90.0, 91.0)], angle_unit="deg"),
+    lambda m: m.allows([1.0], [np.nextafter(np.pi / 2, 2.0)], angle_unit="rad"),
 ])
 def test_mask_allows_errors(band_mask, call):
     with pytest.raises(otswap.Error):
@@ -376,10 +380,24 @@ def test_mask_errors(tmp_path):
         otswap.Mask(str(tmp_path / "missing.fits"))
     with pytest.raises(otswap.Error):
         otswap.Mask(42)
+
+
+def test_mask_observed_above_zero(tmp_path):
+    values = [0.5, 1e-30, 2.0, 1.0, 0.0, -0.0, -1.0, -1.6375e30, np.nan, -np.inf, np.inf]
+    observed = [True, True, True, True, False, False, False, False, False, False, True]
     pixels = np.ones(12 * 16 ** 2)
-    pixels[5] = 0.5
-    with pytest.raises(otswap.Error):
-        otswap.Mask(write_mask(tmp_path / "fractional.fits", pixels, 16))
+    pixels[:len(values)] = values
+    mask = otswap.Mask(write_mask(tmp_path / "values.fits", pixels, 16))
+    # the centres of RING pixels 0 to 11: the first two rings of NSIDE 16
+    centres = []
+    for first, count in [(0, 4), (4, 8)]:
+        z = 1 - (first // 4 + 1) ** 2 / (3 * 16 ** 2)
+        for k in range(count):
+            centres.append((360 * (k + 0.5) / count, math.degrees(math.asin(z))))
+    ra, dec = np.array(centres[:len(values)]).T
+    assert mask.allows(ra, dec, angle_unit="deg").tolist() == observed
+    assert mask.sky_area_deg2 == pytest.approx(SPHERE_DEG2 * (pixels.size - 6) / pixels.size,
+                                               rel=1e-12)
 
 
 def test_mask_nested_ordering(tmp_path):

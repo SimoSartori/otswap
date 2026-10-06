@@ -5,7 +5,9 @@
 # Runs the full Python test suite against an installed wheel, including the
 # bit-identity tests: tests/cpp_reference is built for the wheel's
 # architecture, from the same sources and against the same dependencies, and
-# its absence is an error rather than a skip.
+# its absence is an error rather than a skip. Then the reproducibility test,
+# tests/test_determinism.py, which compares the wheel's outputs with the
+# hashes recorded in tests/determinism_hashes.json.
 #
 # Usage: test_wheel.sh PROJECT WHEEL
 #
@@ -42,4 +44,4 @@ if [ ! -x "$reference" ]; then
 fi
 
 OTSWAP_CPP_REFERENCE="$reference" python -m pytest "$PROJECT/tests/test_otswap.py" \
-  -p no:cacheprovider -rs
+  "$PROJECT/tests/test_determinism.py" -p no:cacheprovider -rs

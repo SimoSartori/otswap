@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <limits>
 
+#include "detmath.h"
 #include "internal.h"
 
 namespace {
@@ -171,9 +172,9 @@ void otswap::internal::check_random_supply (const std::size_t nRandoms,
 void otswap::internal::to_cartesian (const double ra, const double dec, const double distance,
                                      double& x, double& y, double& z)
 {
-  x = distance * std::cos(dec) * std::cos(ra);
-  y = distance * std::cos(dec) * std::sin(ra);
-  z = distance * std::sin(dec);
+  x = distance * det_cos(dec) * det_cos(ra);
+  y = distance * det_cos(dec) * det_sin(ra);
+  z = distance * det_sin(dec);
 }
 
 
@@ -191,8 +192,8 @@ void otswap::internal::to_sky (const double x, const double y, const double z,
     return;
   }
 
-  ra = normalize_ra(std::atan2(y, x));
-  dec = std::asin(std::max(-1., std::min(1., z/distance)));
+  ra = normalize_ra(det_atan2(y, x));
+  dec = det_asin(std::max(-1., std::min(1., z/distance)));
 }
 
 

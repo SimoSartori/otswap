@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <numeric>
 #include <string>
@@ -140,21 +141,23 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
   const meshsearch::MeshGrid tracerGrid(tracerX, tracerY, tracerZ, cellsize, extent);
   const std::vector<std::vector<double>> lims = tracerGrid.get_lims();
 
+  // An exception cannot leave a parallel region: the first one caught is
+  // kept, whatever its type, and rethrown unchanged after the region. The
+  // same holds for the realizations below.
   std::vector<std::vector<unsigned>> neighbours(nObjects);
   {
-    std::string failure;
+    std::exception_ptr failure;
 #pragma omp parallel for schedule(static)
     for (std::size_t i = 0; i < nObjects; ++i) {
       try {
         neighbours[i] = tracerGrid.nearestObjects(kNeighbours, (unsigned)i);
       }
-      catch (const std::exception& e) {
+      catch (...) {
 #pragma omp critical
-        if (failure.empty()) failure = e.what();
+        if (!failure) failure = std::current_exception();
       }
     }
-    if (!failure.empty())
-      throw Error("the neighbour lookup failed: " + failure);
+    if (failure) std::rethrow_exception(failure);
   }
 
   std::vector<unsigned> supply;
@@ -174,7 +177,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
 
   if (sweepCosts != nullptr) sweepCosts->assign(nRealizations, {});
 
-  std::string failure;
+  std::exception_ptr failure;
 
 #pragma omp parallel for schedule(static)
   for (unsigned rec = 0; rec < nRealizations; ++rec) {
@@ -370,14 +373,13 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
       }
 
     }
-    catch (const std::exception& e) {
+    catch (...) {
 #pragma omp critical
-      if (failure.empty()) failure = e.what();
+      if (!failure) failure = std::current_exception();
     }
   }
 
-  if (!failure.empty())
-    throw Error("the reconstruction failed: " + failure);
+  if (failure) std::rethrow_exception(failure);
 
   result.valid.assign((std::size_t)nRealizations * nObjects, 1);
   summarize(result);

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(otswap VERSION 0.1.0 LANGUAGES CXX)
+project(otswap VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,6 +14,19 @@ endif()
 option(OTSWAP_BUILD_TESTS "Build the C++ test suite" ON)
 option(OTSWAP_BUILD_EXAMPLES "Build the examples" ON)
 option(OTSWAP_BUILD_PYTHON "Build the Python bindings" OFF)
+
+# ---------------------------------------------------------------------------
+# Floating-point contraction
+#
+# No a*b+c is fused into one FMA anywhere: compilers differ in what they
+# contract by default, and so do the instruction sets, so contraction would
+# make the results depend on the platform. Set here, before meshsearch is
+# added, so that it reaches every target, meshsearch's included.
+# ---------------------------------------------------------------------------
+
+if (NOT MSVC)
+  add_compile_options(-ffp-contract=off)
+endif()
 
 # ---------------------------------------------------------------------------
 # meshsearch
@@ -115,6 +128,50 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
+# Deterministic math, vendored
+#
+# sin, cos, exp, log1p, pow, atan2 and asin from FreeBSD's msun, copied
+# unmodified into extern/fdlibm/msun/src (see its README), so that every
+# platform computes them with the same code rather than with its own libm.
+# Third-party code that must not be edited: its warnings are suppressed, and
+# extern/fdlibm/otswap_fdlibm.h is force-included to rename its symbols.
+# Only src/detmath.h calls it.
+# ---------------------------------------------------------------------------
+
+set(OTSWAP_FDLIBM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/extern/fdlibm)
+
+add_library(otswap_fdlibm STATIC
+  ${OTSWAP_FDLIBM_DIR}/msun/src/s_sin.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/s_cos.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/k_sin.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/k_cos.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/k_rem_pio2.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/e_exp.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/s_log1p.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/e_pow.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/e_atan2.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/s_atan.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/e_asin.c)
+
+# GNU C: math_private.h needs the BSD integer types and endianness macros,
+# which glibc declares only outside strict ISO mode.
+set_target_properties(otswap_fdlibm PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+  C_STANDARD 99
+  C_STANDARD_REQUIRED ON
+  C_EXTENSIONS ON)
+
+if (NOT APPLE)
+  target_include_directories(otswap_fdlibm PRIVATE ${OTSWAP_FDLIBM_DIR}/shim)
+endif()
+
+if (MSVC)
+  message(FATAL_ERROR "the vendored msun sources are built with GCC or clang only")
+else()
+  target_compile_options(otswap_fdlibm PRIVATE -w -include ${OTSWAP_FDLIBM_DIR}/otswap_fdlibm.h)
+endif()
+
+# ---------------------------------------------------------------------------
 # The library
 # ---------------------------------------------------------------------------
 
@@ -140,7 +197,7 @@ target_compile_features(otswap PUBLIC cxx_std_17)
 
 target_link_libraries(otswap
   PUBLIC  meshsearch
-  PRIVATE ${CFITSIO_LIBRARIES} otswap_healpix)
+  PRIVATE ${CFITSIO_LIBRARIES} otswap_healpix otswap_fdlibm)
 
 if (OpenMP_CXX_FOUND)
   target_link_libraries(otswap PUBLIC OpenMP::OpenMP_CXX)
@@ -158,7 +215,8 @@ if (OTSWAP_BUILD_TESTS)
   include(CTest)
   enable_testing()
 
-  foreach (test_name test_support test_distance_table test_reconstruct test_table test_mask)
+  foreach (test_name test_support test_distance_table test_reconstruct test_table test_mask
+                   test_detmath)
     add_executable(${test_name} tests/${test_name}.cpp)
     target_link_libraries(${test_name} PRIVATE otswap)
     target_include_directories(${test_name} PRIVATE

@@ -44,7 +44,9 @@ namespace otswap {
   // Errors
   // ==========================================================================
 
-  /// Base class of every exception thrown by otswap.
+  /// Base class of every exception otswap throws on invalid input or
+  /// failure. std::bad_alloc is not converted, and propagates unchanged,
+  /// from inside a parallel region too.
   class Error : public std::runtime_error {
   public:
     explicit Error (const std::string& what) : std::runtime_error(what) {}
@@ -245,11 +247,11 @@ namespace otswap {
   /**
    *  @brief Healpix veto mask, read from a FITS file.
    *
-   *  The mask is strictly binary: every pixel must be exactly 0 or 1, and
-   *  the reader refuses the file otherwise. A pixel is allowed when its
-   *  value is greater than zero. With a binary mask there is only one
-   *  threshold to choose and skyAreaDeg2 is exact by construction, being
-   *  a count of pixels rather than a sum of fractions.
+   *  A pixel is allowed (observed) when its value is greater than zero,
+   *  fractional values included. A pixel holding 0, a negative value, NaN
+   *  or Healpix's UNSEEN (-1.6375e30) is unobserved. Any value is
+   *  accepted; none is used as a weight, so skyAreaDeg2 is a count of
+   *  allowed pixels, not a sum of their values.
    *
    *  The object is immutable once built.
    */
@@ -261,13 +263,14 @@ namespace otswap {
      *  @param fitsFile Healpix map; NSIDE and ORDERING are taken from the
      *  header, in either RING or NESTED scheme.
      *
-     *  @exception Error if the file cannot be opened, is not a valid
-     *  Healpix map, or holds a pixel that is neither 0 nor 1; the message
-     *  names the first such pixel and its value.
+     *  @exception Error if the file cannot be opened or is not a valid
+     *  Healpix map.
      */
     explicit Mask (const std::string& fitsFile);
 
     /// True when the direction falls in an allowed pixel. Radians.
+    /// @exception Error if the right ascension is not finite, or the
+    /// declination is not in [-pi/2, pi/2].
     bool allows (double rightAscension, double declination) const;
 
     /// Sky area covered by the allowed pixels, in square degrees.

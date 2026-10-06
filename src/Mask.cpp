@@ -37,9 +37,9 @@
 
 #include <healpix_base.h>
 #include <healpix_map.h>
-#include <pointing.h>
 
 #include "arc.h"
+#include "detmath.h"
 #include "internal.h"
 
 namespace {
@@ -55,6 +55,17 @@ namespace {
   // A sub-arc shorter than this fraction of the pixel size is not split
   // further.
   constexpr double kArcFloorInPixels = 1.e-6;
+
+  // Healpix's loc2pix is a protected member of T_Healpix_Base. Named
+  // through a derived class it yields a pointer to member, which applies to
+  // any Healpix_Base, so the vendored files need no change.
+  struct Locator : Healpix_Base {
+    static int pixel (const Healpix_Base& base, const double z, const double phi,
+                      const double sth, const bool haveSth)
+    {
+      return (base.*(&Locator::loc2pix))(z, phi, sth, haveSth);
+    }
+  };
 
   // True when the sub-arc from a point in pixP to a point in pixQ, shorter
   // than a pixel, needs no further splitting: pixQ shares an edge with
@@ -98,7 +109,7 @@ namespace {
         edge_crossing_safe(search.map, pixP, pixQ, search.pixA, search.pixB)) return false;
 
     const vec3 m = (p + q).Norm();
-    const int pixM = search.map.vec2pix(m);
+    const int pixM = otswap::internal::vec2pix(search.map, m);
     if (pixM != search.pixA && pixM != search.pixB &&
         !otswap::internal::pixel_observed(search.map, pixM) &&
         std::find(search.found.begin(), search.found.end(), pixM) == search.found.end()) {
@@ -124,8 +135,14 @@ public:
 
   bool allows (const double ra, const double dec) const
   {
+    if (!std::isfinite(ra))
+      throw Error("the right ascension is " + std::to_string(ra) + "; it must be finite");
+    if (!(std::fabs(dec) <= kPi/2.))
+      throw Error("the declination is " + std::to_string(dec) +
+                  " radians; it must lie in [-pi/2, pi/2]");
+
     const double theta = kPi/2. - dec;
-    return internal::pixel_observed(map, map.ang2pix(pointing(theta, internal::normalize_ra(ra))));
+    return internal::pixel_observed(map, internal::ang2pix(map, theta, internal::normalize_ra(ra)));
   }
 
 };
@@ -209,15 +226,12 @@ otswap::Mask::Mask (const std::string& fitsFile)
   auto impl = std::make_shared<Impl>();
   impl->map.SetNside(nside, scheme);
 
-  // Only 0 and 1 are accepted, so a single threshold decides which pixels
-  // are observed and the sky area is an exact pixel count.
+  // Any value is accepted. A pixel is observed when its value exceeds 0,
+  // fractional values included; 0, negative values, NaN and Healpix's
+  // UNSEEN are unobserved. The values are kept as read, and the sky area
+  // counts the observed pixels: no value is used as a weight.
   for (long i = 0; i < impl->map.Npix(); ++i) {
     const float v = values[(std::size_t)i];
-    if (v != 0.f && v != 1.f)
-      throw Error("the mask file " + fitsFile + " is not binary: pixel " +
-                  std::to_string(i) + " holds " + std::to_string(v) +
-                  ", and every pixel must be exactly 0 or 1");
-
     impl->map[i] = v;
     if (v > internal::kMaskAllowedAbove) ++impl->allowed;
   }
@@ -256,6 +270,32 @@ int otswap::Mask::nside () const
 // ============================================================================
 
 
+int otswap::internal::vec2pix (const Healpix_Base& base, const vec3& v)
+{
+  const double xl = 1./v.Length();
+  const double phi = (v.x == 0. && v.y == 0.) ? 0.0 : det_atan2(v.y, v.x);
+  const double nz = v.z*xl;
+  if (std::abs(nz) > 0.99)
+    return Locator::pixel(base, nz, phi, std::sqrt(v.x*v.x + v.y*v.y)*xl, true);
+  else
+    return Locator::pixel(base, nz, phi, 0, false);
+}
+
+
+// ============================================================================
+
+
+int otswap::internal::ang2pix (const Healpix_Base& base, const double theta, const double phi)
+{
+  return ((theta < 0.01) || (theta > 3.14159-0.01)) ?
+    Locator::pixel(base, det_cos(theta), phi, det_sin(theta), true) :
+    Locator::pixel(base, det_cos(theta), phi, 0., false);
+}
+
+
+// ============================================================================
+
+
 bool otswap::internal::pixel_observed (const Healpix_Map<float>& map, const int pixel)
 {
   return map[pixel] > kMaskAllowedAbove;
@@ -272,8 +312,8 @@ std::size_t otswap::internal::arc_unobserved_pixels (const Healpix_Map<float>& m
 {
   found.clear();
 
-  const int pixA = map.vec2pix(a);
-  const int pixB = map.vec2pix(b);
+  const int pixA = vec2pix(map, a);
+  const int pixB = vec2pix(map, b);
   const double pixelSize = std::sqrt(4. * kPi / (double)map.Npix());
   const double arcFloor = kArcFloorInPixels * pixelSize;
 

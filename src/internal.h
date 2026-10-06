@@ -43,10 +43,10 @@ namespace otswap {
 
   namespace internal {
 
-    /// A pixel is allowed when its value exceeds this. The mask is
-    /// validated as strictly binary on the way in, so the only threshold
-    /// that can separate 0 from 1 is zero, and the sky area is a pixel
-    /// count rather than a sum of fractions.
+    /// A pixel is allowed when its value exceeds this: any positive value,
+    /// fractional ones included. 0, negative values, NaN and Healpix's
+    /// UNSEEN are not. The sky area is a count of allowed pixels, not a sum
+    /// of their values.
     constexpr double kMaskAllowedAbove = 0.;
 
     /// Uniform integer in [0, bound), by Lemire's multiply-and-reject method

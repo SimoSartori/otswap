@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <random>
 #include <set>
 #include <string>
@@ -52,18 +53,14 @@ using namespace otswap;
 
 // CosmoBolognaLib's arc_crosses_mask and what it calls, copied verbatim from
 // the anonymous namespace at the top of OTreconstruction/OTreconstruction.cpp:
-// the reference the port is checked against. Its observed test, value >
-// 0.999, and otswap's, value > 0, agree on the binary masks used here.
+// the reference the port is checked against. Like otswap, it takes a pixel
+// as observed when its value is > 0. It finds pixels with Healpix's own
+// vec2pix, over the system atan2, where otswap uses its deterministic one;
+// the two can differ only for a direction within rounding of a pixel
+// boundary.
 namespace cbl_reference {
 
-  constexpr double kMaskObserved = 0.999;
-
   constexpr double kArcFloorInPixels = 1.e-6;
-
-
-  bool pixel_observed (const Healpix_Map<float>& mask, const int pix) {
-    return mask[pix] > kMaskObserved;
-  }
 
 
   bool edge_crossing_safe (const Healpix_Map<float>& mask, const int pix_p, const int pix_q,
@@ -75,7 +72,7 @@ namespace cbl_reference {
     mask.neighbors(pix_q, nb_q);
     for (int i = 0; i < 8; ++i) {
       const int r = nb_p[i];
-      if (r < 0 || r == pix_q || r == pix_a || r == pix_b || pixel_observed(mask, r)) continue;
+      if (r < 0 || r == pix_q || r == pix_a || r == pix_b || mask[r] > 0.) continue;
       for (int j = 0; j < 8; ++j)
         if (nb_q[j] == r) return false;
     }
@@ -93,7 +90,7 @@ namespace cbl_reference {
 
     const vec3 m = (p + q).Norm();
     const int pix_m = mask.vec2pix(m);
-    if (pix_m != pix_a && pix_m != pix_b && !pixel_observed(mask, pix_m)) return true;
+    if (pix_m != pix_a && pix_m != pix_b && !(mask[pix_m] > 0.)) return true;
 
     return arc_segment_crosses_mask(mask, p, pix_p, m, pix_m, pix_a, pix_b, floor2, pixel2)
         || arc_segment_crosses_mask(mask, m, pix_m, q, pix_q, pix_a, pix_b, floor2, pixel2);
@@ -208,7 +205,7 @@ namespace {
     const double pixelSize = std::sqrt(4. * kPi / (double)map.Npix());
     const double angle = std::acos(std::max(-1., std::min(1., dotprod(a, b))));
     const long n = std::max(1L, (long)std::ceil(angle / (step * pixelSize)));
-    const int pixA = map.vec2pix(a), pixB = map.vec2pix(b);
+    const int pixA = internal::vec2pix(map, a), pixB = internal::vec2pix(map, b);
     const double s = std::sin(angle);
 
     std::set<int> found;
@@ -216,7 +213,7 @@ namespace {
       const double t = (double)i / (double)n;
       const vec3 w = (angle < 1.e-12) ? a
         : (a * (std::sin((1. - t) * angle) / s) + b * (std::sin(t * angle) / s)).Norm();
-      const int p = map.vec2pix(w);
+      const int p = internal::vec2pix(map, w);
       if (p != pixA && p != pixB && !internal::pixel_observed(map, p)) found.insert(p);
     }
     return found;
@@ -249,7 +246,8 @@ namespace {
     const double t1 = (double)std::min(coarse, last + 1) / (double)coarse;
     const long fine = std::max(1L, (long)std::ceil((t1 - t0) * angle / (step * pixelSize)));
     for (long i = 0; i <= fine; ++i)
-      if (map.vec2pix(at(t0 + (t1 - t0) * (double)i / (double)fine)) == pixel) return true;
+      if (internal::vec2pix(map, at(t0 + (t1 - t0) * (double)i / (double)fine)) == pixel)
+        return true;
     return false;
   }
 
@@ -509,28 +507,60 @@ int main ()
     std::remove(bad.c_str());
   }
 
-  group("a mask that is not strictly binary is refused, naming the pixel");
+  group("any pixel value is accepted, and a pixel is observed when its value exceeds 0");
   {
-    std::vector<float> fractional((std::size_t)npix, 1.f);
-    fractional[17] = 0.5f;
+    // Pixel 17 onwards hold the values under test; every other pixel is 1.
+    const float values[] = {0.5f, 1.e-30f, 2.f, 1.f, 0.f, -0.f, -1.f, -1.6375e30f,
+                            std::numeric_limits<float>::quiet_NaN(),
+                            -std::numeric_limits<float>::infinity(),
+                            std::numeric_limits<float>::infinity()};
+    const bool observed[] = {true, true, true, true, false, false, false, false,
+                             false, false, true};
+    const std::size_t nValues = sizeof(values) / sizeof(values[0]);
 
-    const std::string partial = temporary("fractional.fits");
-    check(write_map(partial, fractional, "RING") == 0, "the fractional mask is written");
-    check_throws([&] { const Mask m(partial); (void)m; }, "a fractional pixel raises");
+    std::vector<float> mixed((std::size_t)npix, 1.f);
+    for (std::size_t k = 0; k < nValues; ++k) mixed[17 + k] = values[k];
+
+    const std::string file2 = temporary("fractional.fits");
+    check(write_map(file2, mixed, "RING") == 0, "the mask of mixed values is written");
+
+    long nObserved = 0;
+    for (long p = 0; p < npix; ++p)
+      if (mixed[(std::size_t)p] > 0.f) ++nObserved;
 
     try {
-      const Mask m(partial);
-      (void)m;
+      const Mask m(file2);
+      for (std::size_t k = 0; k < nValues; ++k) {
+        const pointing centre = base.pix2ang(17 + (long)k);
+        check(m.allows(centre.phi, kPi/2. - centre.theta) == observed[k],
+              "the pixel holding " + std::to_string(values[k]) + " is " +
+              (observed[k] ? "observed" : "unobserved"));
+      }
+      const double fullSky = 4. * kPi * (180./kPi) * (180./kPi);
+      check(m.skyAreaDeg2() == fullSky * (double)nObserved / (double)npix,
+            "the sky area counts the pixels above 0, whatever their values");
     }
     catch (const Error& e) {
-      const std::string message = e.what();
-      check(message.find("pixel 17") != std::string::npos,
-            "the message names the first offending pixel");
-      check(message.find("0.5") != std::string::npos,
-            "and the value it holds");
+      check(false, std::string("a mask of mixed values is read without error (") + e.what() + ")");
     }
 
-    std::remove(partial.c_str());
+    std::remove(file2.c_str());
+  }
+
+  group("allows refuses a direction that is not one, with otswap's Error");
+  {
+    const Mask mask(file);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+    check_throws([&] { (void)mask.allows(nan, 0.); }, "a NaN right ascension raises");
+    check_throws([&] { (void)mask.allows(inf, 0.); }, "an infinite right ascension raises");
+    check_throws([&] { (void)mask.allows(1., nan); }, "a NaN declination raises");
+    check_throws([&] { (void)mask.allows(1., std::nextafter(kPi/2., 2.)); },
+                 "a declination above pi/2 raises");
+    check_throws([&] { (void)mask.allows(1., -std::nextafter(kPi/2., 2.)); },
+                 "a declination below -pi/2 raises");
+    check(mask.allows(1., kPi/2.) && mask.allows(1., -kPi/2.),
+          "the poles themselves are accepted, and outside the band");
   }
 
   group("a displacement crossing the masked band is rejected, one clear of it kept");

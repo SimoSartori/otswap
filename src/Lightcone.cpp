@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 
+#include "detmath.h"
 #include "internal.h"
 
 namespace {
@@ -136,7 +137,7 @@ otswap::internal::mps_profile (const std::vector<double>& tracersSky,
     if (!(volume > 0.))
       throw Error("redshift bin " + std::to_string(i) + " has a non-positive shell volume");
 
-    profile.mps[i] = std::pow((double)profile.count[i] / volume, -1./3.);
+    profile.mps[i] = det_pow((double)profile.count[i] / volume, -1./3.);
   }
 
   return profile;

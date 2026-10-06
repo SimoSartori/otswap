@@ -21,8 +21,8 @@
 /**
  *  @file src/arc.h
  *
- *  @brief The search for unobserved pixels along a great circle arc.
- *  Internal, and the only internal header that needs Healpix.
+ *  @brief Pixel lookup, and the search for unobserved pixels along a great
+ *  circle arc. Internal, and the only internal header that needs Healpix.
  *
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */
@@ -40,7 +40,21 @@ namespace otswap {
 
   namespace internal {
 
+    /// Pixel holding the direction @p v, which need not be normalised.
+    /// Healpix's T_Healpix_Base::vec2pix line for line, over its own
+    /// loc2pix, with the atan2 of detmath.h in place of the system one, so
+    /// that the pixel is the same on every platform. v must be finite and
+    /// non-zero.
+    int vec2pix (const Healpix_Base& base, const vec3& v);
+
+    /// Pixel holding colatitude @p theta and longitude @p phi, radians.
+    /// Healpix's T_Healpix_Base::ang2pix line for line, with the cos and
+    /// sin of detmath.h, and without its assertion: theta must lie in
+    /// [0, pi] and phi be finite, which the caller checks.
+    int ang2pix (const Healpix_Base& base, double theta, double phi);
+
     /// True when the pixel is observed: its value exceeds kMaskAllowedAbove.
+    /// NaN and Healpix's UNSEEN, -1.6375e30, are therefore unobserved.
     bool pixel_observed (const Healpix_Map<float>& map, int pixel);
 
     /// Distinct unobserved pixels met along the great circle arc from @p a
