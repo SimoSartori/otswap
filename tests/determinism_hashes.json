@@ -4,6 +4,8 @@
   "distance_table.growth_rate_at": "7c61f0620bd2e89d64e41468a0fefd5999a53cf7ca6047d99422fe35df55b8fc",
   "distance_table.redshift_at": "3c3abf80ee2af385342f0786757dce7741cd3500927d25f4ad1423a19e7c565e",
   "mask.allows": "ef0251b61567eb3ec83bd8a77d9b9901322056fe8dd21f2409e092394ada7829",
+  "mask.from_array.allows": "ef0251b61567eb3ec83bd8a77d9b9901322056fe8dd21f2409e092394ada7829",
+  "mask.from_array.sky_area_deg2": "b7a4b11ab9b244659d19672f19715a615e4c968dd0ceddc9d196c4631a7315a2",
   "mask.sky_area_deg2": "b7a4b11ab9b244659d19672f19715a615e4c968dd0ceddc9d196c4631a7315a2",
   "reconstruct_box.generated.displacement": "f91a959251eb06ea79d58d09e2f9f28a78c837d44dc39772d8483fa97f072380",
   "reconstruct_box.generated.mean_displacement": "0ab4e91bf320b0488ca5ee1d802c8683a0b477db695aecbcb75e077c724c0478",

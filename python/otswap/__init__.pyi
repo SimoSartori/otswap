@@ -160,18 +160,47 @@ def to_cartesian(
 # ---------------------------------------------------------------------------
 
 class Mask:
-    """HEALPix mask read from a FITS file. Immutable.
+    """HEALPix mask, read from a FITS file or built from a full-sky map in
+    memory with ``Mask.from_array``. Immutable.
 
-    A pixel is observed when its value is greater than 0, fractional values
-    included; 0, negative values, NaN and UNSEEN mark an unobserved pixel.
-    No value is used as a weight."""
+    A pixel is observed when its value is greater than 0, whatever its
+    magnitude: fractional values, the smallest positive ones and +inf
+    included. 0, negative values, -inf, NaN and UNSEEN mark an unobserved
+    pixel. Each value is tested once, in float64, when the mask is built; no
+    value is kept or used as a weight. The rule is the same for both
+    sources.
+
+    NSIDE may be any integer from 1 to 2**29, HEALPix's limit, and must be a
+    power of 2 in the NESTED scheme. The mask holds one byte per pixel,
+    12 NSIDE**2 bytes: 12.6 MB at NSIDE 1024, 805 MB at NSIDE 8192, 3.2 GB
+    at NSIDE 16384."""
 
     def __init__(self, fits_file: str) -> None:
         """NSIDE and ORDERING are read from the file header; RING and NESTED
-        are both supported. Any pixel value is accepted."""
+        are both supported, and any numeric column type. The values are read
+        a block of rows at a time, so reading needs memory for the mask's
+        bytes only. A null value of an integer column is unobserved."""
+
+    @staticmethod
+    def from_array(values: ArrayLike, nest: bool = False) -> "Mask":
+        """A full-sky HEALPix map given in memory, as healpy holds one.
+
+        values : 1-D, one value per pixel, of any real dtype: integer,
+            unsigned, floating, or bool as 0 and 1. Its length must be
+            12 NSIDE**2. It is read once and not kept. A C-contiguous
+            float64 array is read in place; any other input is first
+            converted to one, which takes 8 bytes per pixel while the mask
+            is built.
+        nest : True for NESTED, False for RING, as healpy's ``nest``.
+
+        Raises otswap.Error for another length, NSIDE above 2**29, NESTED
+        with an NSIDE that is not a power of 2, an array that is not 1-D,
+        values that are not real numbers, or a ``nest`` that is not a bool.
+        """
 
     @property
-    def nside(self) -> int: ...
+    def nside(self) -> int:
+        """NSIDE of the map, from 1 to 2**29."""
 
     @property
     def sky_area_deg2(self) -> float:

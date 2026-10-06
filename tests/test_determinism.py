@@ -68,15 +68,22 @@ def sky_points(n, seed):
                      for _ in range(n)])
 
 
-def write_mask(path, nside):
-    """NSIDE nside, RING. Pixels are unobserved by an integer rule, about one
-    in nine; observed ones hold one of 0.25, 0.5, 0.75, 1."""
+def mask_values(nside):
+    """The pixel values of an NSIDE nside map, RING, as big-endian float32.
+    Pixels are unobserved by an integer rule, about one in nine; observed
+    ones hold one of 0.25, 0.5, 0.75, 1."""
     npix = 12 * nside * nside
     values = []
     for p in range(npix):
         h = (p * 2654435761) & 0xFFFFFFFF
         values.append(0.0 if (h >> 7) % 9 == 0 else 0.25 * (1 + (h >> 3) % 4))
-    pixels = np.array(values, dtype=">f4")
+    return np.array(values, dtype=">f4")
+
+
+def write_mask(path, nside):
+    """mask_values(nside) written as a FITS map."""
+    pixels = mask_values(nside)
+    npix = len(pixels)
 
     def card(key, value):
         if isinstance(value, bool):
@@ -163,6 +170,15 @@ def compute():
         dec = np.array([-90.0 + 180.0 * j / 360 for j in range(361)])
         grid_ra, grid_dec = np.meshgrid(ra, dec)
         out["mask.allows"] = digest(mask.allows(grid_ra, grid_dec, angle_unit="deg"))
+
+        # The same map given in memory, converted from big-endian float32.
+        in_memory = otswap.Mask.from_array(mask_values(64))
+        area = digest([in_memory.sky_area_deg2])
+        allows = digest(in_memory.allows(grid_ra, grid_dec, angle_unit="deg"))
+        assert area == out["mask.sky_area_deg2"] and allows == out["mask.allows"], \
+            "the mask from an array must equal the one read from FITS"
+        out["mask.from_array.sky_area_deg2"] = area
+        out["mask.from_array.allows"] = allows
 
         otswap.reject_mask_crossings(r, mask, 0)
         out["reject_mask_crossings.0.valid"] = digest(r.valid)

@@ -30,13 +30,14 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <fitsio.h>
 
 #include <healpix_base.h>
-#include <healpix_map.h>
 
 #include "arc.h"
 #include "detmath.h"
@@ -50,7 +51,11 @@ namespace {
 
   // Pixel values are read 1024 to a FITS row; the layout is checked
   // against the pixel count before anything is read.
-  constexpr long kPixelsPerRow = 1024;
+  constexpr LONGLONG kPixelsPerRow = 1024;
+
+  // Rows read at a time: the values of one block, 512 KiB of doubles, are
+  // turned into bytes before the next block is read.
+  constexpr LONGLONG kRowsPerBlock = 64;
 
   // A sub-arc shorter than this fraction of the pixel size is not split
   // further.
@@ -58,31 +63,34 @@ namespace {
 
   // Healpix's loc2pix is a protected member of T_Healpix_Base. Named
   // through a derived class it yields a pointer to member, which applies to
-  // any Healpix_Base, so the vendored files need no change.
-  struct Locator : Healpix_Base {
-    static int pixel (const Healpix_Base& base, const double z, const double phi,
-                      const double sth, const bool haveSth)
+  // any base of the same index type, so the vendored files need no change.
+  template <typename I>
+  struct Locator : T_Healpix_Base<I> {
+    static I pixel (const T_Healpix_Base<I>& base, const double z, const double phi,
+                    const double sth, const bool haveSth)
     {
-      return (base.*(&Locator::loc2pix))(z, phi, sth, haveSth);
+      return (base.*(&Locator<I>::loc2pix))(z, phi, sth, haveSth);
     }
   };
+
+  using Pixel = std::int64_t;
 
   // True when the sub-arc from a point in pixP to a point in pixQ, shorter
   // than a pixel, needs no further splitting: pixQ shares an edge with
   // pixP, and no unobserved pixel other than pixQ and the two endpoint
   // pixels neighbours both.
-  bool edge_crossing_safe (const Healpix_Map<float>& map, const int pixP, const int pixQ,
-                           const int pixA, const int pixB)
+  bool edge_crossing_safe (const otswap::internal::PixelMask& mask, const Pixel pixP,
+                           const Pixel pixQ, const Pixel pixA, const Pixel pixB)
   {
-    fix_arr<int, 8> nbP, nbQ;
-    map.neighbors(pixP, nbP);
+    fix_arr<Pixel, 8> nbP, nbQ;
+    mask.base.neighbors(pixP, nbP);
     if (nbP[0] != pixQ && nbP[2] != pixQ && nbP[4] != pixQ && nbP[6] != pixQ) return false;
 
-    map.neighbors(pixQ, nbQ);
+    mask.base.neighbors(pixQ, nbQ);
     for (int i = 0; i < 8; ++i) {
-      const int r = nbP[i];
+      const Pixel r = nbP[i];
       if (r < 0 || r == pixQ || r == pixA || r == pixB ||
-          otswap::internal::pixel_observed(map, r)) continue;
+          otswap::internal::pixel_observed(mask, r)) continue;
       for (int j = 0; j < 8; ++j)
         if (nbQ[j] == r) return false;
     }
@@ -90,28 +98,28 @@ namespace {
   }
 
   struct ArcSearch {
-    const Healpix_Map<float>& map;
-    int pixA, pixB;
+    const otswap::internal::PixelMask& mask;
+    Pixel pixA, pixB;
     double floor2, pixel2;
     unsigned limit;
-    std::vector<int>& found;
+    std::vector<Pixel>& found;
   };
 
   // Examines the sub-arc from p to q, whose end pixels have been examined
   // already. Returns true once more than search.limit pixels are found.
   bool segment_exceeds (const ArcSearch& search,
-                        const vec3& p, const int pixP, const vec3& q, const int pixQ)
+                        const vec3& p, const Pixel pixP, const vec3& q, const Pixel pixQ)
   {
     if (pixP == pixQ) return false;
     const double d2 = (p - q).SquaredLength();
     if (d2 < search.floor2) return false;
     if (d2 < search.pixel2 &&
-        edge_crossing_safe(search.map, pixP, pixQ, search.pixA, search.pixB)) return false;
+        edge_crossing_safe(search.mask, pixP, pixQ, search.pixA, search.pixB)) return false;
 
     const vec3 m = (p + q).Norm();
-    const int pixM = otswap::internal::vec2pix(search.map, m);
+    const Pixel pixM = otswap::internal::vec2pix(search.mask.base, m);
     if (pixM != search.pixA && pixM != search.pixB &&
-        !otswap::internal::pixel_observed(search.map, pixM) &&
+        !otswap::internal::pixel_observed(search.mask, pixM) &&
         std::find(search.found.begin(), search.found.end(), pixM) == search.found.end()) {
       search.found.push_back(pixM);
       if (search.found.size() > search.limit) return true;
@@ -130,8 +138,7 @@ class otswap::Mask::Impl {
 
 public:
 
-  Healpix_Map<float> map;
-  long allowed = 0;
+  internal::PixelMask mask;
 
   bool allows (const double ra, const double dec) const
   {
@@ -142,7 +149,8 @@ public:
                   " radians; it must lie in [-pi/2, pi/2]");
 
     const double theta = kPi/2. - dec;
-    return internal::pixel_observed(map, internal::ang2pix(map, theta, internal::normalize_ra(ra)));
+    return internal::pixel_observed(mask, internal::ang2pix(mask.base, theta,
+                                                            internal::normalize_ra(ra)));
   }
 
 };
@@ -153,91 +161,155 @@ public:
 
 otswap::Mask::Mask (const std::string& fitsFile)
 {
+  const std::string source = "the mask file " + fitsFile;
+
   fitsfile* fptr = nullptr;
   int status = 0;
   int hdutype = 0;
-  int nside = 0;
+  LONGLONG nside = 0;
 
   auto fail = [&] (const std::string& action) {
     char text[FLEN_STATUS];
     fits_get_errstatus(status, text);
-    int closeStatus = 0;
-    if (fptr != nullptr) fits_close_file(fptr, &closeStatus);
-    throw Error(action + " in the mask file " + fitsFile + ": " + text +
+    throw Error(action + " in " + source + ": " + text +
                 " (cfitsio status " + std::to_string(status) + ")");
   };
 
   if (fits_open_file(&fptr, fitsFile.c_str(), READONLY, &status))
     fail("cannot open");
 
-  if (fits_movabs_hdu(fptr, 2, &hdutype, &status)) fail("cannot move to HDU 2");
+  auto impl = std::make_shared<Impl>();
 
-  char ordering[FLEN_VALUE] = "RING";
+  try {
+    if (fits_movabs_hdu(fptr, 2, &hdutype, &status)) fail("cannot move to HDU 2");
 
-  if (fits_read_key(fptr, TINT, "NSIDE", &nside, NULL, &status)) {
-    if (status != KEY_NO_EXIST) fail("cannot read NSIDE from HDU 2");
-    status = 0;
-    if (fits_movabs_hdu(fptr, 1, &hdutype, &status)) fail("cannot move to HDU 1");
-    if (fits_read_key(fptr, TINT, "NSIDE", &nside, NULL, &status)) {
-      if (status != KEY_NO_EXIST) fail("cannot read NSIDE from HDU 1");
+    char ordering[FLEN_VALUE] = "RING";
+
+    if (fits_read_key(fptr, TLONGLONG, "NSIDE", &nside, NULL, &status)) {
+      if (status != KEY_NO_EXIST) fail("cannot read NSIDE from HDU 2");
       status = 0;
+      if (fits_movabs_hdu(fptr, 1, &hdutype, &status)) fail("cannot move to HDU 1");
+      if (fits_read_key(fptr, TLONGLONG, "NSIDE", &nside, NULL, &status)) {
+        if (status != KEY_NO_EXIST) fail("cannot read NSIDE from HDU 1");
+        status = 0;
+        nside = 0;
+      }
+    }
+
+    if (fits_read_key(fptr, TSTRING, "ORDERING", ordering, NULL, &status)) {
+      if (status != KEY_NO_EXIST) fail("cannot read ORDERING");
+      status = 0;
+      std::strcpy(ordering, "RING");
+    }
+
+    const bool nested = std::strncmp(ordering, "NEST", 4) == 0;
+
+    if (fits_movabs_hdu(fptr, 2, &hdutype, &status)) fail("cannot move to HDU 2");
+
+    LONGLONG nrows = 0;
+    if (fits_get_num_rowsll(fptr, &nrows, &status)) fail("cannot read the number of rows");
+
+    // The most rows a map of NSIDE 2^29 fills; more cannot be a valid map,
+    // and the bound keeps the pixel count below overflow.
+    const LONGLONG maxRows = 12 * internal::kMaxNside * internal::kMaxNside / kPixelsPerRow;
+    if (nrows > maxRows)
+      throw Error(source + " holds " + std::to_string(nrows) + " rows of " +
+                  std::to_string(kPixelsPerRow) + " pixels, more than a map of NSIDE 2^29 "
+                  "fills; it is not a Healpix map in the expected layout");
+
+    const LONGLONG totalPixels = nrows * kPixelsPerRow;
+
+    if (nside == 0) nside = (LONGLONG)std::llround(std::sqrt((double)totalPixels / 12.0));
+
+    if (nside >= 1 && nside <= internal::kMaxNside && 12 * nside * nside != totalPixels)
+      throw Error(source + " holds " + std::to_string(totalPixels) +
+                  " pixels over " + std::to_string(nrows) + " rows of " +
+                  std::to_string(kPixelsPerRow) + ", which is not 12 * NSIDE^2 for NSIDE = " +
+                  std::to_string(nside) + "; it is not a Healpix map in the expected layout");
+
+    int typecode = 0;
+    LONGLONG repeat = 0, width = 0;
+    if (fits_get_coltypell(fptr, 1, &typecode, &repeat, &width, &status))
+      fail("cannot read the type of the pixel column");
+
+    internal::set_geometry(impl->mask, nside, nested, source);
+
+    // A floating column is read as stored, NaN and +-inf included: cfitsio's
+    // null check would turn +-inf into the null value too. An integer
+    // column is read with the check, so that its null value (TNULL) reads
+    // as NaN, unobserved.
+    const bool floating = typecode == TFLOAT || typecode == TDOUBLE;
+    double nullValue = std::numeric_limits<double>::quiet_NaN();
+    std::vector<double> block((std::size_t)(kRowsPerBlock * kPixelsPerRow));
+    for (LONGLONG row = 1; row <= nrows; row += kRowsPerBlock) {
+      const LONGLONG count = std::min(kRowsPerBlock, nrows - row + 1) * kPixelsPerRow;
+      int anyNull = 0;
+      if (fits_read_col(fptr, TDOUBLE, 1, row, 1, count, floating ? nullptr : &nullValue,
+                        block.data(), &anyNull, &status))
+        fail("cannot read pixel rows from " + std::to_string(row));
+      internal::mark_observed(impl->mask, (row - 1) * kPixelsPerRow, block.data(),
+                              (std::size_t)count);
+    }
+
+    if (fits_close_file(fptr, &status)) {
+      fptr = nullptr;
+      fail("cannot close");
     }
   }
-
-  if (fits_read_key(fptr, TSTRING, "ORDERING", ordering, NULL, &status)) {
-    if (status != KEY_NO_EXIST) fail("cannot read ORDERING");
-    status = 0;
-    std::strcpy(ordering, "RING");
-  }
-
-  if (fits_movabs_hdu(fptr, 2, &hdutype, &status)) fail("cannot move to HDU 2");
-
-  long nrows = 0;
-  if (fits_get_num_rows(fptr, &nrows, &status)) fail("cannot read the number of rows");
-
-  const long totalPixels = nrows * kPixelsPerRow;
-
-  if (nside == 0) nside = (int)std::sqrt((double)totalPixels / 12.0);
-
-  if (nside <= 0 || 12L * (long)nside * (long)nside != totalPixels) {
-    status = 0;
-    int closeStatus = 0;
-    if (fptr != nullptr) fits_close_file(fptr, &closeStatus);
-    throw Error("the mask file " + fitsFile + " holds " + std::to_string(totalPixels) +
-                " pixels over " + std::to_string(nrows) + " rows of " +
-                std::to_string(kPixelsPerRow) + ", which is not 12 * NSIDE^2 for NSIDE = " +
-                std::to_string(nside) + "; it is not a Healpix map in the expected layout");
-  }
-
-  std::vector<float> values((std::size_t)totalPixels);
-  for (long row = 1; row <= nrows; ++row)
-    if (fits_read_col(fptr, TFLOAT, 1, row, 1, kPixelsPerRow, NULL,
-                      &values[(std::size_t)((row-1) * kPixelsPerRow)], NULL, &status))
-      fail("cannot read pixel row " + std::to_string(row));
-
-  if (fits_close_file(fptr, &status)) {
-    fptr = nullptr;
-    fail("cannot close");
-  }
-
-  const Healpix_Ordering_Scheme scheme =
-    std::strncmp(ordering, "NEST", 4) == 0 ? NEST : RING;
-
-  auto impl = std::make_shared<Impl>();
-  impl->map.SetNside(nside, scheme);
-
-  // Any value is accepted. A pixel is observed when its value exceeds 0,
-  // fractional values included; 0, negative values, NaN and Healpix's
-  // UNSEEN are unobserved. The values are kept as read, and the sky area
-  // counts the observed pixels: no value is used as a weight.
-  for (long i = 0; i < impl->map.Npix(); ++i) {
-    const float v = values[(std::size_t)i];
-    impl->map[i] = v;
-    if (v > internal::kMaskAllowedAbove) ++impl->allowed;
+  catch (...) {
+    if (fptr != nullptr) {
+      int closeStatus = 0;
+      fits_close_file(fptr, &closeStatus);
+    }
+    throw;
   }
 
   m_impl = impl;
 }
+
+
+// ============================================================================
+
+
+otswap::Mask::Mask (const double* values, const std::size_t count, const PixelOrdering ordering)
+{
+  if (ordering != PixelOrdering::Ring && ordering != PixelOrdering::Nested)
+    throw Error("the pixel ordering is neither PixelOrdering::Ring nor PixelOrdering::Nested");
+
+  const std::string source = "the map of " + std::to_string(count) + " values";
+
+  if (count == 0)
+    throw Error("the map is empty; a full-sky Healpix map holds 12 * NSIDE^2 values");
+  if (values == nullptr)
+    throw Error(source + " is given as a null pointer");
+
+  // NSIDE from the length, in integers: the root of count / 12, if exact.
+  const std::uint64_t perFace = (std::uint64_t)count / 12;
+  std::uint64_t nside = (std::uint64_t)std::llround(std::sqrt((double)perFace));
+  while (nside > 0 && nside * nside > perFace) --nside;
+  while ((nside + 1) * (nside + 1) <= perFace) ++nside;
+
+  if (count % 12 != 0 || nside * nside != perFace)
+    throw Error(source + " is not 12 * NSIDE^2 for any integer NSIDE: it implies NSIDE = " +
+                std::to_string(std::sqrt((double)count / 12.)) +
+                "; a full-sky Healpix map holds 12 * NSIDE^2 values");
+
+  auto impl = std::make_shared<Impl>();
+  // count / 12 < 2^63, so its root fits an int64 whatever its size.
+  internal::set_geometry(impl->mask, (std::int64_t)nside, ordering == PixelOrdering::Nested,
+                         source);
+  internal::mark_observed(impl->mask, 0, values, count);
+
+  m_impl = impl;
+}
+
+
+// ============================================================================
+
+
+otswap::Mask::Mask (const std::vector<double>& values, const PixelOrdering ordering)
+  : Mask(values.data(), values.size(), ordering)
+{}
 
 
 // ============================================================================
@@ -254,7 +326,7 @@ bool otswap::Mask::allows (const double rightAscension, const double declination
 
 double otswap::Mask::skyAreaDeg2 () const
 {
-  return kFullSkyDeg2 * (double)m_impl->allowed / (double)m_impl->map.Npix();
+  return kFullSkyDeg2 * (double)m_impl->mask.allowed / (double)m_impl->mask.base.Npix();
 }
 
 
@@ -263,61 +335,107 @@ double otswap::Mask::skyAreaDeg2 () const
 
 int otswap::Mask::nside () const
 {
-  return m_impl->map.Nside();
+  return (int)m_impl->mask.base.Nside();
 }
 
 
 // ============================================================================
 
 
-int otswap::internal::vec2pix (const Healpix_Base& base, const vec3& v)
+void otswap::internal::check_nside (const std::int64_t nside, const bool nested,
+                                    const std::string& source)
+{
+  if (nside < 1 || nside > kMaxNside)
+    throw Error(source + " has NSIDE = " + std::to_string(nside) + "; NSIDE must lie in [1, " +
+                std::to_string(kMaxNside) + "], 2^29 being Healpix's limit");
+  if (nested && (nside & (nside - 1)) != 0)
+    throw Error(source + " is in NESTED ordering with NSIDE = " + std::to_string(nside) +
+                ", which is not a power of 2; the NESTED scheme needs one");
+}
+
+
+// ============================================================================
+
+
+void otswap::internal::set_geometry (PixelMask& mask, const std::int64_t nside, const bool nested,
+                                     const std::string& source)
+{
+  check_nside(nside, nested, source);
+  mask.base.SetNside(nside, nested ? NEST : RING);
+  mask.observed.assign((std::size_t)mask.base.Npix(), 0);
+  mask.allowed = 0;
+}
+
+
+// ============================================================================
+
+
+void otswap::internal::mark_observed (PixelMask& mask, const std::int64_t first,
+                                      const double* values, const std::size_t count)
+{
+  std::uint8_t* out = mask.observed.data() + first;
+  std::int64_t allowed = 0;
+  for (std::size_t i = 0; i < count; ++i) {
+    const std::uint8_t observed = values[i] > kMaskAllowedAbove ? 1 : 0;
+    out[i] = observed;
+    allowed += observed;
+  }
+  mask.allowed += allowed;
+}
+
+
+// ============================================================================
+
+
+template <typename I>
+I otswap::internal::vec2pix (const T_Healpix_Base<I>& base, const vec3& v)
 {
   const double xl = 1./v.Length();
   const double phi = (v.x == 0. && v.y == 0.) ? 0.0 : det_atan2(v.y, v.x);
   const double nz = v.z*xl;
   if (std::abs(nz) > 0.99)
-    return Locator::pixel(base, nz, phi, std::sqrt(v.x*v.x + v.y*v.y)*xl, true);
+    return Locator<I>::pixel(base, nz, phi, std::sqrt(v.x*v.x + v.y*v.y)*xl, true);
   else
-    return Locator::pixel(base, nz, phi, 0, false);
+    return Locator<I>::pixel(base, nz, phi, 0, false);
 }
+
+template int otswap::internal::vec2pix<int> (const T_Healpix_Base<int>&, const vec3&);
+template std::int64_t otswap::internal::vec2pix<std::int64_t> (const T_Healpix_Base<std::int64_t>&,
+                                                               const vec3&);
 
 
 // ============================================================================
 
 
-int otswap::internal::ang2pix (const Healpix_Base& base, const double theta, const double phi)
+template <typename I>
+I otswap::internal::ang2pix (const T_Healpix_Base<I>& base, const double theta, const double phi)
 {
   return ((theta < 0.01) || (theta > 3.14159-0.01)) ?
-    Locator::pixel(base, det_cos(theta), phi, det_sin(theta), true) :
-    Locator::pixel(base, det_cos(theta), phi, 0., false);
+    Locator<I>::pixel(base, det_cos(theta), phi, det_sin(theta), true) :
+    Locator<I>::pixel(base, det_cos(theta), phi, 0., false);
 }
+
+template int otswap::internal::ang2pix<int> (const T_Healpix_Base<int>&, double, double);
+template std::int64_t otswap::internal::ang2pix<std::int64_t> (const T_Healpix_Base<std::int64_t>&,
+                                                               double, double);
 
 
 // ============================================================================
 
 
-bool otswap::internal::pixel_observed (const Healpix_Map<float>& map, const int pixel)
-{
-  return map[pixel] > kMaskAllowedAbove;
-}
-
-
-// ============================================================================
-
-
-std::size_t otswap::internal::arc_unobserved_pixels (const Healpix_Map<float>& map,
+std::size_t otswap::internal::arc_unobserved_pixels (const PixelMask& mask,
                                                      const vec3& a, const vec3& b,
                                                      const unsigned limit,
-                                                     std::vector<int>& found)
+                                                     std::vector<std::int64_t>& found)
 {
   found.clear();
 
-  const int pixA = vec2pix(map, a);
-  const int pixB = vec2pix(map, b);
-  const double pixelSize = std::sqrt(4. * kPi / (double)map.Npix());
+  const std::int64_t pixA = vec2pix(mask.base, a);
+  const std::int64_t pixB = vec2pix(mask.base, b);
+  const double pixelSize = std::sqrt(4. * kPi / (double)mask.base.Npix());
   const double arcFloor = kArcFloorInPixels * pixelSize;
 
-  const ArcSearch search {map, pixA, pixB, arcFloor * arcFloor, pixelSize * pixelSize,
+  const ArcSearch search {mask, pixA, pixB, arcFloor * arcFloor, pixelSize * pixelSize,
                           limit, found};
   segment_exceeds(search, a, pixA, b, pixB);
 
@@ -381,12 +499,12 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
                 std::to_string(mask.nside()) + "; a pixel count is not comparable "
                 "between the two, so filter an unfiltered result instead");
 
-  const Healpix_Map<float>& map = mask.m_impl->map;
+  const internal::PixelMask& pixels = mask.m_impl->mask;
 
 #pragma omp parallel for schedule(dynamic, 64)
   for (std::size_t i = 0; i < nObjects; ++i) {
 
-    std::vector<int> found;
+    std::vector<std::int64_t> found;
 
     for (unsigned rec = 0; rec < nRealizations; ++rec) {
 
@@ -411,7 +529,7 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
       const vec3 b(lx/r1, ly/r1, lz/r1);
 
       if ((a + b).SquaredLength() == 0. ||
-          internal::arc_unobserved_pixels(map, a, b, maxForbiddenPixels, found) > maxForbiddenPixels)
+          internal::arc_unobserved_pixels(pixels, a, b, maxForbiddenPixels, found) > maxForbiddenPixels)
         result.valid[d] = 0;
     }
   }

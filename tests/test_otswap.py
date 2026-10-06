@@ -413,6 +413,133 @@ def test_mask_nested_ordering(tmp_path):
     assert (ring.allows(ra, dec, angle_unit="deg") != nested.allows(ra, dec, angle_unit="deg")).any()
 
 
+# Mask.from_array
+
+# A RING or NESTED map of NSIDE 16 holding integers from -4 to 6.
+TWIN_VALUES = (np.arange(12 * 16 ** 2) * 7919) % 11 - 4
+
+
+def same_mask(a, b):
+    """NSIDE, sky area, and allows on a 181 x 91 grid, the poles included."""
+    ra, dec = np.meshgrid(np.linspace(0, 360, 181), np.linspace(-90, 90, 91))
+    return (a.nside == b.nside and a.sky_area_deg2 == b.sky_area_deg2
+            and same_bytes(a.allows(ra, dec, angle_unit="deg"), b.allows(ra, dec, angle_unit="deg")))
+
+
+@pytest.mark.parametrize("nest", [False, True])
+@pytest.mark.parametrize("dtype", [np.float64, np.float32, np.int32, np.uint8, np.bool_])
+def test_mask_from_array_matches_its_fits_twin(tmp_path, dtype, nest):
+    raw = TWIN_VALUES if np.dtype(dtype).kind in "if" else np.clip(TWIN_VALUES, 0, None)
+    values = raw.astype(dtype)
+    fits = otswap.Mask(write_mask(tmp_path / "twin.fits", values.astype(np.float64), 16,
+                                  "NESTED" if nest else "RING"))
+    assert same_mask(otswap.Mask.from_array(values, nest=nest), fits)
+
+
+def test_mask_from_array_follows_the_ordering():
+    ring = otswap.Mask.from_array(TWIN_VALUES)
+    nested = otswap.Mask.from_array(TWIN_VALUES, nest=True)
+    assert ring.nside == nested.nside == 16
+    assert not same_mask(ring, nested)
+    assert same_mask(ring, otswap.Mask.from_array(TWIN_VALUES, False))
+
+
+def test_mask_from_array_observed_above_zero():
+    values = [0.5, 1e-30, 1e-300, 1e300, np.inf, 0.0, -0.0, -1.0, -1.6375e30, np.nan, -np.inf]
+    observed = [True, True, True, True, True, False, False, False, False, False, False]
+    pixels = np.ones(12 * 16 ** 2)
+    pixels[:len(values)] = values
+    mask = otswap.Mask.from_array(pixels)
+    centres = []
+    for first, count in [(0, 4), (4, 8)]:
+        z = 1 - (first // 4 + 1) ** 2 / (3 * 16 ** 2)
+        for k in range(count):
+            centres.append((360 * (k + 0.5) / count, math.degrees(math.asin(z))))
+    ra, dec = np.array(centres[:len(values)]).T
+    assert mask.allows(ra, dec, angle_unit="deg").tolist() == observed
+    assert mask.sky_area_deg2 == pytest.approx(SPHERE_DEG2 * (pixels.size - 6) / pixels.size,
+                                               rel=1e-12)
+
+
+def test_mask_from_array_input_forms():
+    values = TWIN_VALUES.astype(np.float64)
+    reference = otswap.Mask.from_array(values.copy())
+
+    assert same_mask(otswap.Mask.from_array(values.tolist()), reference)
+
+    read_only = values.copy()
+    read_only.flags.writeable = False
+    assert same_mask(otswap.Mask.from_array(read_only), reference)
+
+    wide = np.zeros(2 * values.size)
+    wide[::2] = values
+    strided = wide[::2]
+    assert not strided.flags.c_contiguous
+    assert same_mask(otswap.Mask.from_array(strided), reference)
+
+    # read once: changing the source afterwards changes nothing
+    source = values.copy()
+    mask = otswap.Mask.from_array(source)
+    source[:] = 0
+    assert same_mask(mask, reference)
+    mask = otswap.Mask.from_array(strided)
+    wide[:] = 0
+    assert same_mask(mask, reference)
+
+
+def test_mask_from_array_reads_float64_in_place():
+    import tracemalloc
+
+    def traced_peak(values):
+        tracemalloc.start()
+        try:
+            before = tracemalloc.get_traced_memory()[0]
+            otswap.Mask.from_array(values)
+            return tracemalloc.get_traced_memory()[1] - before
+        finally:
+            tracemalloc.stop()
+
+    values = np.ones(12 * 256 ** 2)
+    assert traced_peak(values) < values.nbytes // 8
+    # any other dtype is converted to float64 first
+    assert traced_peak(values.astype(np.float32)) >= values.nbytes
+
+
+@pytest.mark.parametrize("call", [
+    lambda: otswap.Mask.from_array(np.ones((12, 16))),
+    lambda: otswap.Mask.from_array(np.ones(12, dtype=np.complex128)),
+    lambda: otswap.Mask.from_array(["a"] * 12),
+    lambda: otswap.Mask.from_array([1.0, None] * 6),
+    lambda: otswap.Mask.from_array(np.float64(1.0)),
+    lambda: otswap.Mask.from_array([]),
+    lambda: otswap.Mask.from_array(np.ones(13)),
+    lambda: otswap.Mask.from_array(np.ones(24)),
+    lambda: otswap.Mask.from_array(np.ones(12 * 3 ** 2), nest=True),
+    lambda: otswap.Mask.from_array(np.ones(12), nest="yes"),
+    lambda: otswap.Mask.from_array(np.ones(12), nest=1),
+    lambda: otswap.Mask.from_array([[1.0, 2.0], [3.0]]),
+])
+def test_mask_from_array_errors(call):
+    with pytest.raises(otswap.Error):
+        call()
+
+
+def test_mask_from_array_nside_three_is_ring_only():
+    assert otswap.Mask.from_array(np.ones(12 * 3 ** 2)).nside == 3
+
+
+def test_mask_fits_constructor_takes_no_ordering(band_mask):
+    with pytest.raises(TypeError):
+        otswap.Mask(band_mask, nest=True)
+
+
+def test_stub_lists_from_array():
+    stub = os.path.join(os.path.dirname(otswap.__file__), "__init__.pyi")
+    with open(stub) as f:
+        text = f.read()
+    assert "def from_array(values: ArrayLike, nest: bool = False) -> \"Mask\":" in text
+
+
 # --------------------------------------------------------------------------
 # reconstruct_box and Result
 

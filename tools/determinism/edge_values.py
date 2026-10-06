@@ -229,6 +229,8 @@ def evaluate(case):
 INV_HALFPI = 0.6366197723675813430755350534900574
 TWOTHIRD = 2.0 / 3.0
 NSIDES = (1, 8, 16, 1024, 8192)
+# Checked on the 64-bit base only, which holds their pixel counts.
+LARGE_NSIDES = (1 << 20, 1 << 29)
 
 
 def fmodulo(v1, v2):
@@ -240,7 +242,7 @@ def fmodulo(v1, v2):
 
 def spread_bits(v):
     r = 0
-    for b in range(16):
+    for b in range(32):
         r |= ((v >> b) & 1) << (2 * b)
     return r
 
@@ -254,8 +256,9 @@ def trunc(x):
 
 
 def loc2pix(nside, nest, z, phi, sth, have_sth):
-    """healpix_base.cc, T_Healpix_Base<int>::loc2pix, operation for
-    operation."""
+    """healpix_base.cc, T_Healpix_Base<I>::loc2pix, operation for
+    operation. Python's integers are exact, so this is the 64-bit base's
+    lookup, and the 32-bit one's wherever the pixel count fits an int."""
     order = nside.bit_length() - 1
     ns = float(nside)
     za = abs(z)
@@ -441,6 +444,31 @@ def main(path):
     for label, theta, phi in ANGLES:
         ring = [ang2pix(n, False, theta, phi) for n in NSIDES]
         nest = [ang2pix(n, True, theta, phi) for n in NSIDES]
+        w(f'    {{"{label}", {lit(theta)}, {lit(phi)},')
+        w(f"     {{{', '.join(map(str, ring))}}}, {{{', '.join(map(str, nest))}}}}},")
+    w("  };")
+    w("")
+    w("  // The same points at NSIDE 2^20 and 2^29, on the 64-bit base.")
+    w("  const long long kLargeNsides[] = {" + ", ".join(str(n) for n in LARGE_NSIDES) + "};")
+    w(f"  constexpr int kNLargeNsides = {len(LARGE_NSIDES)};")
+    w("")
+    w("  struct LargeVecCase { const char* label; double x, y, z; "
+      "long long ring[kNLargeNsides], nest[kNLargeNsides]; };")
+    w("  struct LargeAngCase { const char* label; double theta, phi; "
+      "long long ring[kNLargeNsides], nest[kNLargeNsides]; };")
+    w("")
+    w("  const LargeVecCase kLargeVectors[] = {")
+    for label, x, y, z in VECTORS:
+        ring = [vec2pix(n, False, x, y, z) for n in LARGE_NSIDES]
+        nest = [vec2pix(n, True, x, y, z) for n in LARGE_NSIDES]
+        w(f'    {{"{label}", {lit(x)}, {lit(y)}, {lit(z)},')
+        w(f"     {{{', '.join(map(str, ring))}}}, {{{', '.join(map(str, nest))}}}}},")
+    w("  };")
+    w("")
+    w("  const LargeAngCase kLargeAngles[] = {")
+    for label, theta, phi in ANGLES:
+        ring = [ang2pix(n, False, theta, phi) for n in LARGE_NSIDES]
+        nest = [ang2pix(n, True, theta, phi) for n in LARGE_NSIDES]
         w(f'    {{"{label}", {lit(theta)}, {lit(phi)},')
         w(f"     {{{', '.join(map(str, ring))}}}, {{{', '.join(map(str, nest))}}}}},")
     w("  };")

@@ -157,12 +157,15 @@ int main ()
   }
 
   group("vec2pix and ang2pix: on pixel boundaries, at the poles, at RA 0 and 2 pi, "
-        "the pixel loc2pix gives with correctly rounded atan2, cos and sin");
+        "the pixel loc2pix gives with correctly rounded atan2, cos and sin, "
+        "on the 32-bit and the 64-bit base");
   {
     for (int k = 0; k < detref::kNNsides; ++k) {
       const int nside = detref::kNsides[k];
       const Healpix_Base ring(nside, RING, SET_NSIDE);
       const Healpix_Base nest(nside, NEST, SET_NSIDE);
+      const Healpix_Base2 ring64(nside, RING, SET_NSIDE);
+      const Healpix_Base2 nest64(nside, NEST, SET_NSIDE);
 
       for (const detref::VecCase& c : detref::kVectors) {
         const vec3 v(c.x, c.y, c.z);
@@ -172,6 +175,12 @@ int main ()
               ", expected " + std::to_string(c.ring[k]));
         check(internal::vec2pix(nest, v) == c.nest[k],
               "vec2pix, " + at + " NESTED: " + std::to_string(internal::vec2pix(nest, v)) +
+              ", expected " + std::to_string(c.nest[k]));
+        check(internal::vec2pix(ring64, v) == c.ring[k],
+              "vec2pix, 64-bit, " + at + " RING: " + std::to_string(internal::vec2pix(ring64, v)) +
+              ", expected " + std::to_string(c.ring[k]));
+        check(internal::vec2pix(nest64, v) == c.nest[k],
+              "vec2pix, 64-bit, " + at + " NESTED: " + std::to_string(internal::vec2pix(nest64, v)) +
               ", expected " + std::to_string(c.nest[k]));
       }
 
@@ -183,17 +192,112 @@ int main ()
         check(internal::ang2pix(nest, c.theta, c.phi) == c.nest[k],
               "ang2pix, " + at + " NESTED: " + std::to_string(internal::ang2pix(nest, c.theta, c.phi)) +
               ", expected " + std::to_string(c.nest[k]));
+        check(internal::ang2pix(ring64, c.theta, c.phi) == c.ring[k],
+              "ang2pix, 64-bit, " + at + " RING: " +
+              std::to_string(internal::ang2pix(ring64, c.theta, c.phi)) +
+              ", expected " + std::to_string(c.ring[k]));
+        check(internal::ang2pix(nest64, c.theta, c.phi) == c.nest[k],
+              "ang2pix, 64-bit, " + at + " NESTED: " +
+              std::to_string(internal::ang2pix(nest64, c.theta, c.phi)) +
+              ", expected " + std::to_string(c.nest[k]));
       }
     }
   }
 
-  group("away from pixel boundaries, the pixel is the one Healpix's own vec2pix and ang2pix give");
+  group("the 64-bit lookup at NSIDE 2^20 and 2^29, on the same points, with no map: "
+        "the pixel loc2pix gives in exact integers");
+  {
+    for (int k = 0; k < detref::kNLargeNsides; ++k) {
+      const std::int64_t nside = detref::kLargeNsides[k];
+      const Healpix_Base2 ring(nside, RING, SET_NSIDE);
+      const Healpix_Base2 nest(nside, NEST, SET_NSIDE);
+
+      for (const detref::LargeVecCase& c : detref::kLargeVectors) {
+        const vec3 v(c.x, c.y, c.z);
+        const std::string at = std::string(c.label) + ", NSIDE " + std::to_string(nside);
+        check(internal::vec2pix(ring, v) == c.ring[k],
+              "vec2pix, " + at + " RING: " + std::to_string(internal::vec2pix(ring, v)) +
+              ", expected " + std::to_string(c.ring[k]));
+        check(internal::vec2pix(nest, v) == c.nest[k],
+              "vec2pix, " + at + " NESTED: " + std::to_string(internal::vec2pix(nest, v)) +
+              ", expected " + std::to_string(c.nest[k]));
+      }
+
+      for (const detref::LargeAngCase& c : detref::kLargeAngles) {
+        const std::string at = std::string(c.label) + ", NSIDE " + std::to_string(nside);
+        check(internal::ang2pix(ring, c.theta, c.phi) == c.ring[k],
+              "ang2pix, " + at + " RING: " + std::to_string(internal::ang2pix(ring, c.theta, c.phi)) +
+              ", expected " + std::to_string(c.ring[k]));
+        check(internal::ang2pix(nest, c.theta, c.phi) == c.nest[k],
+              "ang2pix, " + at + " NESTED: " + std::to_string(internal::ang2pix(nest, c.theta, c.phi)) +
+              ", expected " + std::to_string(c.nest[k]));
+      }
+    }
+  }
+
+  group("up to NSIDE 8192 the 32-bit and the 64-bit base give the same pixel");
+  {
+    std::mt19937 rng(11);
+    std::size_t differ = 0, total = 0;
+    for (const int nside : {1, 64, 1024, 8192})
+      for (const Healpix_Ordering_Scheme scheme : {RING, NEST}) {
+        const Healpix_Base base(nside, scheme, SET_NSIDE);
+        const Healpix_Base2 base64(nside, scheme, SET_NSIDE);
+        for (int i = 0; i < 20000; ++i) {
+          const double x = internal::uniform_real(rng, -1., 1.);
+          const double y = internal::uniform_real(rng, -1., 1.);
+          const double z = internal::uniform_real(rng, -1., 1.);
+          if (x*x + y*y + z*z < 1.e-6) continue;
+          const vec3 v(x, y, z);
+          if ((std::int64_t)internal::vec2pix(base, v) != internal::vec2pix(base64, v)) ++differ;
+
+          const double theta = internal::uniform_real(rng, 0., kPi);
+          const double phi = internal::uniform_real(rng, 0., 2. * kPi);
+          if ((std::int64_t)internal::ang2pix(base, theta, phi) !=
+              internal::ang2pix(base64, theta, phi)) ++differ;
+          total += 2;
+        }
+        for (const detref::VecCase& c : detref::kVectors) {
+          const vec3 v(c.x, c.y, c.z);
+          if ((std::int64_t)internal::vec2pix(base, v) != internal::vec2pix(base64, v)) ++differ;
+          ++total;
+        }
+        for (const detref::AngCase& c : detref::kAngles) {
+          if ((std::int64_t)internal::ang2pix(base, c.theta, c.phi) !=
+              internal::ang2pix(base64, c.theta, c.phi)) ++differ;
+          ++total;
+        }
+      }
+    check(differ == 0, std::to_string(differ) + " of " + std::to_string(total) +
+                       " directions land in a different pixel");
+  }
+
+  group("away from pixel boundaries, the pixel is the one Healpix's own vec2pix and ang2pix give, "
+        "on the 32-bit base and, up to NSIDE 2^29, on the 64-bit one");
   {
     std::mt19937 rng(7);
     std::size_t differ = 0, total = 0;
     for (const int nside : {1, 64, 1024, 8192})
       for (const Healpix_Ordering_Scheme scheme : {RING, NEST}) {
         const Healpix_Base base(nside, scheme, SET_NSIDE);
+        for (int i = 0; i < 20000; ++i) {
+          const double x = internal::uniform_real(rng, -1., 1.);
+          const double y = internal::uniform_real(rng, -1., 1.);
+          const double z = internal::uniform_real(rng, -1., 1.);
+          if (x*x + y*y + z*z < 1.e-6) continue;
+          const vec3 v(x, y, z);
+          if (internal::vec2pix(base, v) != base.vec2pix(v)) ++differ;
+
+          const double theta = internal::uniform_real(rng, 0., kPi);
+          const double phi = internal::uniform_real(rng, 0., 2. * kPi);
+          if (internal::ang2pix(base, theta, phi) != base.ang2pix(pointing(theta, phi))) ++differ;
+          total += 2;
+        }
+      }
+    for (const std::int64_t nside : {std::int64_t(1) << 15, std::int64_t(1) << 20,
+                                     std::int64_t(1) << 29})
+      for (const Healpix_Ordering_Scheme scheme : {RING, NEST}) {
+        const Healpix_Base2 base(nside, scheme, SET_NSIDE);
         for (int i = 0; i < 20000; ++i) {
           const double x = internal::uniform_real(rng, -1., 1.);
           const double y = internal::uniform_real(rng, -1., 1.);

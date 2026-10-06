@@ -298,14 +298,29 @@ namespace otswap {
   // Angular mask
   // ==========================================================================
 
+  /// Pixel ordering of a full-sky Healpix map given in memory.
+  enum class PixelOrdering {
+    Ring,    ///< the RING scheme
+    Nested   ///< the NESTED scheme
+  };
+
   /**
-   *  @brief Healpix veto mask, read from a FITS file.
+   *  @brief Healpix veto mask, read from a FITS file or built from a
+   *  full-sky map in memory.
    *
-   *  A pixel is allowed (observed) when its value is greater than zero,
-   *  fractional values included. A pixel holding 0, a negative value, NaN
-   *  or Healpix's UNSEEN (-1.6375e30) is unobserved. Any value is
-   *  accepted; none is used as a weight, so skyAreaDeg2 is a count of
-   *  allowed pixels, not a sum of their values.
+   *  A pixel is allowed (observed) when its value is greater than 0,
+   *  whatever its magnitude: fractional values, the smallest positive ones
+   *  and +inf are allowed. A pixel holding 0, a negative value, -inf, NaN
+   *  or Healpix's UNSEEN (-1.6375e30) is unobserved. Every value is
+   *  accepted, and each is tested once, in double, when the mask is built;
+   *  none is kept or used as a weight, so skyAreaDeg2 is a count of
+   *  allowed pixels, not a sum of their values. The rule is the same for
+   *  both sources.
+   *
+   *  NSIDE may be any integer from 1 to 2^29, Healpix's limit, and must be
+   *  a power of 2 in the NESTED scheme. The mask holds one byte per pixel,
+   *  12 NSIDE^2 bytes: 12.6 MB at NSIDE 1024, 805 MB at NSIDE 8192, 3.2 GB
+   *  at NSIDE 16384. A map too large for memory raises std::bad_alloc.
    *
    *  The object is immutable once built.
    */
@@ -314,13 +329,40 @@ namespace otswap {
   public:
 
     /**
-     *  @param fitsFile Healpix map; NSIDE and ORDERING are taken from the
-     *  header, in either RING or NESTED scheme.
+     *  @param fitsFile Healpix map: a binary table in HDU 2 with 1024
+     *  values to a row, in any numeric column type; NSIDE and ORDERING are
+     *  taken from the header, in either RING or NESTED scheme. The values
+     *  are read a block of rows at a time, so reading needs memory for the
+     *  mask's bytes only. Each value is tested as cfitsio converts it to
+     *  double, after any TSCAL and TZERO; a null value of an integer
+     *  column (TNULL) is unobserved.
      *
-     *  @exception Error if the file cannot be opened or is not a valid
-     *  Healpix map.
+     *  @exception Error if the file cannot be opened or read, if it is not
+     *  a full-sky Healpix map in that layout, if NSIDE exceeds 2^29, or if
+     *  the ordering is NESTED and NSIDE is not a power of 2.
      */
     explicit Mask (const std::string& fitsFile);
+
+    /**
+     *  @brief Build from the pixel values of a full-sky Healpix map.
+     *
+     *  NSIDE follows from the number of values, which must be 12 NSIDE^2.
+     *  The values are read once, during construction, and not kept.
+     *
+     *  @param values one value per pixel, in the order of @p ordering
+     *  @param count the number of values
+     *  @param ordering the pixel ordering of @p values; no default
+     *
+     *  @exception Error if @p count is 0 or not 12 NSIDE^2 for an integer
+     *  NSIDE, if NSIDE exceeds 2^29, if the ordering is NESTED and NSIDE is
+     *  not a power of 2, or if @p values is null; the message gives the
+     *  number of values and the NSIDE it implies.
+     */
+    Mask (const double* values, std::size_t count, PixelOrdering ordering);
+
+    /// As the constructor from a pointer and a count, over all of
+    /// @p values.
+    Mask (const std::vector<double>& values, PixelOrdering ordering);
 
     /// True when the direction falls in an allowed pixel. Radians.
     /// @exception Error if the right ascension is not finite, or the
@@ -330,6 +372,7 @@ namespace otswap {
     /// Sky area covered by the allowed pixels, in square degrees.
     double skyAreaDeg2 () const;
 
+    /// NSIDE of the map, from 1 to 2^29.
     int nside () const;
 
   private:

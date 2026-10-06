@@ -396,11 +396,40 @@ NB_MODULE(_otswap, m)
   // -------------------------------------------------------------------- Mask
 
   nb::class_<otswap::Mask>(m, "Mask",
-                           "HEALPix mask read from a FITS file: a pixel is observed when its "
-                           "value is greater than 0. Immutable.")
+                           "HEALPix mask read from a FITS file or built from a full-sky map in "
+                           "memory: a pixel is observed when its value is greater than 0. "
+                           "Immutable.")
     .def("__init__", [] (otswap::Mask* self, nb::handle fitsFile) {
           new (self) otswap::Mask(to_string(fitsFile, "fits_file"));
         }, "fits_file"_a.none())
+    .def_static("from_array",
+        [] (nb::handle values, nb::handle nest) {
+          const bool nested = to_bool(nest, "nest");
+          // The dtype is checked before any conversion, so that complex
+          // values, strings or objects are refused rather than cast. A
+          // C-contiguous float64 array is then read in place; any other is
+          // converted to one.
+          const nb::module_ np = nb::module_::import_("numpy");
+          nb::object raw;
+          try {
+            raw = np.attr("asarray")(values);
+          }
+          catch (nb::python_error& e) {
+            throw otswap::Error(std::string("values cannot be converted to an array: ") +
+                                nb::str(e.value()).c_str());
+          }
+          const std::string kind = nb::str(raw.attr("dtype").attr("kind")).c_str();
+          if (kind != "b" && kind != "i" && kind != "u" && kind != "f")
+            throw otswap::Error("values must hold real numbers; its dtype is " +
+                                repr_of(raw.attr("dtype")));
+          const CArray a = as_float64(raw, "values");
+          if (a.ndim() != 1)
+            throw otswap::Error("values must be one-dimensional; it has shape " + shape_of(a));
+          return otswap::Mask(a.data(), a.size(),
+                              nested ? otswap::PixelOrdering::Nested : otswap::PixelOrdering::Ring);
+        },
+        "values"_a.none(), "nest"_a.none() = false,
+        "A full-sky HEALPix map given in memory, one value per pixel; nest=True for NESTED.")
     .def_prop_ro("nside", &otswap::Mask::nside)
     .def_prop_ro("sky_area_deg2", &otswap::Mask::skyAreaDeg2,
                  "Area covered by the observed pixels, in square degrees.")

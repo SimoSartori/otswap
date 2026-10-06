@@ -199,21 +199,21 @@ namespace {
 
   // Every unobserved pixel met by points spaced at most step pixels apart
   // along the arc, the endpoint pixels excluded.
-  std::set<int> brute_force (const Healpix_Map<float>& map, const vec3& a, const vec3& b,
-                             const double step)
+  std::set<std::int64_t> brute_force (const internal::PixelMask& map, const vec3& a,
+                                      const vec3& b, const double step)
   {
-    const double pixelSize = std::sqrt(4. * kPi / (double)map.Npix());
+    const double pixelSize = std::sqrt(4. * kPi / (double)map.base.Npix());
     const double angle = std::acos(std::max(-1., std::min(1., dotprod(a, b))));
     const long n = std::max(1L, (long)std::ceil(angle / (step * pixelSize)));
-    const int pixA = internal::vec2pix(map, a), pixB = internal::vec2pix(map, b);
+    const std::int64_t pixA = internal::vec2pix(map.base, a), pixB = internal::vec2pix(map.base, b);
     const double s = std::sin(angle);
 
-    std::set<int> found;
+    std::set<std::int64_t> found;
     for (long i = 0; i <= n; ++i) {
       const double t = (double)i / (double)n;
       const vec3 w = (angle < 1.e-12) ? a
         : (a * (std::sin((1. - t) * angle) / s) + b * (std::sin(t * angle) / s)).Norm();
-      const int p = internal::vec2pix(map, w);
+      const std::int64_t p = internal::vec2pix(map.base, w);
       if (p != pixA && p != pixB && !internal::pixel_observed(map, p)) found.insert(p);
     }
     return found;
@@ -221,13 +221,13 @@ namespace {
 
   // True when points spaced step pixels apart along the arc, over the part
   // of it within three pixels of the pixel's centre, meet the pixel.
-  bool arc_enters (const Healpix_Map<float>& map, const vec3& a, const vec3& b,
-                   const int pixel, const double step)
+  bool arc_enters (const internal::PixelMask& map, const vec3& a, const vec3& b,
+                   const std::int64_t pixel, const double step)
   {
-    const double pixelSize = std::sqrt(4. * kPi / (double)map.Npix());
+    const double pixelSize = std::sqrt(4. * kPi / (double)map.base.Npix());
     const double angle = std::acos(std::max(-1., std::min(1., dotprod(a, b))));
     const double s = std::sin(angle);
-    const vec3 centre = map.pix2vec(pixel);
+    const vec3 centre = map.base.pix2vec(pixel);
     const double near = std::cos(3. * pixelSize);
     auto at = [&] (const double t) {
       return (a * (std::sin((1. - t) * angle) / s) + b * (std::sin(t * angle) / s)).Norm();
@@ -246,7 +246,7 @@ namespace {
     const double t1 = (double)std::min(coarse, last + 1) / (double)coarse;
     const long fine = std::max(1L, (long)std::ceil((t1 - t0) * angle / (step * pixelSize)));
     for (long i = 0; i <= fine; ++i)
-      if (internal::vec2pix(map, at(t0 + (t1 - t0) * (double)i / (double)fine)) == pixel)
+      if (internal::vec2pix(map.base, at(t0 + (t1 - t0) * (double)i / (double)fine)) == pixel)
         return true;
     return false;
   }
@@ -350,6 +350,12 @@ namespace {
     Healpix_Map<float> map(nside, scheme, SET_NSIDE);
     for (int p = 0; p < map.Npix(); ++p) map[p] = pixels[(std::size_t)p];
 
+    // The same mask as otswap holds it, for its internal search.
+    internal::PixelMask bytes;
+    internal::set_geometry(bytes, nside, scheme == NEST, label);
+    const std::vector<double> asDouble(pixels.begin(), pixels.end());
+    internal::mark_observed(bytes, 0, asDouble.data(), asDouble.size());
+
     const std::string file = temporary("arcs_" + std::to_string(seed) + ".fits");
     check(write_map(file, pixels, scheme == NEST ? "NESTED" : "RING", nside) == 0,
           label + ": the mask is written");
@@ -385,32 +391,32 @@ namespace {
     // What the arc crosses: every pixel the sampler at 0.001 pixel meets,
     // and every other one the search reports that a scan at 1e-6 pixel
     // confirms the arc enters.
-    std::vector<std::set<int>> brute(n), crossed(n);
-    std::vector<int> found;
+    std::vector<std::set<std::int64_t>> brute(n), crossed(n);
+    std::vector<std::int64_t> found;
 
     for (std::size_t i = 0; i < n; ++i) {
       const bool cbl = cbl_reference::arc_crosses_mask(
         map, e[3*i], e[3*i+1], e[3*i+2],
         arcs.matchedRandom[3*i], arcs.matchedRandom[3*i+1], arcs.matchedRandom[3*i+2], pixelSize);
-      const bool ours = internal::arc_unobserved_pixels(map, from[i], to[i], 0, found) > 0;
+      const bool ours = internal::arc_unobserved_pixels(bytes, from[i], to[i], 0, found) > 0;
       if (cbl) ++crossing;
       if (cbl != ours) ++cblDisagree;
       if (filtered.valid[i] != (cbl ? 0 : 1)) ++filterDisagree;
 
-      internal::arc_unobserved_pixels(map, from[i], to[i], UINT_MAX, found);
-      const std::set<int> all(found.begin(), found.end());
-      brute[i] = brute_force(map, from[i], to[i], 1.e-3);
+      internal::arc_unobserved_pixels(bytes, from[i], to[i], UINT_MAX, found);
+      const std::set<std::int64_t> all(found.begin(), found.end());
+      brute[i] = brute_force(bytes, from[i], to[i], 1.e-3);
       crossed[i] = brute[i];
-      for (const int p : brute[i]) if (all.count(p) == 0) ++misses;
-      for (const int p : all)
+      for (const std::int64_t p : brute[i]) if (all.count(p) == 0) ++misses;
+      for (const std::int64_t p : all)
         if (brute[i].count(p) == 0) {
-          if (arc_enters(map, from[i], to[i], p, 1.e-6)) { ++confirmed; crossed[i].insert(p); }
+          if (arc_enters(bytes, from[i], to[i], p, 1.e-6)) { ++confirmed; crossed[i].insert(p); }
           else ++unconfirmed;
         }
       if (crossed[i].size() > 1) ++multiple;
 
       for (const unsigned k : limits) {
-        const bool exceeds = internal::arc_unobserved_pixels(map, from[i], to[i], k, found) > k;
+        const bool exceeds = internal::arc_unobserved_pixels(bytes, from[i], to[i], k, found) > k;
         if (exceeds != (crossed[i].size() > k)) ++countDisagree;
       }
     }
@@ -444,6 +450,94 @@ namespace {
     check(countDisagree == 0,
           label + ": for limits above 0 the decision follows the count of pixels crossed (" +
           std::to_string(countDisagree) + " differ)");
+  }
+
+
+  // Writes count values as a Healpix map in the layout the reader assumes,
+  // in a column of type form ("1024D", "1024E", "1024J", "1024B") written
+  // from datatype. With tnull, the column's TNULL is set to it.
+  long write_typed_map (const std::string& file, const char* form, const int datatype,
+                        const void* values, const long count, const char* ordering,
+                        const long long nsideValue, const long long* tnull = nullptr)
+  {
+    std::remove(file.c_str());
+
+    fitsfile* fptr = nullptr;
+    int status = 0;
+    const std::string create = "!" + file;
+    fits_create_file(&fptr, create.c_str(), &status);
+
+    char name[] = "SIGNAL";
+    std::string formText = form;
+    char* ttype[] = {name};
+    char* tform[] = {&formText[0]};
+    fits_create_tbl(fptr, BINARY_TBL, count / 1024, 1, ttype, tform, nullptr, nullptr, &status);
+
+    long long nside = nsideValue;
+    fits_write_key(fptr, TLONGLONG, "NSIDE", &nside, nullptr, &status);
+    fits_write_key(fptr, TSTRING, "ORDERING", (void*)ordering, nullptr, &status);
+    if (tnull != nullptr) {
+      long long t = *tnull;
+      fits_write_key(fptr, TLONGLONG, "TNULL1", &t, nullptr, &status);
+    }
+    if (count > 0)
+      fits_write_col(fptr, datatype, 1, 1, 1, count, const_cast<void*>(values), &status);
+
+    fits_close_file(fptr, &status);
+    return status;
+  }
+
+  // Pixel values of every kind: 0, negative, NaN, 1e-300, fractional and
+  // 1, about one in seven unobserved.
+  std::vector<double> mixed_values (const std::size_t npix, const unsigned seed)
+  {
+    std::mt19937 rng(seed);
+    std::vector<double> v(npix);
+    for (double& x : v)
+      switch (internal::uniform_int(rng, 20)) {
+        case 0: x = 0.; break;
+        case 1: x = -internal::uniform_real(rng, 0., 2.); break;
+        case 2: x = std::numeric_limits<double>::quiet_NaN(); break;
+        case 3: x = 1.e-300; break;
+        case 4: case 5: case 6: case 7: case 8:
+          x = internal::uniform_real(rng, 0.25, 1.); break;
+        default: x = 1.;
+      }
+    return v;
+  }
+
+  // Ways two masks differ: NSIDE, sky area, and allows on a 721 x 361 grid
+  // of directions, the poles included.
+  std::size_t disagreements (const Mask& a, const Mask& b)
+  {
+    std::size_t differ = (a.nside() != b.nside() ? 1 : 0) +
+                         (a.skyAreaDeg2() != b.skyAreaDeg2() ? 1 : 0);
+    for (int i = 0; i < 721; ++i)
+      for (int j = 0; j <= 360; ++j) {
+        const double ra = 2. * kPi * (double)i / 720.;
+        const double dec = (kPi/2.) * (double)(j - 180) / 180.;
+        if (a.allows(ra, dec) != b.allows(ra, dec)) ++differ;
+      }
+    return differ;
+  }
+
+  // Valid entries that differ when the same random arcs are filtered
+  // against each mask, at limits 0 and 2.
+  std::size_t filter_disagreements (const Mask& a, const Mask& b, const unsigned seed)
+  {
+    const double pixelSize = std::sqrt(kPi / 3.) / (double)a.nside();
+    std::mt19937 rng(seed);
+    std::vector<double> eulerian, lagrangian;
+    random_arcs(600, pixelSize, std::vector<vec3>(), rng, eulerian, lagrangian);
+    std::size_t differ = 0;
+    for (const unsigned limit : {0u, 2u}) {
+      Result ra = result_of(eulerian, lagrangian), rb = ra;
+      rejectMaskCrossings(ra, a, limit);
+      rejectMaskCrossings(rb, b, limit);
+      for (std::size_t k = 0; k < ra.valid.size(); ++k)
+        if (ra.valid[k] != rb.valid[k]) ++differ;
+    }
+    return differ;
   }
 
 }
@@ -545,6 +639,225 @@ int main ()
     }
 
     std::remove(file2.c_str());
+  }
+
+  group("the > 0 rule holds for any value, the same in memory and in FITS columns of type "
+        "D, E, J with TNULL, and B");
+  {
+    const double inf = std::numeric_limits<double>::infinity();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double fullSky = 4. * kPi * (180./kPi) * (180./kPi);
+
+    // Pixel 17 onwards hold the values under test; every other pixel is 1.
+    const double values[] = {0.5, 1.e-30, 1.e-50, 3.4e38, 1.e300, inf,
+                             0., -0., -1., -1.e300, -inf, -1.6375e30, nan};
+    const bool observed[] = {true, true, true, true, true, true,
+                             false, false, false, false, false, false, false};
+    const std::size_t nValues = sizeof(values) / sizeof(values[0]);
+
+    std::vector<double> all(12 * kNside * kNside, 1.);
+    for (std::size_t k = 0; k < nValues; ++k) all[17 + k] = values[k];
+    long nObserved = 0;
+    for (const double v : all) if (v > 0.) ++nObserved;
+
+    const Mask memory(all, PixelOrdering::Ring);
+    for (std::size_t k = 0; k < nValues; ++k) {
+      const pointing centre = base.pix2ang(17 + (long)k);
+      check(memory.allows(centre.phi, kPi/2. - centre.theta) == observed[k],
+            "in memory, the pixel holding " + std::to_string(values[k]) + " is " +
+            (observed[k] ? "observed" : "unobserved"));
+    }
+    check(memory.skyAreaDeg2() == fullSky * (double)nObserved / (double)npix,
+          "in memory, the sky area counts the pixels above 0");
+
+    // D: every value, +-inf and +-1e300 included, as double.
+    const std::string fileD = temporary("rule_D.fits");
+    check(write_typed_map(fileD, "1024D", TDOUBLE, all.data(), npix, "RING", kNside) == 0,
+          "the D map is written");
+    try {
+      const Mask fromD(fileD);
+      check(disagreements(fromD, memory) == 0,
+            "a D column, +-inf and +-1e300 included, reads and gives the same mask as in memory");
+    }
+    catch (const Error& e) {
+      check(false, std::string("a D column holding +-inf and +-1e300 reads (") + e.what() + ")");
+    }
+    std::remove(fileD.c_str());
+
+    // E: the values a float holds.
+    const float finf = std::numeric_limits<float>::infinity();
+    const float fvalues[] = {0.5f, 1.e-30f, 3.4e38f, finf, 0.f, -0.f, -1.f, -finf, -1.6375e30f,
+                             std::numeric_limits<float>::quiet_NaN()};
+    std::vector<float> asFloat((std::size_t)npix, 1.f);
+    std::vector<double> floatTwin((std::size_t)npix, 1.);
+    for (std::size_t k = 0; k < sizeof(fvalues) / sizeof(fvalues[0]); ++k) {
+      asFloat[17 + k] = fvalues[k];
+      floatTwin[17 + k] = (double)fvalues[k];
+    }
+    const std::string fileE = temporary("rule_E.fits");
+    check(write_typed_map(fileE, "1024E", TFLOAT, asFloat.data(), npix, "RING", kNside) == 0,
+          "the E map is written");
+    check(disagreements(Mask(fileE), Mask(floatTwin, PixelOrdering::Ring)) == 0,
+          "an E column gives the same mask as its values in memory");
+    std::remove(fileE.c_str());
+
+    // J, with -999 as TNULL: a null pixel is unobserved.
+    const long long tnull = -999;
+    const int ivalues[] = {1, 0, -1, 7, -999, 2147483647, -2147483647 - 1};
+    std::vector<int> asInt((std::size_t)npix, 1);
+    std::vector<double> intTwin((std::size_t)npix, 1.);
+    for (std::size_t k = 0; k < sizeof(ivalues) / sizeof(ivalues[0]); ++k) {
+      asInt[17 + k] = ivalues[k];
+      intTwin[17 + k] = ivalues[k] == -999 ? nan : (double)ivalues[k];
+    }
+    const std::string fileJ = temporary("rule_J.fits");
+    check(write_typed_map(fileJ, "1024J", TINT, asInt.data(), npix, "RING", kNside, &tnull) == 0,
+          "the J map is written");
+    const Mask fromJ(fileJ);
+    check(disagreements(fromJ, Mask(intTwin, PixelOrdering::Ring)) == 0,
+          "a J column gives the same mask as its values in memory");
+    const pointing nullPixel = base.pix2ang(17 + 4);
+    check(!fromJ.allows(nullPixel.phi, kPi/2. - nullPixel.theta),
+          "a J null pixel is unobserved");
+    std::remove(fileJ.c_str());
+
+    // B: bytes 0 and 1.
+    std::vector<unsigned char> asByte((std::size_t)npix, 1);
+    std::vector<double> byteTwin((std::size_t)npix, 1.);
+    for (long p = 0; p < npix; p += 5) { asByte[(std::size_t)p] = 0; byteTwin[(std::size_t)p] = 0.; }
+    const std::string fileB = temporary("rule_B.fits");
+    check(write_typed_map(fileB, "1024B", TBYTE, asByte.data(), npix, "RING", kNside) == 0,
+          "the B map is written");
+    check(disagreements(Mask(fileB), Mask(byteTwin, PixelOrdering::Ring)) == 0,
+          "a B column gives the same mask as its values in memory");
+    std::remove(fileB.c_str());
+  }
+
+  group("the in-memory and FITS forms give the same mask, RING and NESTED, at NSIDE 16, 64 "
+        "and 256, rejectMaskCrossings included; the ordering is honoured");
+  {
+    unsigned seed = 50;
+    for (const int nside : {16, 64, 256}) {
+      const std::size_t n = 12 * (std::size_t)nside * (std::size_t)nside;
+      const std::vector<double> values = mixed_values(n, seed);
+      const std::string label = "NSIDE " + std::to_string(nside);
+
+      const Mask ring(values, PixelOrdering::Ring), nested(values, PixelOrdering::Nested);
+      for (const bool nest : {false, true}) {
+        const std::string file = temporary("twin.fits");
+        check(write_typed_map(file, "1024D", TDOUBLE, values.data(), (long)n,
+                              nest ? "NESTED" : "RING", nside) == 0, label + ": the map is written");
+        const Mask fits(file);
+        std::remove(file.c_str());
+        const Mask& memory = nest ? nested : ring;
+        const std::string what = label + (nest ? " NESTED" : " RING");
+        check(memory.nside() == nside, what + ": NSIDE follows from the length");
+        check(disagreements(fits, memory) == 0,
+              what + ": NSIDE, the sky area and allows are the same in both forms");
+        check(filter_disagreements(fits, memory, seed + (nest ? 1 : 0)) == 0,
+              what + ": rejectMaskCrossings decides the same for both forms");
+      }
+      check(disagreements(ring, nested) > 1000,
+            label + ": the same values read as RING and as NESTED give different masks");
+      ++seed;
+    }
+
+    const std::vector<double> twelve = {1., 0., 1., 1., 0.5, 1., 1., -1., 1., 1., 1., 1.};
+    const Mask one(twelve, PixelOrdering::Nested);
+    check(one.nside() == 1, "12 values make an NSIDE 1 map");
+    check_close(one.skyAreaDeg2(), 4. * kPi * (180./kPi) * (180./kPi) * 10. / 12., 1.e-9,
+                "and its sky area counts its 10 observed pixels");
+  }
+
+  group("NSIDE: 12 NSIDE^2 values, NSIDE at most 2^29 and a power of 2 for NESTED, "
+        "checked before anything is read or allocated; the same in both forms");
+  {
+    for (const std::size_t n : {12u, 48u, 192u, 108u})
+      for (const PixelOrdering o : {PixelOrdering::Ring, PixelOrdering::Nested}) {
+        const std::string what = std::to_string(n) + " values in " +
+                                 (o == PixelOrdering::Ring ? "RING" : "NESTED");
+        if (n == 108 && o == PixelOrdering::Nested) {
+          check_throws([&] { const Mask m(std::vector<double>(n, 1.), o); (void)m; },
+                       what + " (NSIDE 3) is refused: NESTED needs a power of 2");
+          continue;
+        }
+        const Mask m(std::vector<double>(n, 1.), o);
+        check(m.nside() * m.nside() * 12 == (int)n, what + " are accepted, with their NSIDE");
+      }
+
+    for (const std::size_t n : {0u, 11u, 13u, 24u})
+      check_throws([&] { const Mask m(std::vector<double>(n, 1.), PixelOrdering::Ring); (void)m; },
+                   std::to_string(n) + " values are not 12 NSIDE^2 and are refused");
+
+    check_throws([] { const Mask m(nullptr, 12, PixelOrdering::Ring); (void)m; },
+                 "a null pointer is refused");
+    check_throws([] {
+                   const Mask m(std::vector<double>(12, 1.), static_cast<PixelOrdering>(7));
+                   (void)m;
+                 }, "an ordering that is neither enumerator is refused");
+
+    // Lengths far beyond memory: the check fires before a value is read
+    // (the pointer holds one) or a byte allocated.
+    const double one = 1.;
+    for (const std::uint64_t nside : {(std::uint64_t(1) << 29) + 1, std::uint64_t(1) << 30})
+      for (const PixelOrdering o : {PixelOrdering::Ring, PixelOrdering::Nested})
+        check_throws([&] {
+                       const Mask m(&one, (std::size_t)(12 * nside * nside), o);
+                       (void)m;
+                     }, "NSIDE " + std::to_string(nside) + " is refused by length, above 2^29");
+
+    // From FITS: NSIDE 48 fills 27 rows of 1024, so it can be written in
+    // the layout; RING is read, NESTED refused with otswap's Error.
+    const std::size_t n48 = 12 * 48 * 48;
+    const std::vector<double> ones(n48, 1.);
+    const std::string file = temporary("nside48.fits");
+    for (const bool nest : {false, true}) {
+      check(write_typed_map(file, "1024D", TDOUBLE, ones.data(), (long)n48,
+                            nest ? "NESTED" : "RING", 48) == 0, "the NSIDE 48 map is written");
+      if (nest)
+        check_throws([&] { const Mask m(file); (void)m; },
+                     "a NESTED FITS map of NSIDE 48 is refused, with otswap's Error");
+      else
+        check(Mask(file).nside() == 48, "a RING FITS map of NSIDE 48 is read");
+    }
+
+    // A header NSIDE above 2^29 is refused before the table is read.
+    for (const long long nside : {(1LL << 29) + 1, 1LL << 30, -16LL}) {
+      check(write_typed_map(file, "1024D", TDOUBLE, ones.data(), 3072, "RING", nside) == 0,
+            "the map with a header NSIDE of " + std::to_string(nside) + " is written");
+      check_throws([&] { const Mask m(file); (void)m; },
+                   "a header NSIDE of " + std::to_string(nside) + " is refused");
+    }
+    std::remove(file.c_str());
+  }
+
+  group("a FITS map longer than one block of 64 rows, not a multiple of it, reads as "
+        "the same values in memory");
+  {
+    // NSIDE 96: 110,592 pixels in 108 rows, one block of 64 and one of 44.
+    const std::size_t n = 12 * 96 * 96;
+    const std::vector<double> values = mixed_values(n, 77);
+    const std::string file = temporary("blocks.fits");
+    check(write_typed_map(file, "1024D", TDOUBLE, values.data(), (long)n, "RING", 96) == 0,
+          "the NSIDE 96 map is written");
+    const Mask fits(file), memory(values, PixelOrdering::Ring);
+    std::remove(file.c_str());
+    check(disagreements(fits, memory) == 0, "both forms give the same mask");
+
+    long nObserved = 0;
+    for (const double v : values) if (v > 0.) ++nObserved;
+    check(fits.skyAreaDeg2() == 4. * kPi * (180./kPi) * (180./kPi) * (double)nObserved / (double)n,
+          "and the sky area counts every observed pixel of both blocks");
+  }
+
+  group("the values are read once and not kept");
+  {
+    std::vector<double> values = mixed_values(12 * 16 * 16, 91);
+    const std::vector<double> original = values;
+    const Mask mask(values, PixelOrdering::Ring);
+    std::fill(values.begin(), values.end(), 0.);
+    check(disagreements(mask, Mask(original, PixelOrdering::Ring)) == 0,
+          "changing the source values afterwards changes nothing");
   }
 
   group("allows refuses a direction that is not one, with otswap's Error");
