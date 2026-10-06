@@ -354,10 +354,26 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
       throw Error("the result is malformed: valid holds " + std::to_string(result.valid[k]) +
                   " at entry " + std::to_string(k) + "; every entry must be 0 or 1");
 
-  for (std::size_t k = 0; k < expected; ++k)
-    if (!std::isfinite(result.displacement[k]) || !std::isfinite(result.matchedRandom[k]))
-      throw Error("the result is malformed: a non-finite coordinate at entry " +
-                  std::to_string(k));
+  // Tracers outside a redshift cut took no part in the reconstruction:
+  // their rows are NaN and never valid, and the filter leaves them alone.
+  const std::vector<std::uint8_t>& cut = result.outsideRedshiftCut;
+  if (!cut.empty() && cut.size() != nObjects)
+    throw Error("the result is malformed: outsideRedshiftCut holds " + std::to_string(cut.size()) +
+                " entries for " + std::to_string(nObjects) + " objects");
+
+  for (std::size_t k = 0; k < nDisplacements; ++k) {
+    const std::size_t i = k % nObjects;
+    if (!cut.empty() && cut[i] != 0) {
+      if (result.valid[k] != 0)
+        throw Error("the result is malformed: object " + std::to_string(i) + " lies outside the "
+                    "redshift cut but has a valid displacement at entry " + std::to_string(k));
+      continue;
+    }
+    for (std::size_t c = 0; c < 3; ++c)
+      if (!std::isfinite(result.displacement[3*k+c]) || !std::isfinite(result.matchedRandom[3*k+c]))
+        throw Error("the result is malformed: a non-finite coordinate at entry " +
+                    std::to_string(3*k+c));
+  }
 
   if (result.filteredNside != 0 && result.filteredNside != mask.nside())
     throw Error("this result was already filtered against a mask of NSIDE " +

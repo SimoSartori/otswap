@@ -24,6 +24,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -141,13 +142,16 @@ def compute():
     randoms = box_points(4 * 600, 100.0, 22)
     mps = 11.85                         # (100^3 / 600)^(1/3), written out: no libm
     for label, given in (("generated", None), ("given", randoms)):
-        r = otswap.reconstruct_box(tracers, given, mps=mps, n_realizations=3, seed=12345)
-        out[f"reconstruct_box.{label}.displacement"] = digest(r.displacement)
-        out[f"reconstruct_box.{label}.mean_displacement"] = digest(r.mean_displacement)
+        box = otswap.reconstruct_box(tracers, given, mps=mps, n_realizations=3, seed=12345)
+        out[f"reconstruct_box.{label}.displacement"] = digest(box.displacement)
+        out[f"reconstruct_box.{label}.mean_displacement"] = digest(box.mean_displacement)
 
-    r = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0, n_bins=2,
-                                     distances=lc_table, angle_unit="deg", n_realizations=3,
-                                     seed=6789)
+    def lightcone():
+        return otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0,
+                                            n_bins=2, distances=lc_table, angle_unit="deg",
+                                            n_realizations=3, seed=6789)
+
+    r = lightcone()
     out["reconstruct_lightcone.displacement"] = digest(r.displacement)
     out["reconstruct_lightcone.mean_displacement"] = digest(r.mean_displacement)
 
@@ -160,10 +164,73 @@ def compute():
         grid_ra, grid_dec = np.meshgrid(ra, dec)
         out["mask.allows"] = digest(mask.allows(grid_ra, grid_dec, angle_unit="deg"))
 
-        for limit in (2, 0):
-            otswap.reject_mask_crossings(r, mask, limit)
-            out[f"reject_mask_crossings.{limit}.valid"] = digest(r.valid)
-            out[f"reject_mask_crossings.{limit}.mean_displacement"] = digest(r.mean_displacement)
+        otswap.reject_mask_crossings(r, mask, 0)
+        out["reject_mask_crossings.0.valid"] = digest(r.valid)
+        out["reject_mask_crossings.0.mean_displacement"] = digest(r.mean_displacement)
+
+        # A limit of 2 on a finer mask, where arcs cross enough pixels for
+        # it to reject some displacements and keep others.
+        fine = otswap.Mask(write_mask(Path(tmp) / "fine.fits", 256))
+        r2 = lightcone()
+        otswap.reject_mask_crossings(r2, fine, 2)
+        assert r2.valid.any() and not r2.valid.all(), \
+            "the limit-2 case must reject some displacements and keep others"
+        out["reject_mask_crossings.2.valid"] = digest(r2.valid)
+        out["reject_mask_crossings.2.mean_displacement"] = digest(r2.mean_displacement)
+
+    # The redshift-space correction, on the lightcone filtered at limit 0,
+    # whose tracers without a valid realization exercise the NaN paths, and
+    # on the box reconstructed from given randoms. The bias table is
+    # narrower than the tracers' redshifts, so b(z) is extrapolated.
+    bias_z, bias = [0.35, 0.55], [1.3, 1.7]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", otswap.ExtrapolationWarning)
+
+        positions = otswap.to_cartesian(tracers_sky, lc_table, angle_unit="deg")
+        radial = otswap.line_of_sight_projection(r.mean_displacement, positions=positions)
+        along = otswap.line_of_sight_projection(box.mean_displacement, axis=2)
+        out["rsd.projection.radial"] = digest(radial)
+        out["rsd.projection.axis"] = digest(along)
+
+        average, n_neighbours, n_realizations = otswap.neighbour_average(
+            positions, radial, r.valid_realizations, sigma=10.0, diagnostics=True)
+        out["rsd.neighbour_average"] = digest(average)
+        out["rsd.neighbour_average.n_neighbours"] = digest(n_neighbours)
+        out["rsd.neighbour_average.n_realizations"] = digest(n_realizations)
+        out["rsd.neighbour_average.weighted"] = digest(otswap.neighbour_average(
+            positions, radial, r.valid_realizations, sigma=10.0, weight_by_realizations=True))
+
+        factor = otswap.rsd_factor(tracers_sky[:, 2], lc_table, bias_redshift=bias_z, bias=bias)
+        out["rsd.factor"] = digest(factor)
+        out["rsd.factor_box"] = digest([otswap.rsd_factor_box(0.5, lc_table, bias=1.5)])
+
+        out["rsd.shift.radial"] = digest(otswap.shift_along_line_of_sight(positions, factor * average))
+        out["rsd.shift.axis"] = digest(otswap.shift_along_line_of_sight(tracers, 0.4 * along, axis=2))
+
+        for sigma, weighted in ((0.0, False), (10.0, False), (10.0, True)):
+            c = otswap.real_space_lightcone(r, tracers_sky, distances=lc_table, bias_redshift=bias_z,
+                                            bias=bias, sigma=sigma, angle_unit="deg",
+                                            weight_by_realizations=weighted)
+            key = f"rsd.real_space_lightcone.{sigma:g}.{'weighted' if weighted else 'plain'}"
+            out[key + ".positions"] = digest(c.positions)
+            out[key + ".n_neighbours"] = digest(c.n_neighbours)
+            out[key + ".uncorrected"] = digest(c.uncorrected)
+
+        cut = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0,
+                                           n_bins=2, distances=lc_table, angle_unit="deg",
+                                           n_realizations=3, seed=6789, redshift_cut=(0.35, 0.55))
+        out["reconstruct_lightcone.cut.displacement"] = digest(cut.displacement)
+        out["reconstruct_lightcone.cut.outside_redshift_cut"] = digest(cut.outside_redshift_cut)
+        c = otswap.real_space_lightcone(cut, tracers_sky, distances=lc_table, bias_redshift=bias_z,
+                                        bias=bias, sigma=10.0, angle_unit="deg")
+        out["rsd.real_space_lightcone.cut.positions"] = digest(c.positions)
+
+        for sigma, weighted in ((0.0, False), (8.0, False), (8.0, True)):
+            c = otswap.real_space_box(box, tracers, axis=2, redshift=0.5, distances=lc_table,
+                                      bias=1.5, sigma=sigma, weight_by_realizations=weighted)
+            key = f"rsd.real_space_box.{sigma:g}.{'weighted' if weighted else 'plain'}"
+            out[key + ".positions"] = digest(c.positions)
+            out[key + ".n_neighbours"] = digest(c.n_neighbours)
 
     return out
 
@@ -194,9 +261,11 @@ def test_hashes_match_the_reference():
     expected = json.loads(REFERENCE.read_text())["hashes"]
     for threads in THREADS:
         got = compute_with_threads(threads)
-        differ = sorted(k for k in expected if got.get(k) != expected[k])
-        assert set(got) == set(expected), "the cases differ from the recorded ones"
+        differ = sorted(k for k in expected if k in got and got[k] != expected[k])
         assert not differ, f"with {threads} threads these outputs changed: {differ}"
+        assert set(got) == set(expected), (
+            f"the cases differ from the recorded ones: new {sorted(set(got) - set(expected))}, "
+            f"gone {sorted(set(expected) - set(got))}")
 
 
 if __name__ == "__main__":

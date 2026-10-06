@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -46,7 +47,9 @@ namespace otswap {
 
   /// Base class of every exception otswap throws on invalid input or
   /// failure. std::bad_alloc is not converted, and propagates unchanged,
-  /// from inside a parallel region too.
+  /// from inside a parallel region too. The neighbour search of the
+  /// redshift-space correction raises meshsearch::Error, a
+  /// std::runtime_error, for positions that span no volume.
   class Error : public std::runtime_error {
   public:
     explicit Error (const std::string& what) : std::runtime_error(what) {}
@@ -138,6 +141,27 @@ namespace otswap {
     /// it has not been filtered. Set by rejectMaskCrossings, which refuses
     /// to filter the same result against a mask of a different NSIDE.
     int filteredNside = 0;
+
+    /// Whether each tracer lay outside the redshift cut of
+    /// reconstructLightcone and so took no part in the reconstruction:
+    /// 1 for such a tracer, 0 otherwise. Flat, [object]. Size nObjects, all
+    /// 0 when no cut was given and in a box result.
+    ///
+    /// A cut tracer has NaN in every component of its displacement and
+    /// matchedRandom rows, valid 0 in every realization, validRealizations
+    /// 0 and meanDisplacement NaN. No filter changes the flag. A Result
+    /// built by hand may leave the field empty, which every function reads
+    /// as all 0.
+    std::vector<std::uint8_t> outsideRedshiftCut;
+  };
+
+  /**
+   *  @brief A closed redshift range for reconstructLightcone. The default,
+   *  (-inf, +inf), cuts nothing.
+   */
+  struct RedshiftCut {
+    double min = -std::numeric_limits<double>::infinity();
+    double max =  std::numeric_limits<double>::infinity();
   };
 
   // ==========================================================================
@@ -315,6 +339,9 @@ namespace otswap {
    *  validRealizations is uniformly config.nRealizations, and
    *  meanDisplacement is the mean over all realizations.
    *
+   *  @note The box is not periodic: nothing flows through its faces, so
+   *  modes on the scale of the box itself cannot be reconstructed.
+   *
    *  @note Given a seed, the result does not depend on the number of
    *  threads. The assignment of given randoms to realizations, and in
    *  each realization the random draw, the seeding pass and the swap
@@ -378,19 +405,29 @@ namespace otswap {
    *
    *  @param nBins redshift bins used to measure mps(z).
    *
+   *  @param cut tracers and randoms whose redshift lies outside
+   *  [cut.min, cut.max] are left out of the reconstruction, before
+   *  anything else: the randoms are dropped, and the tracers keep their
+   *  row, flagged in Result::outsideRedshiftCut. mps(z) is measured on the
+   *  tracers kept, and only their redshifts need lie in the distance
+   *  table. The default cuts nothing.
+   *
    *  @exception Error if a bin holds too few tracers for its density to
    *  be meaningful; the message reports how many bins the catalog
    *  supports. Also if the profile extrapolates to a mps that is not
    *  positive at a tracer's redshift, if any array is malformed, if the
    *  randoms are too few, or if a redshift falls outside the distance
-   *  table.
+   *  table. Also if a bound of the cut is NaN or min > max, or if too few
+   *  tracers or randoms remain inside it; the message gives the counts
+   *  kept and dropped.
    */
   Result reconstructLightcone (const std::vector<double>& tracersSky,
                                const std::vector<double>& randomsSky,
                                double skyAreaDeg2,
                                unsigned nBins,
                                const DistanceTable& distances,
-                               const Config& config);
+                               const Config& config,
+                               const RedshiftCut& cut = {});
 
   /**
    *  @brief Reconstruct in lightcone geometry, with the Cartesian
@@ -403,6 +440,9 @@ namespace otswap {
    *
    *  @param tracers Cartesian coordinates, 3 * nObjects entries.
    *  @param randoms Cartesian coordinates of the randoms.
+   *
+   *  @param cut as above, decided on the sky redshifts; the same rows are
+   *  dropped from the Cartesian arrays.
    *
    *  @exception Error as above, and if the Cartesian and sky arrays
    *  describe a different number of objects.
@@ -419,7 +459,8 @@ namespace otswap {
                                double skyAreaDeg2,
                                unsigned nBins,
                                const DistanceTable& distances,
-                               const Config& config);
+                               const Config& config,
+                               const RedshiftCut& cut = {});
 
   // ==========================================================================
   // Filtering
@@ -458,7 +499,13 @@ namespace otswap {
    *  on NSIDE: the same arc crosses about twice as many pixels when NSIDE
    *  doubles, and the same threshold is a different criterion.
    *
-   *  @exception Error if the result is malformed, if an entry of valid is
+   *  A tracer flagged in Result::outsideRedshiftCut is left as it is:
+   *  its displacement and matchedRandom rows may be NaN, and its entries of
+   *  valid must be 0. Every other displacement must be finite.
+   *
+   *  @exception Error if the result is malformed (including a NaN outside
+   *  the cut tracers' rows, a cut tracer with a valid entry, or a flag
+   *  array whose size is neither 0 nor nObjects), if an entry of valid is
    *  neither 0 nor 1, or if the result was already filtered against a
    *  mask of a different NSIDE.
    */
@@ -525,5 +572,8 @@ namespace otswap {
   }
 
 }
+
+// The redshift-space correction, declared over the types above.
+#include "otswap/RSD.h"
 
 #endif

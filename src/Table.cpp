@@ -425,3 +425,29 @@ void otswap::io::write (const std::string& file, const std::vector<Column>& colu
   if (is_fits(file)) write_fits(file, columns, nRows, fillRow);
   else               write_ascii(file, columns, nRows, fillRow);
 }
+
+
+// ============================================================================
+
+
+otswap::io::BiasTable otswap::io::readBiasTable (const std::string& file,
+                                                 const char delimiter, const char comment)
+{
+  const std::vector<std::string> columns = is_fits(file)
+    ? std::vector<std::string>{"REDSHIFT", "BIAS"}
+    : std::vector<std::string>{"0", "1"};
+  const Table table = read(file, columns, delimiter, comment);
+
+  BiasTable bias;
+  bias.redshift.resize(table.nRows);
+  bias.bias.resize(table.nRows);
+  for (std::size_t r = 0; r < table.nRows; ++r) {
+    bias.redshift[r] = table.values[2*r];
+    bias.bias[r] = table.values[2*r+1];
+  }
+
+  // Rows are counted from 1 over the data, comments and blank lines left out.
+  internal::check_bias_table(bias.redshift, bias.bias, "the bias table " + file, "data row", 1);
+
+  return bias;
+}

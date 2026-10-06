@@ -35,8 +35,10 @@
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */
 
+#include <cmath>
 #include <cstdint>
 #include <initializer_list>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -53,6 +55,8 @@ using namespace nb::literals;
 // bytes of the C++ result.
 static_assert(sizeof(unsigned) == 4, "valid_realizations is exposed as uint32");
 static_assert(sizeof(bool) == 1 && sizeof(std::uint8_t) == 1, "valid is exposed as bool");
+// uncorrected is exposed as int64 over the size_t indices of the C++ catalogue.
+static_assert(sizeof(std::size_t) == 8, "uncorrected is exposed as int64");
 
 namespace {
 
@@ -137,6 +141,28 @@ namespace {
     return (unsigned)v;
   }
 
+  bool to_bool (nb::handle value, const std::string& name)
+  {
+    if (!PyBool_Check(value.ptr()))
+      throw otswap::Error(name + " must be True or False; got " + repr_of(value));
+    return value.ptr() == Py_True;
+  }
+
+  // A one-dimensional array of counts: each entry an integer in
+  // [0, 4294967295].
+  std::vector<unsigned> counts (nb::handle value, const std::string& name)
+  {
+    const std::vector<double> c = column(value, name);
+    std::vector<unsigned> out(c.size());
+    for (std::size_t i = 0; i < c.size(); ++i) {
+      if (!(c[i] >= 0. && c[i] <= 4294967295.) || c[i] != std::floor(c[i]))
+        throw otswap::Error(name + " holds " + std::to_string(c[i]) + " at entry " +
+                            std::to_string(i) + "; every entry must be an integer in [0, 4294967295]");
+      out[i] = (unsigned)c[i];
+    }
+    return out;
+  }
+
   std::string to_string (nb::handle value, const std::string& name)
   {
     if (!nb::isinstance<nb::str>(value))
@@ -172,6 +198,20 @@ namespace {
       sky[i]   *= kDegToRad;
       sky[i+1] *= kDegToRad;
     }
+  }
+
+  // None, or a (min, max) pair.
+  otswap::RedshiftCut to_cut (nb::handle value)
+  {
+    otswap::RedshiftCut cut;
+    if (value.is_none()) return cut;
+    const std::vector<double> c = column(value, "redshift_cut");
+    if (c.size() != 2)
+      throw otswap::Error("redshift_cut must be a (min, max) pair; it holds " +
+                          std::to_string(c.size()) + " values");
+    cut.min = c[0];
+    cut.max = c[1];
+    return cut;
   }
 
   otswap::Config make_config (nb::handle nRealizations, nb::handle convergence,
@@ -222,7 +262,27 @@ namespace {
     return nb::ndarray<nb::numpy, const T>(data, shape, owner);
   }
 
+  // ------------------------------------------------------------- warnings
+
+  // otswap.ExtrapolationWarning, created with the module.
+  PyObject* extrapolation_warning = nullptr;
+
+  // Raise one ExtrapolationWarning for a call that extrapolated b(z) at
+  // count of total redshifts. Needs the GIL.
+  void warn_extrapolation (const std::size_t count, const std::size_t total,
+                           const std::vector<double>& biasRedshift)
+  {
+    if (count == 0) return;
+    std::ostringstream message;
+    message << "b(z) extrapolated at " << count << " of " << total
+            << " redshifts, outside the bias table's range [" << biasRedshift.front() << ", "
+            << biasRedshift.back() << "]";
+    if (PyErr_WarnEx(extrapolation_warning, message.str().c_str(), 1) < 0)
+      throw nb::python_error();
+  }
+
   using ResultHandle = nb::handle_t<otswap::Result>;
+  using CatalogHandle = nb::handle_t<otswap::RealSpaceCatalog>;
 
   const otswap::Result& result_of (ResultHandle self)
   {
@@ -239,6 +299,12 @@ NB_MODULE(_otswap, m)
 
   nb::exception<otswap::Error> error(m, "Error", PyExc_RuntimeError);
   error.attr("__doc__") = "Raised by every otswap function on invalid input or failure.";
+
+  extrapolation_warning = PyErr_NewExceptionWithDoc(
+    "otswap._otswap.ExtrapolationWarning",
+    "Issued when b(z) is extrapolated beyond its table.", PyExc_UserWarning, nullptr);
+  if (extrapolation_warning == nullptr) throw nb::python_error();
+  m.attr("ExtrapolationWarning") = nb::handle(extrapolation_warning);
 
   // ------------------------------------------------------------------ Result
 
@@ -269,7 +335,12 @@ NB_MODULE(_otswap, m)
         return view<double>(self, r.meanDisplacement.data(), {r.nObjects, 3});
       }, "Displacement averaged over the valid realizations, shape (n_objects, 3).")
     .def_prop_ro("filtered_nside", [] (ResultHandle self) { return result_of(self).filteredNside; },
-                 "NSIDE of the mask the result was filtered against, 0 if none.");
+                 "NSIDE of the mask the result was filtered against, 0 if none.")
+    .def_prop_ro("outside_redshift_cut", [] (ResultHandle self) {
+        const otswap::Result& r = result_of(self);
+        return view<bool>(self, reinterpret_cast<const bool*>(r.outsideRedshiftCut.data()),
+                          {r.nObjects});
+      }, "Whether each tracer lay outside the redshift cut, shape (n_objects,).");
 
   // ----------------------------------------------------------- DistanceTable
 
@@ -384,7 +455,8 @@ NB_MODULE(_otswap, m)
   m.def("reconstruct_lightcone",
       [] (nb::handle tracersSky, nb::handle randomsSky, nb::handle skyAreaDeg2, nb::handle nBins,
           nb::handle distances, nb::handle angleUnit, nb::handle tracers, nb::handle randoms,
-          nb::handle nRealizations, nb::handle convergence, nb::handle seed, nb::handle cellSize) {
+          nb::handle nRealizations, nb::handle convergence, nb::handle seed, nb::handle cellSize,
+          nb::handle redshiftCut) {
         const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
         const bool degrees = in_degrees(angleUnit);
         std::vector<double> ts = rows3(tracersSky, "tracers_sky");
@@ -395,19 +467,20 @@ NB_MODULE(_otswap, m)
         const double area = to_double(skyAreaDeg2, "sky_area_deg2");
         const unsigned bins = to_unsigned(nBins, "n_bins");
         const otswap::Config config = make_config(nRealizations, convergence, seed, cellSize);
+        const otswap::RedshiftCut cut = to_cut(redshiftCut);
         if (tracers.is_none()) {
           nb::gil_scoped_release released;
-          return otswap::reconstructLightcone(ts, rs, area, bins, table, config);
+          return otswap::reconstructLightcone(ts, rs, area, bins, table, config, cut);
         }
         const std::vector<double> t = rows3(tracers, "tracers");
         const std::vector<double> r = rows3(randoms, "randoms");
         nb::gil_scoped_release released;
-        return otswap::reconstructLightcone(t, r, ts, rs, area, bins, table, config);
+        return otswap::reconstructLightcone(t, r, ts, rs, area, bins, table, config, cut);
       },
       "tracers_sky"_a.none(), "randoms_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a.none(),
       "n_bins"_a.none(), "distances"_a.none(), "angle_unit"_a.none(), "tracers"_a = nb::none(),
       "randoms"_a = nb::none(), "n_realizations"_a.none() = 1, "convergence"_a.none() = 1.e-3,
-      "seed"_a.none() = 0, "cell_size"_a.none() = 4.,
+      "seed"_a.none() = 0, "cell_size"_a.none() = 4., "redshift_cut"_a = nb::none(),
       "Reconstruct in lightcone geometry.");
 
   m.def("reject_mask_crossings",
@@ -421,4 +494,175 @@ NB_MODULE(_otswap, m)
       "result"_a.none(), "mask"_a.none(), "max_forbidden_pixels"_a.none() = 0,
       "Mark as invalid the displacements whose path crosses more than max_forbidden_pixels "
       "distinct unobserved pixels of the mask. Updates result in place.");
+
+  // ----------------------------------------------- Redshift-space correction
+
+  nb::class_<otswap::RealSpaceCatalog>(m, "RealSpaceCatalog",
+      "A catalogue moved to real space; row i describes input object i.")
+    .def_prop_ro("n_objects", [] (CatalogHandle self) {
+        return nb::cast<const otswap::RealSpaceCatalog&>(self).nObjects;
+      })
+    .def_prop_ro("positions", [] (CatalogHandle self) {
+        const auto& c = nb::cast<const otswap::RealSpaceCatalog&>(self);
+        return view<double>(self, c.positions.data(), {c.nObjects, 3});
+      }, "Corrected positions, shape (n_objects, 3); NaN rows for the uncorrected.")
+    .def_prop_ro("n_neighbours", [] (CatalogHandle self) {
+        const auto& c = nb::cast<const otswap::RealSpaceCatalog&>(self);
+        return view<std::uint32_t>(self, reinterpret_cast<const std::uint32_t*>(c.nNeighbours.data()),
+                                   {c.nObjects});
+      }, "Valid tracers averaged for each tracer, shape (n_objects,).")
+    .def_prop_ro("n_realizations_averaged", [] (CatalogHandle self) {
+        const auto& c = nb::cast<const otswap::RealSpaceCatalog&>(self);
+        return view<std::uint32_t>(self, reinterpret_cast<const std::uint32_t*>(c.nRealizationsAveraged.data()),
+                                   {c.nObjects});
+      }, "Sum of the valid realizations of those tracers, shape (n_objects,).")
+    .def_prop_ro("uncorrected", [] (CatalogHandle self) -> nb::object {
+        const auto& c = nb::cast<const otswap::RealSpaceCatalog&>(self);
+        if (c.uncorrected.empty())
+          return nb::module_::import_("numpy").attr("empty")(0, "dtype"_a = "int64");
+        return nb::cast(view<std::int64_t>(self, reinterpret_cast<const std::int64_t*>(c.uncorrected.data()),
+                                           {c.uncorrected.size()}));
+      }, "Indices of the tracers left without a correction, increasing.");
+
+  m.def("line_of_sight_projection",
+      [] (nb::handle displacement, nb::handle positions, nb::handle axis) {
+        const std::vector<double> d = rows3(displacement, "displacement");
+        if (positions.is_none() == axis.is_none())
+          throw otswap::Error("give exactly one of positions, for a radial line of sight, "
+                              "and axis, for a box");
+        std::vector<double> out;
+        if (!axis.is_none()) {
+          out = otswap::lineOfSightProjection(d, to_unsigned(axis, "axis"));
+        }
+        else {
+          const std::vector<double> p = rows3(positions, "positions");
+          out = otswap::lineOfSightProjection(p, d);
+        }
+        const std::size_t n = out.size();
+        return owned(std::move(out), {n});
+      },
+      "displacement"_a.none(), nb::kw_only(), "positions"_a = nb::none(), "axis"_a = nb::none(),
+      "Component of each displacement along its line of sight, shape (N,).");
+
+  m.def("neighbour_average",
+      [] (nb::handle positions, nb::handle values, nb::handle validRealizations, nb::handle sigma,
+          nb::handle weightByRealizations, nb::handle diagnostics) -> nb::object {
+        const std::vector<double> p = rows3(positions, "positions");
+        const std::vector<double> v = column(values, "values");
+        const std::vector<unsigned> r = counts(validRealizations, "valid_realizations");
+        const double s = to_double(sigma, "sigma");
+        const bool weight = to_bool(weightByRealizations, "weight_by_realizations");
+        const bool withDiagnostics = to_bool(diagnostics, "diagnostics");
+        std::vector<double> average;
+        std::vector<unsigned> nNeighbours, nRealizations;
+        {
+          nb::gil_scoped_release released;
+          average = otswap::neighbourAverage(p, v, r, s, weight, nNeighbours, nRealizations);
+        }
+        const std::size_t n = average.size();
+        nb::object a = nb::cast(owned(std::move(average), {n}));
+        if (!withDiagnostics) return a;
+        return nb::make_tuple(a, owned(std::move(nNeighbours), {n}), owned(std::move(nRealizations), {n}));
+      },
+      "positions"_a.none(), "values"_a.none(), "valid_realizations"_a.none(), nb::kw_only(),
+      "sigma"_a.none(), "weight_by_realizations"_a.none() = false, "diagnostics"_a.none() = false,
+      "Gaussian average of values over the valid neighbours of each object.");
+
+  m.def("rsd_factor",
+      [] (nb::handle redshift, nb::handle distances, nb::handle biasRedshift, nb::handle bias) {
+        const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
+        const std::vector<double> z = column(redshift, "redshift");
+        const std::vector<double> zb = column(biasRedshift, "bias_redshift");
+        const std::vector<double> b = column(bias, "bias");
+        std::size_t nExtrapolated = 0;
+        std::vector<double> factor;
+        {
+          nb::gil_scoped_release released;
+          factor = otswap::rsdFactor(z, table, zb, b, nExtrapolated);
+        }
+        warn_extrapolation(nExtrapolated, z.size(), zb);
+        const std::size_t n = factor.size();
+        return owned(std::move(factor), {n});
+      },
+      "redshift"_a.none(), "distances"_a.none(), nb::kw_only(), "bias_redshift"_a.none(),
+      "bias"_a.none(),
+      "The factor f/(b + 3f/5) at each redshift; warns ExtrapolationWarning once when b(z) "
+      "is extrapolated.");
+
+  m.def("rsd_factor_box",
+      [] (nb::handle redshift, nb::handle distances, nb::handle bias) {
+        const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
+        return otswap::rsdFactorBox(to_double(redshift, "redshift"), table, to_double(bias, "bias"));
+      },
+      "redshift"_a.none(), "distances"_a.none(), nb::kw_only(), "bias"_a.none(),
+      "The factor f/(b + 3f/5) of a box at a single redshift, with a constant bias.");
+
+  m.def("shift_along_line_of_sight",
+      [] (nb::handle positions, nb::handle shift, nb::handle axis) {
+        const std::vector<double> p = rows3(positions, "positions");
+        const std::vector<double> s = column(shift, "shift");
+        std::vector<double> out = axis.is_none()
+          ? otswap::shiftAlongLineOfSight(p, s)
+          : otswap::shiftAlongLineOfSight(p, s, to_unsigned(axis, "axis"));
+        const std::size_t n = out.size() / 3;
+        return owned(std::move(out), {n, 3});
+      },
+      "positions"_a.none(), "shift"_a.none(), nb::kw_only(), "axis"_a = nb::none(),
+      "Move each position by its shift along its line of sight, or along an axis.");
+
+  m.def("real_space_lightcone",
+      [] (nb::handle result, nb::handle tracersSky, nb::handle distances, nb::handle biasRedshift,
+          nb::handle bias, nb::handle sigma, nb::handle angleUnit, nb::handle weightByRealizations) {
+        const otswap::Result& r = instance<otswap::Result>(result, "result", "Result");
+        const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
+        const bool degrees = in_degrees(angleUnit);
+        const std::vector<double> given = rows3(tracersSky, "tracers_sky");
+        std::vector<double> ts = given;
+        if (degrees) sky_to_radians(ts);
+        const std::vector<double> zb = column(biasRedshift, "bias_redshift");
+        const std::vector<double> b = column(bias, "bias");
+        const double s = to_double(sigma, "sigma");
+        const bool weight = to_bool(weightByRealizations, "weight_by_realizations");
+        std::size_t nExtrapolated = 0;
+        otswap::RealSpaceCatalog catalog;
+        {
+          nb::gil_scoped_release released;
+          catalog = otswap::realSpaceLightcone(r, ts, table, zb, b, s, weight, nExtrapolated);
+        }
+        // Right ascension and declination come back as given, in the unit
+        // of the call, rather than converted back from radians.
+        for (std::size_t i = 0; i < catalog.nObjects; ++i)
+          if (!std::isnan(catalog.positions[3*i+2])) {
+            catalog.positions[3*i]   = given[3*i];
+            catalog.positions[3*i+1] = given[3*i+1];
+          }
+        std::size_t corrected = 0;
+        for (std::size_t i = 0; i < r.nObjects; ++i)
+          if (r.outsideRedshiftCut.empty() || r.outsideRedshiftCut[i] == 0) ++corrected;
+        warn_extrapolation(nExtrapolated, corrected, zb);
+        return catalog;
+      },
+      "result"_a.none(), "tracers_sky"_a.none(), nb::kw_only(), "distances"_a.none(),
+      "bias_redshift"_a.none(), "bias"_a.none(), "sigma"_a.none(), "angle_unit"_a.none(),
+      "weight_by_realizations"_a.none() = false,
+      "Move a lightcone catalogue from redshift space to real space.");
+
+  m.def("real_space_box",
+      [] (nb::handle result, nb::handle tracers, nb::handle axis, nb::handle redshift,
+          nb::handle distances, nb::handle bias, nb::handle sigma, nb::handle weightByRealizations) {
+        const otswap::Result& r = instance<otswap::Result>(result, "result", "Result");
+        const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
+        const std::vector<double> t = rows3(tracers, "tracers");
+        const unsigned a = to_unsigned(axis, "axis");
+        const double z = to_double(redshift, "redshift");
+        const double b = to_double(bias, "bias");
+        const double s = to_double(sigma, "sigma");
+        const bool weight = to_bool(weightByRealizations, "weight_by_realizations");
+        nb::gil_scoped_release released;
+        return otswap::realSpaceBox(r, t, a, z, table, b, s, weight);
+      },
+      "result"_a.none(), "tracers"_a.none(), nb::kw_only(), "axis"_a.none(), "redshift"_a.none(),
+      "distances"_a.none(), "bias"_a.none(), "sigma"_a.none(),
+      "weight_by_realizations"_a.none() = false,
+      "Move a box catalogue from redshift space to real space.");
 }

@@ -164,8 +164,11 @@ def result_arrays(result):
 
 def test_exports():
     assert sorted(otswap.__all__) == sorted([
-        "AngleUnit", "DistanceTable", "Error", "Mask", "Result", "reconstruct_box",
-        "reconstruct_lightcone", "reject_mask_crossings", "to_cartesian"])
+        "AngleUnit", "DistanceTable", "Error", "ExtrapolationWarning", "Mask",
+        "RealSpaceCatalog", "Result", "line_of_sight_projection", "neighbour_average",
+        "real_space_box", "real_space_lightcone", "reconstruct_box", "reconstruct_lightcone",
+        "reject_mask_crossings", "rsd_factor", "rsd_factor_box", "shift_along_line_of_sight",
+        "to_cartesian"])
     for name in otswap.__all__:
         assert hasattr(otswap, name)
     assert otswap.AngleUnit.__args__ == ("deg", "rad")

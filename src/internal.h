@@ -175,6 +175,34 @@ namespace otswap {
     /// Count-weighted median of the profile nodes, used to size the grids.
     double representative (const MpsProfile& profile);
 
+    /// Cell side of the grid neighbourAverage searches, for these positions
+    /// (3*N, finite, N > 0): 4 (V/N)^(1/3), V the volume of their bounding
+    /// box. A pure function of the positions. It is 0 when the positions
+    /// span no volume, and the grid then refuses it.
+    double neighbour_cell (const std::vector<double>& positions);
+
+    /// neighbourAverage with the grid's cell side given; the public
+    /// overloads call it with neighbour_cell(positions). The grid spans the
+    /// bounding box of every position and holds the valid objects only.
+    std::vector<double> neighbour_average (const std::vector<double>& positions,
+                                           const std::vector<double>& values,
+                                           const std::vector<unsigned>& validRealizations,
+                                           double sigma,
+                                           bool weightByRealizations,
+                                           double cellSize,
+                                           std::vector<unsigned>& nNeighbours,
+                                           std::vector<unsigned>& nRealizations);
+
+    /// Check a b(z) table: at least two nodes, equal lengths, redshifts
+    /// finite and strictly increasing, bias finite and positive. The
+    /// message starts with @p what and names the offending entry as
+    /// @p entry followed by its index plus @p first.
+    void check_bias_table (const std::vector<double>& redshift,
+                           const std::vector<double>& bias,
+                           const std::string& what,
+                           const std::string& entry = "node",
+                           std::size_t first = 0);
+
   }
 
 }

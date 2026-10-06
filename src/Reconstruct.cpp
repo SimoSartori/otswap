@@ -382,6 +382,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
   if (failure) std::rethrow_exception(failure);
 
   result.valid.assign((std::size_t)nRealizations * nObjects, 1);
+  result.outsideRedshiftCut.assign(nObjects, 0);
   summarize(result);
 
   return result;

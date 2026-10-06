@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -55,6 +56,95 @@ namespace {
   // N >= 1/(9*kMpsPrecision^2), which is 277.8 at eps = 0.02, hence 278.
   constexpr unsigned kMinTracersPerBin =
     (unsigned)(1. / (9. * kMpsPrecision * kMpsPrecision)) + 1;
+
+  const double kNaN = std::numeric_limits<double>::quiet_NaN();
+
+  void check_cut (const otswap::RedshiftCut& cut)
+  {
+    if (std::isnan(cut.min) || std::isnan(cut.max))
+      throw otswap::Error("a bound of the redshift cut is NaN");
+    if (cut.min > cut.max)
+      throw otswap::Error("the redshift cut is [" + std::to_string(cut.min) + ", " +
+                          std::to_string(cut.max) + "]; its lower bound exceeds the upper one");
+  }
+
+  // Indices, increasing, of the objects of a sky array whose redshift lies
+  // in the closed range of the cut.
+  std::vector<std::size_t> inside (const std::vector<double>& sky, const otswap::RedshiftCut& cut)
+  {
+    std::vector<std::size_t> keep;
+    for (std::size_t i = 0; i < sky.size() / 3; ++i)
+      if (sky[3*i+2] >= cut.min && sky[3*i+2] <= cut.max) keep.push_back(i);
+    return keep;
+  }
+
+  // The rows of a flat 3-column array named by keep, in that order.
+  std::vector<double> rows (const std::vector<double>& a, const std::vector<std::size_t>& keep)
+  {
+    std::vector<double> out(3 * keep.size());
+    for (std::size_t k = 0; k < keep.size(); ++k)
+      for (std::size_t c = 0; c < 3; ++c) out[3*k+c] = a[3*keep[k]+c];
+    return out;
+  }
+
+  // The supply left by the cut, checked with the counts it dropped, before
+  // anything else is computed.
+  void check_kept (const otswap::RedshiftCut& cut,
+                   const std::size_t keptTracers, const std::size_t nTracers,
+                   const std::size_t keptRandoms, const std::size_t nRandoms,
+                   const unsigned nRealizations)
+  {
+    const std::string range = "the redshift cut [" + std::to_string(cut.min) + ", " +
+                              std::to_string(cut.max) + "]";
+    if (keptTracers < otswap::internal::min_objects())
+      throw otswap::Error(range + " keeps " + std::to_string(keptTracers) + " of " +
+                          std::to_string(nTracers) + " tracers (" +
+                          std::to_string(nTracers - keptTracers) + " dropped); at least " +
+                          std::to_string(otswap::internal::min_objects()) + " are required");
+    const std::size_t needed = (std::size_t)nRealizations * keptTracers;
+    if (keptRandoms < needed)
+      throw otswap::Error(range + " keeps " + std::to_string(keptRandoms) + " of " +
+                          std::to_string(nRandoms) + " randoms (" +
+                          std::to_string(nRandoms - keptRandoms) + " dropped), for " +
+                          std::to_string(keptTracers) + " tracers kept; " +
+                          std::to_string(nRealizations) + " realizations need " +
+                          std::to_string(needed));
+  }
+
+  // The result of the kept tracers, expanded to one row per input tracer:
+  // a cut tracer has NaN displacement and matchedRandom rows, no valid
+  // realization, and its flag set.
+  otswap::Result expand (const otswap::Result& kept, const std::vector<std::size_t>& keep,
+                         const std::size_t nObjects)
+  {
+    const unsigned nRealizations = kept.nRealizations;
+
+    otswap::Result full;
+    full.nObjects = nObjects;
+    full.nRealizations = nRealizations;
+    full.displacement.assign(3 * (std::size_t)nRealizations * nObjects, kNaN);
+    full.matchedRandom.assign(3 * (std::size_t)nRealizations * nObjects, kNaN);
+    full.valid.assign((std::size_t)nRealizations * nObjects, 0);
+    full.outsideRedshiftCut.assign(nObjects, 1);
+    full.filteredNside = kept.filteredNside;
+
+    for (std::size_t k = 0; k < keep.size(); ++k) {
+      const std::size_t i = keep[k];
+      full.outsideRedshiftCut[i] = 0;
+      for (unsigned rec = 0; rec < nRealizations; ++rec) {
+        const std::size_t from = (std::size_t)rec * keep.size() + k;
+        const std::size_t to = (std::size_t)rec * nObjects + i;
+        full.valid[to] = kept.valid[from];
+        for (std::size_t c = 0; c < 3; ++c) {
+          full.displacement[3*to+c] = kept.displacement[3*from+c];
+          full.matchedRandom[3*to+c] = kept.matchedRandom[3*from+c];
+        }
+      }
+    }
+
+    otswap::internal::summarize(full);
+    return full;
+  }
 
 }
 
@@ -222,27 +312,43 @@ otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracersS
                                              const double skyAreaDeg2,
                                              const unsigned nBins,
                                              const DistanceTable& distances,
-                                             const Config& config)
+                                             const Config& config,
+                                             const RedshiftCut& cut)
 {
   const unsigned seed = internal::check_config(config);
 
   const std::size_t nObjects = internal::check_coordinates(tracersSky, "the tracer sky array");
   const std::size_t nRandoms = internal::check_coordinates(randomsSky, "the random sky array");
 
-  internal::check_random_supply(nRandoms, nObjects, config.nRealizations);
+  // The cut comes first: everything below sees the kept objects only.
+  check_cut(cut);
+  const std::vector<std::size_t> keepTracers = inside(tracersSky, cut);
+  const std::vector<std::size_t> keepRandoms = inside(randomsSky, cut);
+  const bool cutTracers = keepTracers.size() != nObjects;
+  const bool cutRandoms = keepRandoms.size() != nRandoms;
+  if (cutTracers || cutRandoms)
+    check_kept(cut, keepTracers.size(), nObjects, keepRandoms.size(), nRandoms, config.nRealizations);
 
-  const internal::MpsProfile profile =
-    internal::mps_profile(tracersSky, skyAreaDeg2, nBins, distances);
+  const std::vector<double> keptTracersSky = cutTracers ? rows(tracersSky, keepTracers) : std::vector<double>();
+  const std::vector<double> keptRandomsSky = cutRandoms ? rows(randomsSky, keepRandoms) : std::vector<double>();
+  const std::vector<double>& ts = cutTracers ? keptTracersSky : tracersSky;
+  const std::vector<double>& rs = cutRandoms ? keptRandomsSky : randomsSky;
+  const std::size_t nKept = ts.size() / 3;
 
-  const std::vector<double> tracers = toCartesian(tracersSky, distances);
-  const std::vector<double> randoms = toCartesian(randomsSky, distances);
+  internal::check_random_supply(rs.size() / 3, nKept, config.nRealizations);
 
-  std::vector<double> mps(nObjects);
-  for (std::size_t i = 0; i < nObjects; ++i)
-    mps[i] = internal::mps_at(profile, tracersSky[3*i+2]);
+  const internal::MpsProfile profile = internal::mps_profile(ts, skyAreaDeg2, nBins, distances);
 
-  return internal::reconstruct(tracers, randoms, mps,
-                               internal::representative(profile), config, seed);
+  const std::vector<double> tracers = toCartesian(ts, distances);
+  const std::vector<double> randoms = toCartesian(rs, distances);
+
+  std::vector<double> mps(nKept);
+  for (std::size_t i = 0; i < nKept; ++i)
+    mps[i] = internal::mps_at(profile, ts[3*i+2]);
+
+  const Result result = internal::reconstruct(tracers, randoms, mps,
+                                              internal::representative(profile), config, seed);
+  return cutTracers ? expand(result, keepTracers, nObjects) : result;
 }
 
 
@@ -256,7 +362,8 @@ otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracers,
                                              const double skyAreaDeg2,
                                              const unsigned nBins,
                                              const DistanceTable& distances,
-                                             const Config& config)
+                                             const Config& config,
+                                             const RedshiftCut& cut)
 {
   const unsigned seed = internal::check_config(config);
 
@@ -279,15 +386,33 @@ otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracers,
     throw Error("the Cartesian random array describes " + std::to_string(nRandoms) +
                 " objects and the sky one " + std::to_string(nRandomsSky));
 
-  internal::check_random_supply(nRandoms, nObjects, config.nRealizations);
+  // The cut comes first, decided on the sky redshifts; the same rows are
+  // dropped from the Cartesian arrays.
+  check_cut(cut);
+  const std::vector<std::size_t> keepTracers = inside(tracersSky, cut);
+  const std::vector<std::size_t> keepRandoms = inside(randomsSky, cut);
+  const bool cutTracers = keepTracers.size() != nObjects;
+  const bool cutRandoms = keepRandoms.size() != nRandoms;
+  if (cutTracers || cutRandoms)
+    check_kept(cut, keepTracers.size(), nObjects, keepRandoms.size(), nRandoms, config.nRealizations);
 
-  const internal::MpsProfile profile =
-    internal::mps_profile(tracersSky, skyAreaDeg2, nBins, distances);
+  const std::vector<double> keptTracers = cutTracers ? rows(tracers, keepTracers) : std::vector<double>();
+  const std::vector<double> keptTracersSky = cutTracers ? rows(tracersSky, keepTracers) : std::vector<double>();
+  const std::vector<double> keptRandoms = cutRandoms ? rows(randoms, keepRandoms) : std::vector<double>();
+  const std::vector<double>& t = cutTracers ? keptTracers : tracers;
+  const std::vector<double>& ts = cutTracers ? keptTracersSky : tracersSky;
+  const std::vector<double>& r = cutRandoms ? keptRandoms : randoms;
+  const std::size_t nKept = t.size() / 3;
 
-  std::vector<double> mps(nObjects);
-  for (std::size_t i = 0; i < nObjects; ++i)
-    mps[i] = internal::mps_at(profile, tracersSky[3*i+2]);
+  internal::check_random_supply(r.size() / 3, nKept, config.nRealizations);
 
-  return internal::reconstruct(tracers, randoms, mps,
-                               internal::representative(profile), config, seed);
+  const internal::MpsProfile profile = internal::mps_profile(ts, skyAreaDeg2, nBins, distances);
+
+  std::vector<double> mps(nKept);
+  for (std::size_t i = 0; i < nKept; ++i)
+    mps[i] = internal::mps_at(profile, ts[3*i+2]);
+
+  const Result result = internal::reconstruct(t, r, mps,
+                                              internal::representative(profile), config, seed);
+  return cutTracers ? expand(result, keepTracers, nObjects) : result;
 }

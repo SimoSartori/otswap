@@ -44,4 +44,4 @@ if [ ! -x "$reference" ]; then
 fi
 
 OTSWAP_CPP_REFERENCE="$reference" python -m pytest "$PROJECT/tests/test_otswap.py" \
-  "$PROJECT/tests/test_determinism.py" -p no:cacheprovider -rs
+  "$PROJECT/tests/test_rsd.py" "$PROJECT/tests/test_determinism.py" -p no:cacheprovider -rs

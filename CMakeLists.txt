@@ -180,6 +180,7 @@ add_library(otswap STATIC
   src/Lightcone.cpp
   src/Mask.cpp
   src/Reconstruct.cpp
+  src/RSD.cpp
   src/Support.cpp
   src/Table.cpp)
 
@@ -216,7 +217,7 @@ if (OTSWAP_BUILD_TESTS)
   enable_testing()
 
   foreach (test_name test_support test_distance_table test_reconstruct test_table test_mask
-                   test_detmath)
+                   test_detmath test_rsd)
     add_executable(${test_name} tests/${test_name}.cpp)
     target_link_libraries(${test_name} PRIVATE otswap)
     target_include_directories(${test_name} PRIVATE
