@@ -20,8 +20,8 @@ option(OTSWAP_BUILD_PYTHON "Build the Python bindings" OFF)
 #
 # No a*b+c is fused into one FMA anywhere: compilers differ in what they
 # contract by default, and so do the instruction sets, so contraction would
-# make the results depend on the platform. Set here, before meshsearch is
-# added, so that it reaches every target, meshsearch's included.
+# make the results depend on the platform. meshsearch sets it on its own
+# targets; this covers otswap's, Healpix, fdlibm and the extension module.
 # ---------------------------------------------------------------------------
 
 if (NOT MSVC)
@@ -31,21 +31,15 @@ endif()
 # ---------------------------------------------------------------------------
 # meshsearch
 #
-# It ships no CMake package configuration, so find_package(meshsearch CONFIG)
-# is not available: its install step writes nothing at all. It is therefore
-# consumed from source, against a pinned tag.
+# Consumed from source, against a pinned tag.
 # ---------------------------------------------------------------------------
 
-set(OTSWAP_MESHSEARCH_TAG "v0.1.0" CACHE STRING
+set(OTSWAP_MESHSEARCH_TAG "v0.2.0" CACHE STRING
     "meshsearch tag to build against")
 set(OTSWAP_MESHSEARCH_REPOSITORY "https://github.com/SimoSartori/meshsearch.git"
     CACHE STRING "meshsearch repository; may be a local path")
 
 include(FetchContent)
-
-set(MESHSEARCH_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(MESHSEARCH_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(MESHSEARCH_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(meshsearch
   GIT_REPOSITORY ${OTSWAP_MESHSEARCH_REPOSITORY}
@@ -197,7 +191,7 @@ target_include_directories(otswap
 target_compile_features(otswap PUBLIC cxx_std_17)
 
 target_link_libraries(otswap
-  PUBLIC  meshsearch
+  PUBLIC  meshsearch::meshsearch
   PRIVATE ${CFITSIO_LIBRARIES} otswap_healpix otswap_fdlibm)
 
 if (OpenMP_CXX_FOUND)
