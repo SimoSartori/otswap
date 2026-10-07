@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core >= 0.10", "nanobind >= 2.0"]
+requires = ["scikit-build-core >= 0.11", "nanobind >= 2.0"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -7,15 +7,20 @@ name = "otswap"
 version = "0.1.0"
 description = "Optimal transport reconstruction of the displacement field of a tracer catalogue, by local swapping"
 requires-python = ">= 3.9"
-license = { file = "LICENSE" }
+license = "GPL-2.0-or-later"
+license-files = ["LICENSE"]
 authors = [{ name = "Simone Sartori" }]
 dependencies = ["numpy"]
+
+[project.urls]
+Documentation = "https://simosartori.github.io/otswap/"
+Source = "https://github.com/simosartori/otswap"
 
 [project.optional-dependencies]
 test = ["pytest"]
 
 [tool.scikit-build]
-minimum-version = "0.10"
+minimum-version = "0.11"
 build-dir = "build/{wheel_tag}"
 wheel.packages = ["python/otswap"]
 

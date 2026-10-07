@@ -1,0 +1,147 @@
+name: CI
+
+# Builds and tests the C++ library, the Python module and the CMake package
+# on every push and pull request: with GCC and clang on Linux and with Apple
+# clang on macOS, warnings as errors.
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux GCC
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+          - name: Linux clang
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+          - name: macOS Apple clang
+            os: macos-latest
+            cc: clang
+            cxx: clang++
+
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # GCC brings libgomp; clang on Linux needs libomp.
+      - name: Install cfitsio and OpenMP
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libcfitsio-dev libomp-dev
+
+      # Homebrew's libomp is keg-only: otswap, and its installed package,
+      # find it without OpenMP_ROOT.
+      - name: Install cfitsio and libomp
+        if: runner.os == 'macOS'
+        run: |
+          brew install cfitsio libomp
+          echo "CFITSIO_ROOT=$(brew --prefix cfitsio)" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -DCMAKE_COMPILE_WARNING_AS_ERROR=ON | tee configure.log
+          # without OpenMP every test would still pass, serially
+          grep -q "Found OpenMP_CXX" configure.log
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Every translation unit is compiled without FP contraction
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          entries = json.load(open("build/compile_commands.json"))
+          bad = [e["file"] for e in entries
+                 if "-ffp-contract=off" not in e.get("command", " ".join(e.get("arguments", [])))]
+          print(len(entries), "translation units;", len(bad), "without -ffp-contract=off")
+          sys.exit(1 if bad or not entries else 0)
+          PY
+
+      # The bit-identity tests compare the module with the C++ library built
+      # above; test_determinism.py compares both thread counts with the
+      # hashes recorded in tests/determinism_hashes.json.
+      - name: Build and install the module
+        run: pip install ".[test]"
+
+      - name: Python tests
+        env:
+          OTSWAP_CPP_REFERENCE: ${{ github.workspace }}/build/cpp_reference
+        run: >-
+          python -m pytest tests/test_otswap.py tests/test_rsd.py tests/test_determinism.py
+          -p no:cacheprovider -rs
+
+      # The C++ install rules are off under scikit-build-core.
+      - name: The module installs no C++ library, header or CMake file
+        run: |
+          if pip show -f otswap | grep -E '\.(a|h|cmake)$'; then
+            exit 1
+          fi
+
+      # The package must work from wherever its prefix ends up.
+      - name: Install, then move the prefix
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/prefix"
+          mv "$RUNNER_TEMP/prefix" "$RUNNER_TEMP/moved"
+
+      - name: The installed files
+        working-directory: ${{ runner.temp }}/moved
+        run: |
+          headers=$(find include -type f | sort | tr '\n' ' ')
+          expected="include/meshsearch/MeshGrid.h include/otswap/OT.h include/otswap/RSD.h "
+          if [ "$headers" != "$expected" ]; then
+            echo "installed headers: $headers"
+            exit 1
+          fi
+          # no path of this machine: the checkout, the build, the prefix, cfitsio
+          if grep -rlF -e "$GITHUB_WORKSPACE" -e "$RUNNER_TEMP" -e libcfitsio lib/cmake; then
+            echo "the files above hold a build-machine path"
+            exit 1
+          fi
+          # the vendored Healpix is the tests' reference only
+          if nm -C lib/libotswap.a | grep -E "T_Healpix_Base|Healpix_Tables|PlanckError"; then
+            echo "libotswap.a holds Healpix code"
+            exit 1
+          fi
+
+      # find_package(otswap CONFIG) against the moved tree
+      - name: Consume the installed package
+        run: |
+          cmake -S tests/cmake/install -B build-install-consumer -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/moved"
+          cmake --build build-install-consumer
+          ./build-install-consumer/consumer
+
+      # add_subdirectory on the source tree: no tests, no example, no build type
+      - name: Consume the source tree as a subproject
+        run: |
+          cmake -S tests/cmake/subproject -B build-subproject-consumer -DOTSWAP_SOURCE_DIR="$GITHUB_WORKSPACE"
+          cmake --build build-subproject-consumer --parallel
+          ./build-subproject-consumer/consumer
+
+      # An installed meshsearch of the same minor version is used, not fetched.
+      - name: Build against an installed meshsearch
+        run: |
+          cmake -S . -B build-found -DOTSWAP_BUILD_TESTS=OFF -DOTSWAP_BUILD_EXAMPLES=OFF \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/moved" | tee found.log
+          grep -q "otswap: using meshsearch 0.2" found.log
+          test ! -d build-found/_deps/meshsearch-src
+          cmake --build build-found --parallel

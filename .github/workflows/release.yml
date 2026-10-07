@@ -1,0 +1,110 @@
+name: Release
+
+# Publishes to PyPI when a v* tag is pushed. Run it from the Actions tab
+# (workflow_dispatch) to build and test the artefacts without publishing.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The version lives in pyproject.toml and in CMakeLists.txt; on a tag
+      # push the tag must name it too.
+      - name: The versions agree
+        run: |
+          version=$(python -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          cmake_version=$(sed -nE 's/^project\(otswap VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          if [ "$version" != "$cmake_version" ]; then
+            echo "pyproject.toml says $version and CMakeLists.txt $cmake_version"
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match version $version"
+            exit 1
+          fi
+
+      - name: Build
+        run: pipx run build --sdist
+
+      - name: Check the metadata PyPI will render
+        run: pipx run twine check dist/*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-sdist
+          path: dist/*.tar.gz
+
+  wheels:
+    name: wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+
+    # The configuration is in pyproject.toml: every wheel is repaired,
+    # checked by tools/wheels/check_dependencies.py and tested by
+    # tools/wheels/test_wheel.sh, the bit-identity and determinism tests
+    # included.
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pypa/cibuildwheel@v4.2.1
+        with:
+          output-dir: wheelhouse
+
+      # The C++ install rules are off under scikit-build-core.
+      - name: The wheels hold no C++ library, header or CMake file
+        run: |
+          python3 - <<'PY'
+          import glob, sys, zipfile
+          wheels = glob.glob("wheelhouse/*.whl")
+          bad = [f"{w}: {name}" for w in wheels for name in zipfile.ZipFile(w).namelist()
+                 if name.endswith((".a", ".h", ".cmake"))]
+          print(len(wheels), "wheels;", len(bad), "C++ library, header or CMake files")
+          print("\n".join(bad))
+          sys.exit(1 if bad or not wheels else 0)
+          PY
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  publish:
+    name: publish to PyPI
+    needs: [sdist, wheels]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    # The trusted publisher on PyPI is configured against this environment name
+    # and this workflow's filename. Changing either means changing it there.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/otswap
+
+    permissions:
+      id-token: write          # mints the OIDC token PyPI checks; no API token
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
