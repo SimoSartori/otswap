@@ -21,8 +21,8 @@
 /**
  *  @file src/arc.h
  *
- *  @brief Pixel lookup, and the search for unobserved pixels along a great
- *  circle arc. Internal, and the only internal header that needs Healpix.
+ *  @brief The mask's pixels, and the search for unobserved pixels along a
+ *  great circle arc. Internal.
  *
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */
@@ -35,21 +35,16 @@
 #include <string>
 #include <vector>
 
-#include <healpix_base.h>
-#include <vec3.h>
+#include "pixel.h"
 
 namespace otswap {
 
   namespace internal {
 
-    /// The largest NSIDE a mask may have, 2^29: the limit of Healpix's
-    /// 64-bit pixel index.
-    constexpr std::int64_t kMaxNside = std::int64_t(1) << 29;
-
     /// A full-sky mask: the pixel geometry, and one byte per pixel, 1 when
     /// the pixel is observed.
     struct PixelMask {
-      T_Healpix_Base<std::int64_t> base;
+      HealpixBase base;
       std::vector<std::uint8_t> observed;
       std::int64_t allowed = 0;  ///< the number of observed pixels
     };
@@ -70,24 +65,6 @@ namespace otswap {
     void mark_observed (PixelMask& mask, std::int64_t first, const double* values,
                         std::size_t count);
 
-    /// Pixel holding the direction @p v, which need not be normalised.
-    /// Healpix's T_Healpix_Base::vec2pix line for line, over its own
-    /// loc2pix, with the atan2 of detmath.h in place of the system one, so
-    /// that the pixel is the same on every platform. v must be finite and
-    /// non-zero. Defined for the 32-bit (int) and 64-bit (std::int64_t)
-    /// bases, which give the same pixel wherever the 32-bit one holds the
-    /// pixel count.
-    template <typename I>
-    I vec2pix (const T_Healpix_Base<I>& base, const vec3& v);
-
-    /// Pixel holding colatitude @p theta and longitude @p phi, radians.
-    /// Healpix's T_Healpix_Base::ang2pix line for line, with the cos and
-    /// sin of detmath.h, and without its assertion: theta must lie in
-    /// [0, pi] and phi be finite, which the caller checks. Defined for the
-    /// same two bases as vec2pix.
-    template <typename I>
-    I ang2pix (const T_Healpix_Base<I>& base, double theta, double phi);
-
     /// True when the pixel is observed.
     inline bool pixel_observed (const PixelMask& mask, const std::int64_t pixel)
     {
@@ -104,7 +81,7 @@ namespace otswap {
     /// @return found.size(), which exceeds @p limit only when the search
     ///   stopped early
     std::size_t arc_unobserved_pixels (const PixelMask& mask,
-                                       const vec3& a, const vec3& b,
+                                       const Vec3& a, const Vec3& b,
                                        unsigned limit, std::vector<std::int64_t>& found);
 
   }

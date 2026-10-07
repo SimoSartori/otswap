@@ -21,7 +21,8 @@ option(OTSWAP_BUILD_PYTHON "Build the Python bindings" OFF)
 # No a*b+c is fused into one FMA anywhere: compilers differ in what they
 # contract by default, and so do the instruction sets, so contraction would
 # make the results depend on the platform. meshsearch sets it on its own
-# targets; this covers otswap's, Healpix, fdlibm and the extension module.
+# targets; this covers otswap's, fdlibm, the tests' Healpix and the extension
+# module.
 # ---------------------------------------------------------------------------
 
 if (NOT MSVC)
@@ -87,41 +88,6 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
-# Healpix, vendored
-#
-# The subset of HEALPix 3.82 otswap uses, copied unmodified into
-# extern/healpix (see its README). It is third-party code that must not be
-# edited, so its warnings are suppressed, for these files only, and its
-# include directories are marked SYSTEM so that its headers do not raise
-# warnings in otswap's own translation units either. It needs nothing
-# besides the C++ standard library.
-# ---------------------------------------------------------------------------
-
-set(OTSWAP_HEALPIX_DIR ${CMAKE_CURRENT_SOURCE_DIR}/extern/healpix)
-
-add_library(otswap_healpix STATIC
-  ${OTSWAP_HEALPIX_DIR}/Healpix_cxx/healpix_base.cc
-  ${OTSWAP_HEALPIX_DIR}/Healpix_cxx/healpix_tables.cc
-  ${OTSWAP_HEALPIX_DIR}/cxxsupport/error_handling.cc
-  ${OTSWAP_HEALPIX_DIR}/cxxsupport/geom_utils.cc
-  ${OTSWAP_HEALPIX_DIR}/cxxsupport/pointing.cc
-  ${OTSWAP_HEALPIX_DIR}/cxxsupport/string_utils.cc)
-
-set_target_properties(otswap_healpix PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_compile_features(otswap_healpix PUBLIC cxx_std_17)
-
-target_include_directories(otswap_healpix SYSTEM
-  PUBLIC
-    $<BUILD_INTERFACE:${OTSWAP_HEALPIX_DIR}/Healpix_cxx>
-    $<BUILD_INTERFACE:${OTSWAP_HEALPIX_DIR}/cxxsupport>)
-
-if (MSVC)
-  target_compile_options(otswap_healpix PRIVATE /w)
-else()
-  target_compile_options(otswap_healpix PRIVATE -w)
-endif()
-
-# ---------------------------------------------------------------------------
 # Deterministic math, vendored
 #
 # sin, cos, exp, log1p, pow, atan2 and asin from FreeBSD's msun, copied
@@ -173,6 +139,7 @@ add_library(otswap STATIC
   src/DistanceTable.cpp
   src/Lightcone.cpp
   src/Mask.cpp
+  src/Pixel.cpp
   src/Reconstruct.cpp
   src/RSD.cpp
   src/Support.cpp
@@ -192,7 +159,7 @@ target_compile_features(otswap PUBLIC cxx_std_17)
 
 target_link_libraries(otswap
   PUBLIC  meshsearch::meshsearch
-  PRIVATE ${CFITSIO_LIBRARIES} otswap_healpix otswap_fdlibm)
+  PRIVATE ${CFITSIO_LIBRARIES} otswap_fdlibm)
 
 if (OpenMP_CXX_FOUND)
   target_link_libraries(otswap PUBLIC OpenMP::OpenMP_CXX)
@@ -210,8 +177,33 @@ if (OTSWAP_BUILD_TESTS)
   include(CTest)
   enable_testing()
 
+  # Healpix, vendored: HEALPix 3.82, copied unmodified into extern/healpix
+  # (see its README). The library has its own pixel code; the tests compare
+  # it with Healpix's. Third-party code that must not be edited, so its
+  # warnings are suppressed and its include directories are SYSTEM.
+  set(OTSWAP_HEALPIX_DIR ${CMAKE_CURRENT_SOURCE_DIR}/extern/healpix)
+
+  add_library(otswap_healpix STATIC
+    ${OTSWAP_HEALPIX_DIR}/Healpix_cxx/healpix_base.cc
+    ${OTSWAP_HEALPIX_DIR}/Healpix_cxx/healpix_tables.cc
+    ${OTSWAP_HEALPIX_DIR}/cxxsupport/error_handling.cc
+    ${OTSWAP_HEALPIX_DIR}/cxxsupport/geom_utils.cc
+    ${OTSWAP_HEALPIX_DIR}/cxxsupport/pointing.cc
+    ${OTSWAP_HEALPIX_DIR}/cxxsupport/string_utils.cc)
+
+  target_compile_features(otswap_healpix PUBLIC cxx_std_17)
+  target_include_directories(otswap_healpix SYSTEM PUBLIC
+    ${OTSWAP_HEALPIX_DIR}/Healpix_cxx
+    ${OTSWAP_HEALPIX_DIR}/cxxsupport)
+
+  if (MSVC)
+    target_compile_options(otswap_healpix PRIVATE /w)
+  else()
+    target_compile_options(otswap_healpix PRIVATE -w)
+  endif()
+
   foreach (test_name test_support test_distance_table test_reconstruct test_table test_mask
-                   test_detmath test_rsd)
+                   test_detmath test_pixel test_rsd)
     add_executable(${test_name} tests/${test_name}.cpp)
     target_link_libraries(${test_name} PRIVATE otswap)
     target_include_directories(${test_name} PRIVATE

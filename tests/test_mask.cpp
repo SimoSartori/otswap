@@ -197,15 +197,22 @@ namespace {
     return vec3(x/r, y/r, z/r);
   }
 
+  // The same vector as otswap's pixel code takes it.
+  internal::Vec3 vec_of (const vec3& v)
+  {
+    return internal::Vec3(v.x, v.y, v.z);
+  }
+
   // Every unobserved pixel met by points spaced at most step pixels apart
   // along the arc, the endpoint pixels excluded.
   std::set<std::int64_t> brute_force (const internal::PixelMask& map, const vec3& a,
                                       const vec3& b, const double step)
   {
-    const double pixelSize = std::sqrt(4. * kPi / (double)map.base.Npix());
+    const double pixelSize = std::sqrt(4. * kPi / (double)map.base.npix());
     const double angle = std::acos(std::max(-1., std::min(1., dotprod(a, b))));
     const long n = std::max(1L, (long)std::ceil(angle / (step * pixelSize)));
-    const std::int64_t pixA = internal::vec2pix(map.base, a), pixB = internal::vec2pix(map.base, b);
+    const std::int64_t pixA = internal::vec2pix(map.base, vec_of(a)),
+                       pixB = internal::vec2pix(map.base, vec_of(b));
     const double s = std::sin(angle);
 
     std::set<std::int64_t> found;
@@ -213,7 +220,7 @@ namespace {
       const double t = (double)i / (double)n;
       const vec3 w = (angle < 1.e-12) ? a
         : (a * (std::sin((1. - t) * angle) / s) + b * (std::sin(t * angle) / s)).Norm();
-      const std::int64_t p = internal::vec2pix(map.base, w);
+      const std::int64_t p = internal::vec2pix(map.base, vec_of(w));
       if (p != pixA && p != pixB && !internal::pixel_observed(map, p)) found.insert(p);
     }
     return found;
@@ -224,10 +231,12 @@ namespace {
   bool arc_enters (const internal::PixelMask& map, const vec3& a, const vec3& b,
                    const std::int64_t pixel, const double step)
   {
-    const double pixelSize = std::sqrt(4. * kPi / (double)map.base.Npix());
+    const double pixelSize = std::sqrt(4. * kPi / (double)map.base.npix());
     const double angle = std::acos(std::max(-1., std::min(1., dotprod(a, b))));
     const double s = std::sin(angle);
-    const vec3 centre = map.base.pix2vec(pixel);
+    const T_Healpix_Base<std::int64_t> healpix(map.base.nside(), map.base.nested() ? NEST : RING,
+                                               SET_NSIDE);
+    const vec3 centre = healpix.pix2vec(pixel);
     const double near = std::cos(3. * pixelSize);
     auto at = [&] (const double t) {
       return (a * (std::sin((1. - t) * angle) / s) + b * (std::sin(t * angle) / s)).Norm();
@@ -246,7 +255,7 @@ namespace {
     const double t1 = (double)std::min(coarse, last + 1) / (double)coarse;
     const long fine = std::max(1L, (long)std::ceil((t1 - t0) * angle / (step * pixelSize)));
     for (long i = 0; i <= fine; ++i)
-      if (internal::vec2pix(map.base, at(t0 + (t1 - t0) * (double)i / (double)fine)) == pixel)
+      if (internal::vec2pix(map.base, vec_of(at(t0 + (t1 - t0) * (double)i / (double)fine))) == pixel)
         return true;
     return false;
   }
@@ -398,12 +407,12 @@ namespace {
       const bool cbl = cbl_reference::arc_crosses_mask(
         map, e[3*i], e[3*i+1], e[3*i+2],
         arcs.matchedRandom[3*i], arcs.matchedRandom[3*i+1], arcs.matchedRandom[3*i+2], pixelSize);
-      const bool ours = internal::arc_unobserved_pixels(bytes, from[i], to[i], 0, found) > 0;
+      const bool ours = internal::arc_unobserved_pixels(bytes, vec_of(from[i]), vec_of(to[i]), 0, found) > 0;
       if (cbl) ++crossing;
       if (cbl != ours) ++cblDisagree;
       if (filtered.valid[i] != (cbl ? 0 : 1)) ++filterDisagree;
 
-      internal::arc_unobserved_pixels(bytes, from[i], to[i], UINT_MAX, found);
+      internal::arc_unobserved_pixels(bytes, vec_of(from[i]), vec_of(to[i]), UINT_MAX, found);
       const std::set<std::int64_t> all(found.begin(), found.end());
       brute[i] = brute_force(bytes, from[i], to[i], 1.e-3);
       crossed[i] = brute[i];
@@ -416,7 +425,7 @@ namespace {
       if (crossed[i].size() > 1) ++multiple;
 
       for (const unsigned k : limits) {
-        const bool exceeds = internal::arc_unobserved_pixels(bytes, from[i], to[i], k, found) > k;
+        const bool exceeds = internal::arc_unobserved_pixels(bytes, vec_of(from[i]), vec_of(to[i]), k, found) > k;
         if (exceeds != (crossed[i].size() > k)) ++countDisagree;
       }
     }
@@ -973,7 +982,7 @@ int main ()
     const unsigned atCoarse = count(coarse), atFine = count(fineMask);
     std::cout << "    the band crossing counts " << atCoarse << " pixels at NSIDE " << kNside
               << " and " << atFine << " at NSIDE " << 2 * kNside << std::endl;
-    check(atCoarse >= 4, "the arc crosses several forbidden pixels");
+    check(atCoarse >= 4, "the arc crosses several unobserved pixels");
     check(atFine >= (3 * atCoarse) / 2,
           "doubling NSIDE raises the count of the same arc by about a factor of two");
 

@@ -27,7 +27,9 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <exception>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -36,8 +38,6 @@
 #include <vector>
 
 #include <fitsio.h>
-
-#include <healpix_base.h>
 
 #include "arc.h"
 #include "detmath.h"
@@ -61,18 +61,6 @@ namespace {
   // further.
   constexpr double kArcFloorInPixels = 1.e-6;
 
-  // Healpix's loc2pix is a protected member of T_Healpix_Base. Named
-  // through a derived class it yields a pointer to member, which applies to
-  // any base of the same index type, so the vendored files need no change.
-  template <typename I>
-  struct Locator : T_Healpix_Base<I> {
-    static I pixel (const T_Healpix_Base<I>& base, const double z, const double phi,
-                    const double sth, const bool haveSth)
-    {
-      return (base.*(&Locator<I>::loc2pix))(z, phi, sth, haveSth);
-    }
-  };
-
   using Pixel = std::int64_t;
 
   // True when the sub-arc from a point in pixP to a point in pixQ, shorter
@@ -82,17 +70,16 @@ namespace {
   bool edge_crossing_safe (const otswap::internal::PixelMask& mask, const Pixel pixP,
                            const Pixel pixQ, const Pixel pixA, const Pixel pixB)
   {
-    fix_arr<Pixel, 8> nbP, nbQ;
+    std::array<Pixel, 8> nbP, nbQ;
     mask.base.neighbors(pixP, nbP);
     if (nbP[0] != pixQ && nbP[2] != pixQ && nbP[4] != pixQ && nbP[6] != pixQ) return false;
 
     mask.base.neighbors(pixQ, nbQ);
-    for (int i = 0; i < 8; ++i) {
-      const Pixel r = nbP[i];
+    for (const Pixel r : nbP) {
       if (r < 0 || r == pixQ || r == pixA || r == pixB ||
           otswap::internal::pixel_observed(mask, r)) continue;
-      for (int j = 0; j < 8; ++j)
-        if (nbQ[j] == r) return false;
+      for (const Pixel q : nbQ)
+        if (q == r) return false;
     }
     return true;
   }
@@ -108,15 +95,16 @@ namespace {
   // Examines the sub-arc from p to q, whose end pixels have been examined
   // already. Returns true once more than search.limit pixels are found.
   bool segment_exceeds (const ArcSearch& search,
-                        const vec3& p, const Pixel pixP, const vec3& q, const Pixel pixQ)
+                        const otswap::internal::Vec3& p, const Pixel pixP,
+                        const otswap::internal::Vec3& q, const Pixel pixQ)
   {
     if (pixP == pixQ) return false;
-    const double d2 = (p - q).SquaredLength();
+    const double d2 = (p - q).squared_length();
     if (d2 < search.floor2) return false;
     if (d2 < search.pixel2 &&
         edge_crossing_safe(search.mask, pixP, pixQ, search.pixA, search.pixB)) return false;
 
-    const vec3 m = (p + q).Norm();
+    const otswap::internal::Vec3 m = (p + q).normalized();
     const Pixel pixM = otswap::internal::vec2pix(search.mask.base, m);
     if (pixM != search.pixA && pixM != search.pixB &&
         !otswap::internal::pixel_observed(search.mask, pixM) &&
@@ -326,7 +314,7 @@ bool otswap::Mask::allows (const double rightAscension, const double declination
 
 double otswap::Mask::skyAreaDeg2 () const
 {
-  return kFullSkyDeg2 * (double)m_impl->mask.allowed / (double)m_impl->mask.base.Npix();
+  return kFullSkyDeg2 * (double)m_impl->mask.allowed / (double)m_impl->mask.base.npix();
 }
 
 
@@ -335,7 +323,7 @@ double otswap::Mask::skyAreaDeg2 () const
 
 int otswap::Mask::nside () const
 {
-  return (int)m_impl->mask.base.Nside();
+  return (int)m_impl->mask.base.nside();
 }
 
 
@@ -361,8 +349,8 @@ void otswap::internal::set_geometry (PixelMask& mask, const std::int64_t nside, 
                                      const std::string& source)
 {
   check_nside(nside, nested, source);
-  mask.base.SetNside(nside, nested ? NEST : RING);
-  mask.observed.assign((std::size_t)mask.base.Npix(), 0);
+  mask.base.set(nside, nested);
+  mask.observed.assign((std::size_t)mask.base.npix(), 0);
   mask.allowed = 0;
 }
 
@@ -387,44 +375,8 @@ void otswap::internal::mark_observed (PixelMask& mask, const std::int64_t first,
 // ============================================================================
 
 
-template <typename I>
-I otswap::internal::vec2pix (const T_Healpix_Base<I>& base, const vec3& v)
-{
-  const double xl = 1./v.Length();
-  const double phi = (v.x == 0. && v.y == 0.) ? 0.0 : det_atan2(v.y, v.x);
-  const double nz = v.z*xl;
-  if (std::abs(nz) > 0.99)
-    return Locator<I>::pixel(base, nz, phi, std::sqrt(v.x*v.x + v.y*v.y)*xl, true);
-  else
-    return Locator<I>::pixel(base, nz, phi, 0, false);
-}
-
-template int otswap::internal::vec2pix<int> (const T_Healpix_Base<int>&, const vec3&);
-template std::int64_t otswap::internal::vec2pix<std::int64_t> (const T_Healpix_Base<std::int64_t>&,
-                                                               const vec3&);
-
-
-// ============================================================================
-
-
-template <typename I>
-I otswap::internal::ang2pix (const T_Healpix_Base<I>& base, const double theta, const double phi)
-{
-  return ((theta < 0.01) || (theta > 3.14159-0.01)) ?
-    Locator<I>::pixel(base, det_cos(theta), phi, det_sin(theta), true) :
-    Locator<I>::pixel(base, det_cos(theta), phi, 0., false);
-}
-
-template int otswap::internal::ang2pix<int> (const T_Healpix_Base<int>&, double, double);
-template std::int64_t otswap::internal::ang2pix<std::int64_t> (const T_Healpix_Base<std::int64_t>&,
-                                                               double, double);
-
-
-// ============================================================================
-
-
 std::size_t otswap::internal::arc_unobserved_pixels (const PixelMask& mask,
-                                                     const vec3& a, const vec3& b,
+                                                     const Vec3& a, const Vec3& b,
                                                      const unsigned limit,
                                                      std::vector<std::int64_t>& found)
 {
@@ -432,7 +384,7 @@ std::size_t otswap::internal::arc_unobserved_pixels (const PixelMask& mask,
 
   const std::int64_t pixA = vec2pix(mask.base, a);
   const std::int64_t pixB = vec2pix(mask.base, b);
-  const double pixelSize = std::sqrt(4. * kPi / (double)mask.base.Npix());
+  const double pixelSize = std::sqrt(4. * kPi / (double)mask.base.npix());
   const double arcFloor = kArcFloorInPixels * pixelSize;
 
   const ArcSearch search {mask, pixA, pixB, arcFloor * arcFloor, pixelSize * pixelSize,
@@ -501,38 +453,48 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
 
   const internal::PixelMask& pixels = mask.m_impl->mask;
 
+  std::exception_ptr failure;
 #pragma omp parallel for schedule(dynamic, 64)
   for (std::size_t i = 0; i < nObjects; ++i) {
+    try {
 
-    std::vector<std::int64_t> found;
+      std::vector<std::int64_t> found;
 
-    for (unsigned rec = 0; rec < nRealizations; ++rec) {
+      for (unsigned rec = 0; rec < nRealizations; ++rec) {
 
-      const std::size_t d = (std::size_t)rec * nObjects + i;
-      if (!result.valid[d]) continue;
+        const std::size_t d = (std::size_t)rec * nObjects + i;
+        if (!result.valid[d]) continue;
 
-      const std::size_t at = 3 * d;
+        const std::size_t at = 3 * d;
 
-      const double lx = result.matchedRandom[at];
-      const double ly = result.matchedRandom[at+1];
-      const double lz = result.matchedRandom[at+2];
+        const double lx = result.matchedRandom[at];
+        const double ly = result.matchedRandom[at+1];
+        const double lz = result.matchedRandom[at+2];
 
-      const double ex = lx - result.displacement[at];
-      const double ey = ly - result.displacement[at+1];
-      const double ez = lz - result.displacement[at+2];
+        const double ex = lx - result.displacement[at];
+        const double ey = ly - result.displacement[at+1];
+        const double ez = lz - result.displacement[at+2];
 
-      const double r0 = std::sqrt(ex*ex + ey*ey + ez*ez);
-      const double r1 = std::sqrt(lx*lx + ly*ly + lz*lz);
-      if (r0 == 0. || r1 == 0.) continue;
+        const double r0 = std::sqrt(ex*ex + ey*ey + ez*ez);
+        const double r1 = std::sqrt(lx*lx + ly*ly + lz*lz);
+        if (r0 == 0. || r1 == 0.) continue;
 
-      const vec3 a(ex/r0, ey/r0, ez/r0);
-      const vec3 b(lx/r1, ly/r1, lz/r1);
+        const internal::Vec3 a(ex/r0, ey/r0, ez/r0);
+        const internal::Vec3 b(lx/r1, ly/r1, lz/r1);
 
-      if ((a + b).SquaredLength() == 0. ||
-          internal::arc_unobserved_pixels(pixels, a, b, maxForbiddenPixels, found) > maxForbiddenPixels)
-        result.valid[d] = 0;
+        if ((a + b).squared_length() == 0. ||
+            internal::arc_unobserved_pixels(pixels, a, b, maxForbiddenPixels, found) >
+              maxForbiddenPixels)
+          result.valid[d] = 0;
+      }
+
+    }
+    catch (...) {
+#pragma omp critical
+      if (!failure) failure = std::current_exception();
     }
   }
+  if (failure) std::rethrow_exception(failure);
 
   internal::summarize(result);
   result.filteredNside = mask.nside();
