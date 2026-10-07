@@ -39,9 +39,11 @@
 #include <sys/types.h>
 #include <sys/cdefs.h>
 
-/* The sources assume that double arithmetic is evaluated in double. */
-#if defined(__FLT_EVAL_METHOD__) && __FLT_EVAL_METHOD__ != 0
-#error "the vendored msun sources need FLT_EVAL_METHOD 0"
+/* The sources assume that double arithmetic is evaluated in double: so it
+   is with FLT_EVAL_METHOD 0, and with 16, which GCC 13 and 14 report on
+   AArch64 and which widens only types narrower than _Float16. */
+#if defined(__FLT_EVAL_METHOD__) && __FLT_EVAL_METHOD__ != 0 && __FLT_EVAL_METHOD__ != 16
+#error "the vendored msun sources need FLT_EVAL_METHOD 0 or 16"
 #endif
 
 #undef  __weak_reference
