@@ -399,7 +399,7 @@ std::size_t otswap::internal::arc_unobserved_pixels (const PixelMask& mask,
 
 
 void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
-                                  const unsigned maxForbiddenPixels)
+                                  const unsigned maxUnobservedPixelsCrossed)
 {
   const std::size_t nObjects = result.nObjects;
   const unsigned nRealizations = result.nRealizations;
@@ -424,19 +424,15 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
       throw Error("the result is malformed: valid holds " + std::to_string(result.valid[k]) +
                   " at entry " + std::to_string(k) + "; every entry must be 0 or 1");
 
-  // Tracers outside a redshift cut took no part in the reconstruction:
-  // their rows are NaN and never valid, and the filter leaves them alone.
-  const std::vector<std::uint8_t>& cut = result.outsideRedshiftCut;
-  if (!cut.empty() && cut.size() != nObjects)
-    throw Error("the result is malformed: outsideRedshiftCut holds " + std::to_string(cut.size()) +
-                " entries for " + std::to_string(nObjects) + " objects");
+  internal::check_flags(result);
 
   for (std::size_t k = 0; k < nDisplacements; ++k) {
     const std::size_t i = k % nObjects;
-    if (!cut.empty() && cut[i] != 0) {
+    if (internal::excluded(result, i)) {
       if (result.valid[k] != 0)
-        throw Error("the result is malformed: object " + std::to_string(i) + " lies outside the "
-                    "redshift cut but has a valid displacement at entry " + std::to_string(k));
+        throw Error("the result is malformed: object " + std::to_string(i) + " took no part in the "
+                    "reconstruction (outside the redshift cut or the mask) but has a valid "
+                    "displacement at entry " + std::to_string(k));
       continue;
     }
     for (std::size_t c = 0; c < 3; ++c)
@@ -483,8 +479,8 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
         const internal::Vec3 b(lx/r1, ly/r1, lz/r1);
 
         if ((a + b).squared_length() == 0. ||
-            internal::arc_unobserved_pixels(pixels, a, b, maxForbiddenPixels, found) >
-              maxForbiddenPixels)
+            internal::arc_unobserved_pixels(pixels, a, b, maxUnobservedPixelsCrossed, found) >
+              maxUnobservedPixelsCrossed)
           result.valid[d] = 0;
       }
 

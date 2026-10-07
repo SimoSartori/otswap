@@ -276,6 +276,47 @@ def test_redshift_cut(table):
     assert set(np.flatnonzero(~inside)) <= set(c.uncorrected.tolist())
     assert (c.n_neighbours[~inside] == 0).all()
 
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        otswap.real_space_lightcone(cut, tracers, distances=table, bias_redshift=[0.4, 0.5],
+                                    bias=[1.2, 1.3], sigma=10.0, angle_unit="deg")
+    assert len(caught) == 1 and f" of {inside.sum()} redshifts" in str(caught[0].message)
+
     for bad in [(0.3,), (0.3, 0.5, 0.6), (math.nan, 0.6), (0.6, 0.3), "low-high"]:
         with pytest.raises(otswap.Error):
             otswap.reconstruct_lightcone(tracers, randoms, redshift_cut=bad, **options)
+
+
+def test_mask(table):
+    """Masked tracers are left out of the correction as cut ones are, and the
+    extrapolation warning counts the corrected tracers only."""
+    rng = np.random.default_rng(8)
+
+    def sky(n):
+        return np.column_stack([rng.uniform(10, 40, n), rng.uniform(-15, 15, n),
+                                rng.uniform(0.3, 0.6, n)])
+
+    tracers, randoms = sky(900), sky(3600)
+    pixels = np.ones(12 * 64 ** 2)
+    pixels[::9] = 0
+    mask = otswap.Mask.from_array(pixels)
+    result = otswap.reconstruct_lightcone(tracers, randoms, mask=mask, n_bins=1, distances=table,
+                                          angle_unit="deg", n_realizations=2, seed=4,
+                                          verbose=False)
+    masked = ~mask.allows(tracers[:, 0], tracers[:, 1], angle_unit="deg")
+    assert np.array_equal(result.outside_mask, masked) and masked.any()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        c = otswap.real_space_lightcone(result, tracers, distances=table, bias_redshift=[0.4, 0.5],
+                                        bias=[1.2, 1.3], sigma=10.0, angle_unit="deg")
+    assert set(np.flatnonzero(masked)) <= set(c.uncorrected.tolist())
+    assert (c.n_neighbours[masked] == 0).all() and np.isnan(c.positions[masked]).all()
+    assert len(caught) == 1 and f" of {(~masked).sum()} redshifts" in str(caught[0].message)
+
+    bad = tracers.copy()
+    bad[2, 1] = np.nextafter(-90.0, -91.0)
+    with pytest.raises(otswap.Error, match=r"tracers_sky holds a declination of -90\.000000 degrees "
+                                           r"at object 2"):
+        otswap.real_space_lightcone(result, bad, distances=table, bias_redshift=BIAS_Z, bias=BIAS,
+                                    sigma=10.0, angle_unit="deg")

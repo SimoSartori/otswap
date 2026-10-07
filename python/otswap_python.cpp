@@ -30,7 +30,9 @@
  *  library then works on its own copy. Right ascension and declination are
  *  converted from degrees here, so the library only ever sees radians.
  *  Result arrays are read-only views on the C++ result, kept alive by the
- *  Python object that holds it.
+ *  Python object that holds it. The selection report of a lightcone
+ *  reconstruction is printed from Python, to sys.stdout, which a notebook
+ *  shows, rather than by the library to the process's stderr.
  *
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */
@@ -190,10 +192,16 @@ namespace {
     throw otswap::Error("angle_unit must be \"deg\" or \"rad\"; got " + repr_of(unit));
   }
 
-  // Right ascension and declination of a flat sky array, from degrees to
-  // radians; redshifts are left alone.
-  void sky_to_radians (std::vector<double>& sky)
+  /// Right ascension and declination of a flat sky array, from degrees to
+  /// radians; redshifts are left alone. A finite declination outside
+  /// [-90, 90] is refused first, in degrees; 90 degrees converts to the
+  /// double pi/2, so the library's own check in radians agrees.
+  void sky_to_radians (std::vector<double>& sky, const std::string& name)
   {
+    for (std::size_t i = 0; i + 2 < sky.size(); i += 3)
+      if (std::isfinite(sky[i+1]) && std::fabs(sky[i+1]) > 90.)
+        throw otswap::Error(name + " holds a declination of " + std::to_string(sky[i+1]) +
+                            " degrees at object " + std::to_string(i / 3) + ", outside [-90, 90]");
     for (std::size_t i = 0; i + 2 < sky.size(); i += 3) {
       sky[i]   *= kDegToRad;
       sky[i+1] *= kDegToRad;
@@ -306,6 +314,36 @@ NB_MODULE(_otswap, m)
   if (extrapolation_warning == nullptr) throw nb::python_error();
   m.attr("ExtrapolationWarning") = nb::handle(extrapolation_warning);
 
+  // --------------------------------------------------------- SelectionCounts
+
+  nb::class_<otswap::SelectionCounts>(m, "SelectionCounts",
+      "What a lightcone reconstruction left out, and why. Read-only.")
+    .def_prop_ro("redshift_cut", [] (const otswap::SelectionCounts& c) -> nb::object {
+        if (!c.redshiftCutApplied) return nb::none();
+        return nb::make_tuple(c.redshiftCut.min, c.redshiftCut.max);
+      }, "The (min, max) of the redshift cut, or None when no cut was applied.")
+    .def_ro("mask_applied", &otswap::SelectionCounts::maskApplied)
+    .def_ro("tracers", &otswap::SelectionCounts::tracers)
+    .def_ro("tracers_outside_redshift_cut", &otswap::SelectionCounts::tracersOutsideRedshiftCut)
+    .def_ro("tracers_outside_mask", &otswap::SelectionCounts::tracersOutsideMask)
+    .def_ro("tracers_outside_both", &otswap::SelectionCounts::tracersOutsideBoth)
+    .def_ro("randoms", &otswap::SelectionCounts::randoms)
+    .def_ro("randoms_outside_redshift_cut", &otswap::SelectionCounts::randomsOutsideRedshiftCut)
+    .def_ro("randoms_outside_mask", &otswap::SelectionCounts::randomsOutsideMask)
+    .def_ro("randoms_outside_both", &otswap::SelectionCounts::randomsOutsideBoth)
+    .def_prop_ro("max_unobserved_pixels_crossed", [] (const otswap::SelectionCounts& c) -> nb::object {
+        if (!c.crossingsRejected) return nb::none();
+        return nb::int_(c.maxUnobservedPixelsCrossed);
+      }, "The threshold of the mask filter the call applied, or None when it applied none.")
+    .def_ro("displacements", &otswap::SelectionCounts::displacements)
+    .def_ro("displacements_crossing_mask", &otswap::SelectionCounts::displacementsCrossingMask)
+    .def("__repr__", [] (const otswap::SelectionCounts& c) {
+        std::string text = c.message();
+        if (text.empty()) return nb::str("SelectionCounts(no selection)");
+        text.pop_back();
+        return nb::str(text.c_str());
+      });
+
   // ------------------------------------------------------------------ Result
 
   nb::class_<otswap::Result>(m, "Result", "Displacement field produced by a reconstruction.")
@@ -340,7 +378,14 @@ NB_MODULE(_otswap, m)
         const otswap::Result& r = result_of(self);
         return view<bool>(self, reinterpret_cast<const bool*>(r.outsideRedshiftCut.data()),
                           {r.nObjects});
-      }, "Whether each tracer lay outside the redshift cut, shape (n_objects,).");
+      }, "Whether each tracer lay outside the redshift cut, shape (n_objects,).")
+    .def_prop_ro("outside_mask", [] (ResultHandle self) {
+        const otswap::Result& r = result_of(self);
+        return view<bool>(self, reinterpret_cast<const bool*>(r.outsideMask.data()), {r.nObjects});
+      }, "Whether each tracer fell on an unobserved pixel of the mask, shape (n_objects,).")
+    .def_prop_ro("selection", [] (const otswap::Result& r) -> const otswap::SelectionCounts& {
+        return r.selection;
+      }, nb::rv_policy::reference_internal, "What the reconstruction left out, and why.");
 
   // ----------------------------------------------------------- DistanceTable
 
@@ -386,7 +431,7 @@ NB_MODULE(_otswap, m)
         const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
         const bool degrees = in_degrees(angleUnit);
         std::vector<double> s = rows3(sky, "sky");
-        if (degrees) sky_to_radians(s);
+        if (degrees) sky_to_radians(s, "sky");
         const std::size_t n = s.size() / 3;
         return owned(otswap::toCartesian(s, table), {n, 3});
       },
@@ -449,9 +494,14 @@ NB_MODULE(_otswap, m)
           const CArray r = as_float64(pair[0], "ra"), d = as_float64(pair[1], "dec");
           auto* held = new bool[r.size() ? r.size() : 1];
           nb::capsule owner(held, [] (void* p) noexcept { delete[] static_cast<bool*>(p); });
-          for (std::size_t i = 0; i < r.size(); ++i)
-            held[i] = degrees ? mask.allows(r.data()[i] * kDegToRad, d.data()[i] * kDegToRad)
-                              : mask.allows(r.data()[i], d.data()[i]);
+          for (std::size_t i = 0; i < r.size(); ++i) {
+            const double dec = d.data()[i];
+            if (degrees && std::isfinite(dec) && std::fabs(dec) > 90.)
+              throw otswap::Error("the declination is " + std::to_string(dec) +
+                                  " degrees; it must lie in [-90, 90]");
+            held[i] = degrees ? mask.allows(r.data()[i] * kDegToRad, dec * kDegToRad)
+                              : mask.allows(r.data()[i], dec);
+          }
           const std::vector<std::size_t> shape = shape_vector(r);
           return nb::ndarray<nb::numpy, bool>(held, shape.size(), shape.data(), owner);
         },
@@ -482,47 +532,79 @@ NB_MODULE(_otswap, m)
       "Reconstruct in box geometry, with a constant mean particle separation.");
 
   m.def("reconstruct_lightcone",
-      [] (nb::handle tracersSky, nb::handle randomsSky, nb::handle skyAreaDeg2, nb::handle nBins,
-          nb::handle distances, nb::handle angleUnit, nb::handle tracers, nb::handle randoms,
-          nb::handle nRealizations, nb::handle convergence, nb::handle seed, nb::handle cellSize,
-          nb::handle redshiftCut) {
+      [] (nb::handle tracersSky, nb::handle randomsSky, nb::handle skyAreaDeg2, nb::handle mask,
+          nb::handle nBins, nb::handle distances, nb::handle angleUnit, nb::handle tracers,
+          nb::handle randoms, nb::handle nRealizations, nb::handle convergence, nb::handle seed,
+          nb::handle cellSize, nb::handle redshiftCut, nb::handle rejectCrossings,
+          nb::handle maxUnobservedPixelsCrossed, nb::handle verbose) {
         const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
         const bool degrees = in_degrees(angleUnit);
         std::vector<double> ts = rows3(tracersSky, "tracers_sky");
         std::vector<double> rs = rows3(randomsSky, "randoms_sky");
-        if (degrees) { sky_to_radians(ts); sky_to_radians(rs); }
+        if (degrees) { sky_to_radians(ts, "tracers_sky"); sky_to_radians(rs, "randoms_sky"); }
         if (tracers.is_none() != randoms.is_none())
           throw otswap::Error("give both tracers and randoms, or neither");
-        const double area = to_double(skyAreaDeg2, "sky_area_deg2");
+        if (!skyAreaDeg2.is_none() && !mask.is_none())
+          throw otswap::Error("give sky_area_deg2 or mask, not both; with a mask the sky area is "
+                              "the mask's");
+        if (skyAreaDeg2.is_none() && mask.is_none())
+          throw otswap::Error("give sky_area_deg2 or mask; one is required");
+        const otswap::Mask* footprint = mask.is_none() ? nullptr
+                                       : &instance<otswap::Mask>(mask, "mask", "Mask");
+        const double area = footprint ? 0. : to_double(skyAreaDeg2, "sky_area_deg2");
         const unsigned bins = to_unsigned(nBins, "n_bins");
-        const otswap::Config config = make_config(nRealizations, convergence, seed, cellSize);
+        otswap::Config config = make_config(nRealizations, convergence, seed, cellSize);
+        config.rejectCrossings = to_bool(rejectCrossings, "reject_crossings");
+        config.maxUnobservedPixelsCrossed =
+          to_unsigned(maxUnobservedPixelsCrossed, "max_unobserved_pixels_crossed");
+        const bool report = to_bool(verbose, "verbose");
         const otswap::RedshiftCut cut = to_cut(redshiftCut);
-        if (tracers.is_none()) {
-          nb::gil_scoped_release released;
-          return otswap::reconstructLightcone(ts, rs, area, bins, table, config, cut);
+        std::vector<double> t, r;
+        if (!tracers.is_none()) {
+          t = rows3(tracers, "tracers");
+          r = rows3(randoms, "randoms");
         }
-        const std::vector<double> t = rows3(tracers, "tracers");
-        const std::vector<double> r = rows3(randoms, "randoms");
-        nb::gil_scoped_release released;
-        return otswap::reconstructLightcone(t, r, ts, rs, area, bins, table, config, cut);
+
+        config.verbose = false;
+        otswap::Result result;
+        {
+          nb::gil_scoped_release released;
+          if (tracers.is_none())
+            result = footprint ? otswap::reconstructLightcone(ts, rs, *footprint, bins, table, config, cut)
+                               : otswap::reconstructLightcone(ts, rs, area, bins, table, config, cut);
+          else
+            result = footprint ? otswap::reconstructLightcone(t, r, ts, rs, *footprint, bins, table, config, cut)
+                               : otswap::reconstructLightcone(t, r, ts, rs, area, bins, table, config, cut);
+        }
+        if (report) {
+          const std::string message = result.selection.message();
+          const nb::object print = nb::module_::import_("builtins").attr("print");
+          std::size_t start = 0;
+          for (std::size_t end; (end = message.find('\n', start)) != std::string::npos; start = end + 1)
+            print(nb::str(message.data() + start, end - start));
+        }
+        return result;
       },
-      "tracers_sky"_a.none(), "randoms_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a.none(),
-      "n_bins"_a.none(), "distances"_a.none(), "angle_unit"_a.none(), "tracers"_a = nb::none(),
-      "randoms"_a = nb::none(), "n_realizations"_a.none() = 1, "convergence"_a.none() = 1.e-3,
-      "seed"_a.none() = 0, "cell_size"_a.none() = 4., "redshift_cut"_a = nb::none(),
+      "tracers_sky"_a.none(), "randoms_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(),
+      "mask"_a = nb::none(), "n_bins"_a.none(), "distances"_a.none(), "angle_unit"_a.none(),
+      "tracers"_a = nb::none(), "randoms"_a = nb::none(), "n_realizations"_a.none() = 1,
+      "convergence"_a.none() = 1.e-3, "seed"_a.none() = 0, "cell_size"_a.none() = 4.,
+      "redshift_cut"_a = nb::none(), "reject_crossings"_a.none() = true,
+      "max_unobserved_pixels_crossed"_a.none() = 0, "verbose"_a.none() = true,
       "Reconstruct in lightcone geometry.");
 
   m.def("reject_mask_crossings",
-      [] (nb::handle result, nb::handle mask, nb::handle maxForbiddenPixels) {
+      [] (nb::handle result, nb::handle mask, nb::handle maxUnobservedPixelsCrossed) {
         otswap::Result& r = instance<otswap::Result>(result, "result", "Result");
         const otswap::Mask& k = instance<otswap::Mask>(mask, "mask", "Mask");
-        const unsigned limit = to_unsigned(maxForbiddenPixels, "max_forbidden_pixels");
+        const unsigned limit = to_unsigned(maxUnobservedPixelsCrossed, "max_unobserved_pixels_crossed");
         nb::gil_scoped_release released;
         otswap::rejectMaskCrossings(r, k, limit);
       },
-      "result"_a.none(), "mask"_a.none(), "max_forbidden_pixels"_a.none() = 0,
-      "Mark as invalid the displacements whose path crosses more than max_forbidden_pixels "
-      "distinct unobserved pixels of the mask. Updates result in place.");
+      "result"_a.none(), "mask"_a.none(), "max_unobserved_pixels_crossed"_a.none() = 0,
+      "Mark as invalid the displacements whose path crosses more than "
+      "max_unobserved_pixels_crossed distinct unobserved pixels of the mask. Updates result in "
+      "place.");
 
   // ----------------------------------------------- Redshift-space correction
 
@@ -647,7 +729,7 @@ NB_MODULE(_otswap, m)
         const bool degrees = in_degrees(angleUnit);
         const std::vector<double> given = rows3(tracersSky, "tracers_sky");
         std::vector<double> ts = given;
-        if (degrees) sky_to_radians(ts);
+        if (degrees) sky_to_radians(ts, "tracers_sky");
         const std::vector<double> zb = column(biasRedshift, "bias_redshift");
         const std::vector<double> b = column(bias, "bias");
         const double s = to_double(sigma, "sigma");
@@ -667,7 +749,8 @@ NB_MODULE(_otswap, m)
           }
         std::size_t corrected = 0;
         for (std::size_t i = 0; i < r.nObjects; ++i)
-          if (r.outsideRedshiftCut.empty() || r.outsideRedshiftCut[i] == 0) ++corrected;
+          if ((r.outsideRedshiftCut.empty() || r.outsideRedshiftCut[i] == 0) &&
+              (r.outsideMask.empty() || r.outsideMask[i] == 0)) ++corrected;
         warn_extrapolation(nExtrapolated, corrected, zb);
         return catalog;
       },

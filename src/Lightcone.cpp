@@ -29,8 +29,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <iostream>
 #include <limits>
+#include <locale>
 #include <numeric>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -68,14 +72,34 @@ namespace {
                           std::to_string(cut.max) + "]; its lower bound exceeds the upper one");
   }
 
-  // Indices, increasing, of the objects of a sky array whose redshift lies
-  // in the closed range of the cut.
-  std::vector<std::size_t> inside (const std::vector<double>& sky, const otswap::RedshiftCut& cut)
-  {
+  /// Both selections, evaluated on every object of a sky array: whether its
+  /// redshift lies outside the closed range of the cut, and whether it falls
+  /// on an unobserved pixel of the mask, if one is given. The objects kept
+  /// are those flagged by neither, in increasing order.
+  struct Selection {
+    std::vector<std::uint8_t> outsideCut, outsideMask;
     std::vector<std::size_t> keep;
-    for (std::size_t i = 0; i < sky.size() / 3; ++i)
-      if (sky[3*i+2] >= cut.min && sky[3*i+2] <= cut.max) keep.push_back(i);
-    return keep;
+    std::size_t nOutsideCut = 0, nOutsideMask = 0, nOutsideBoth = 0;
+  };
+
+  Selection select (const std::vector<double>& sky, const otswap::RedshiftCut& cut,
+                    const otswap::Mask* mask)
+  {
+    const std::size_t n = sky.size() / 3;
+    Selection s;
+    s.outsideCut.assign(n, 0);
+    s.outsideMask.assign(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+      const bool outsideCut = !(sky[3*i+2] >= cut.min && sky[3*i+2] <= cut.max);
+      const bool outsideMask = mask != nullptr && !mask->allows(sky[3*i], sky[3*i+1]);
+      s.outsideCut[i] = outsideCut ? 1 : 0;
+      s.outsideMask[i] = outsideMask ? 1 : 0;
+      s.nOutsideCut += outsideCut ? 1 : 0;
+      s.nOutsideMask += outsideMask ? 1 : 0;
+      s.nOutsideBoth += (outsideCut && outsideMask) ? 1 : 0;
+      if (!outsideCut && !outsideMask) s.keep.push_back(i);
+    }
+    return s;
   }
 
   // The rows of a flat 3-column array named by keep, in that order.
@@ -87,15 +111,17 @@ namespace {
     return out;
   }
 
-  // The supply left by the cut, checked with the counts it dropped, before
-  // anything else is computed.
-  void check_kept (const otswap::RedshiftCut& cut,
-                   const std::size_t keptTracers, const std::size_t nTracers,
-                   const std::size_t keptRandoms, const std::size_t nRandoms,
+  /// The supply left by the selections, checked with the counts they
+  /// dropped, before anything else is computed.
+  void check_kept (const otswap::SelectionCounts& counts,
+                   const std::size_t keptTracers, const std::size_t keptRandoms,
                    const unsigned nRealizations)
   {
-    const std::string range = "the redshift cut [" + std::to_string(cut.min) + ", " +
-                              std::to_string(cut.max) + "]";
+    const std::size_t nTracers = counts.tracers, nRandoms = counts.randoms;
+    const std::string cut = "the redshift cut [" + std::to_string(counts.redshiftCut.min) + ", " +
+                            std::to_string(counts.redshiftCut.max) + "]";
+    const std::string range = !counts.maskApplied ? cut
+                            : counts.redshiftCutApplied ? cut + " and the mask" : "the mask";
     if (keptTracers < otswap::internal::min_objects())
       throw otswap::Error(range + " keeps " + std::to_string(keptTracers) + " of " +
                           std::to_string(nTracers) + " tracers (" +
@@ -111,12 +137,13 @@ namespace {
                           std::to_string(needed));
   }
 
-  // The result of the kept tracers, expanded to one row per input tracer:
-  // a cut tracer has NaN displacement and matchedRandom rows, no valid
-  // realization, and its flag set.
-  otswap::Result expand (const otswap::Result& kept, const std::vector<std::size_t>& keep,
+  /// The result of the kept tracers, expanded to one row per input tracer:
+  /// a tracer left out has NaN displacement and matchedRandom rows, no valid
+  /// realization, and its flags set.
+  otswap::Result expand (const otswap::Result& kept, const Selection& selection,
                          const std::size_t nObjects)
   {
+    const std::vector<std::size_t>& keep = selection.keep;
     const unsigned nRealizations = kept.nRealizations;
 
     otswap::Result full;
@@ -125,12 +152,12 @@ namespace {
     full.displacement.assign(3 * (std::size_t)nRealizations * nObjects, kNaN);
     full.matchedRandom.assign(3 * (std::size_t)nRealizations * nObjects, kNaN);
     full.valid.assign((std::size_t)nRealizations * nObjects, 0);
-    full.outsideRedshiftCut.assign(nObjects, 1);
+    full.outsideRedshiftCut = selection.outsideCut;
+    full.outsideMask = selection.outsideMask;
     full.filteredNside = kept.filteredNside;
 
     for (std::size_t k = 0; k < keep.size(); ++k) {
       const std::size_t i = keep[k];
-      full.outsideRedshiftCut[i] = 0;
       for (unsigned rec = 0; rec < nRealizations; ++rec) {
         const std::size_t from = (std::size_t)rec * keep.size() + k;
         const std::size_t to = (std::size_t)rec * nObjects + i;
@@ -284,7 +311,7 @@ double otswap::internal::representative (const MpsProfile& profile)
 std::vector<double> otswap::toCartesian (const std::vector<double>& sky,
                                          const DistanceTable& distances)
 {
-  const std::size_t nObjects = internal::check_coordinates(sky, "the sky array", true);
+  const std::size_t nObjects = internal::check_sky(sky, "the sky array", true);
 
   std::vector<double> cartesian(3 * nObjects);
 
@@ -307,6 +334,165 @@ std::vector<double> otswap::toCartesian (const std::vector<double>& sky,
 // ============================================================================
 
 
+namespace {
+
+  /// Every lightcone overload: the Cartesian arrays are null for the sky
+  /// overloads, and the mask null for those with the sky area. The
+  /// selections come first, decided on the sky coordinates, so everything
+  /// after them sees the kept objects only; with Cartesian arrays the same
+  /// rows are dropped from them, which is why the sky random array must
+  /// describe the same randoms.
+  otswap::Result lightcone (const std::vector<double>* tracers,
+                            const std::vector<double>* randoms,
+                            const std::vector<double>& tracersSky,
+                            const std::vector<double>& randomsSky,
+                            const double skyAreaDeg2,
+                            const otswap::Mask* mask,
+                            const unsigned nBins,
+                            const otswap::DistanceTable& distances,
+                            const otswap::Config& config,
+                            const otswap::RedshiftCut& cut)
+  {
+    using namespace otswap;
+
+    const unsigned seed = internal::check_config(config);
+
+    std::size_t nObjects = 0, nRandoms = 0;
+    if (tracers == nullptr) {
+      nObjects = internal::check_sky(tracersSky, "the tracer sky array");
+      nRandoms = internal::check_sky(randomsSky, "the random sky array");
+    }
+    else {
+      nObjects = internal::check_coordinates(*tracers, "the tracer array");
+      nRandoms = internal::check_coordinates(*randoms, "the random array");
+      const std::size_t nObjectsSky = internal::check_sky(tracersSky, "the tracer sky array");
+      const std::size_t nRandomsSky = internal::check_sky(randomsSky, "the random sky array");
+
+      if (nObjects != nObjectsSky)
+        throw Error("the Cartesian tracer array describes " + std::to_string(nObjects) +
+                    " objects and the sky one " + std::to_string(nObjectsSky));
+
+      if (nRandoms != nRandomsSky)
+        throw Error("the Cartesian random array describes " + std::to_string(nRandoms) +
+                    " objects and the sky one " + std::to_string(nRandomsSky));
+    }
+
+    check_cut(cut);
+    const Selection tracerSelection = select(tracersSky, cut, mask);
+    const Selection randomSelection = select(randomsSky, cut, mask);
+
+    SelectionCounts counts;
+    counts.redshiftCutApplied = std::isfinite(cut.min) || std::isfinite(cut.max);
+    counts.redshiftCut = cut;
+    counts.maskApplied = mask != nullptr;
+    counts.tracers = nObjects;
+    counts.tracersOutsideRedshiftCut = tracerSelection.nOutsideCut;
+    counts.tracersOutsideMask = tracerSelection.nOutsideMask;
+    counts.tracersOutsideBoth = tracerSelection.nOutsideBoth;
+    counts.randoms = nRandoms;
+    counts.randomsOutsideRedshiftCut = randomSelection.nOutsideCut;
+    counts.randomsOutsideMask = randomSelection.nOutsideMask;
+    counts.randomsOutsideBoth = randomSelection.nOutsideBoth;
+
+    const std::vector<std::size_t>& keepTracers = tracerSelection.keep;
+    const std::vector<std::size_t>& keepRandoms = randomSelection.keep;
+    const bool dropTracers = keepTracers.size() != nObjects;
+    const bool dropRandoms = keepRandoms.size() != nRandoms;
+    if (dropTracers || dropRandoms)
+      check_kept(counts, keepTracers.size(), keepRandoms.size(), config.nRealizations);
+
+    const std::vector<double> keptTracersSky = dropTracers ? rows(tracersSky, keepTracers) : std::vector<double>();
+    const std::vector<double>& ts = dropTracers ? keptTracersSky : tracersSky;
+    const std::size_t nKept = ts.size() / 3;
+
+    internal::check_random_supply(keepRandoms.size(), nKept, config.nRealizations);
+
+    const internal::MpsProfile profile = internal::mps_profile(ts, skyAreaDeg2, nBins, distances);
+
+    std::vector<double> convertedTracers, convertedRandoms, keptTracers, keptRandoms;
+    if (tracers == nullptr) {
+      convertedTracers = toCartesian(ts, distances);
+      convertedRandoms = dropRandoms ? toCartesian(rows(randomsSky, keepRandoms), distances)
+                                     : toCartesian(randomsSky, distances);
+    }
+    else {
+      if (dropTracers) keptTracers = rows(*tracers, keepTracers);
+      if (dropRandoms) keptRandoms = rows(*randoms, keepRandoms);
+    }
+    const std::vector<double>& t = tracers == nullptr ? convertedTracers
+                                 : dropTracers ? keptTracers : *tracers;
+    const std::vector<double>& r = tracers == nullptr ? convertedRandoms
+                                 : dropRandoms ? keptRandoms : *randoms;
+
+    std::vector<double> mps(nKept);
+    for (std::size_t i = 0; i < nKept; ++i)
+      mps[i] = internal::mps_at(profile, ts[3*i+2]);
+
+    Result result = internal::reconstruct(t, r, mps, internal::representative(profile), config, seed);
+    if (dropTracers) result = expand(result, tracerSelection, nObjects);
+
+    if (mask != nullptr && config.rejectCrossings) {
+      const auto valid = [&result] {
+        return (std::size_t)std::count(result.valid.begin(), result.valid.end(), 1);
+      };
+      counts.crossingsRejected = true;
+      counts.maxUnobservedPixelsCrossed = config.maxUnobservedPixelsCrossed;
+      counts.displacements = valid();
+      rejectMaskCrossings(result, *mask, config.maxUnobservedPixelsCrossed);
+      counts.displacementsCrossingMask = counts.displacements - valid();
+    }
+
+    result.selection = counts;
+
+    if (config.verbose) {
+      const std::string message = counts.message();
+      if (!message.empty()) std::clog << message << std::flush;
+    }
+
+    return result;
+  }
+
+}
+
+
+// ============================================================================
+
+
+std::string otswap::SelectionCounts::message () const
+{
+  std::ostringstream out;
+  out.imbue(std::locale::classic());
+
+  auto line = [&] (const char* what, const std::size_t given, const std::size_t outsideCut,
+                   const std::size_t outsideMask, const std::size_t outsideBoth) {
+    out << "otswap: kept " << given - (outsideCut + outsideMask - outsideBoth) << " of " << given
+        << " " << what << ": ";
+    if (redshiftCutApplied)
+      out << outsideCut << " outside the redshift cut [" << redshiftCut.min << ", "
+          << redshiftCut.max << "]";
+    if (redshiftCutApplied && maskApplied) out << ", ";
+    if (maskApplied) out << outsideMask << " outside the mask";
+    if (redshiftCutApplied && maskApplied) out << " (" << outsideBoth << " outside both)";
+    out << '\n';
+  };
+
+  if (redshiftCutApplied || maskApplied) {
+    line("tracers", tracers, tracersOutsideRedshiftCut, tracersOutsideMask, tracersOutsideBoth);
+    line("randoms", randoms, randomsOutsideRedshiftCut, randomsOutsideMask, randomsOutsideBoth);
+  }
+
+  if (crossingsRejected)
+    out << "otswap: rejected " << displacementsCrossingMask << " of " << displacements
+        << " displacements crossing more than " << maxUnobservedPixelsCrossed
+        << " unobserved pixels\n";
+
+  return out.str();
+}
+
+
+// ============================================================================
+
+
 otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracersSky,
                                              const std::vector<double>& randomsSky,
                                              const double skyAreaDeg2,
@@ -315,40 +501,8 @@ otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracersS
                                              const Config& config,
                                              const RedshiftCut& cut)
 {
-  const unsigned seed = internal::check_config(config);
-
-  const std::size_t nObjects = internal::check_coordinates(tracersSky, "the tracer sky array");
-  const std::size_t nRandoms = internal::check_coordinates(randomsSky, "the random sky array");
-
-  // The cut comes first: everything below sees the kept objects only.
-  check_cut(cut);
-  const std::vector<std::size_t> keepTracers = inside(tracersSky, cut);
-  const std::vector<std::size_t> keepRandoms = inside(randomsSky, cut);
-  const bool cutTracers = keepTracers.size() != nObjects;
-  const bool cutRandoms = keepRandoms.size() != nRandoms;
-  if (cutTracers || cutRandoms)
-    check_kept(cut, keepTracers.size(), nObjects, keepRandoms.size(), nRandoms, config.nRealizations);
-
-  const std::vector<double> keptTracersSky = cutTracers ? rows(tracersSky, keepTracers) : std::vector<double>();
-  const std::vector<double> keptRandomsSky = cutRandoms ? rows(randomsSky, keepRandoms) : std::vector<double>();
-  const std::vector<double>& ts = cutTracers ? keptTracersSky : tracersSky;
-  const std::vector<double>& rs = cutRandoms ? keptRandomsSky : randomsSky;
-  const std::size_t nKept = ts.size() / 3;
-
-  internal::check_random_supply(rs.size() / 3, nKept, config.nRealizations);
-
-  const internal::MpsProfile profile = internal::mps_profile(ts, skyAreaDeg2, nBins, distances);
-
-  const std::vector<double> tracers = toCartesian(ts, distances);
-  const std::vector<double> randoms = toCartesian(rs, distances);
-
-  std::vector<double> mps(nKept);
-  for (std::size_t i = 0; i < nKept; ++i)
-    mps[i] = internal::mps_at(profile, ts[3*i+2]);
-
-  const Result result = internal::reconstruct(tracers, randoms, mps,
-                                              internal::representative(profile), config, seed);
-  return cutTracers ? expand(result, keepTracers, nObjects) : result;
+  return lightcone(nullptr, nullptr, tracersSky, randomsSky, skyAreaDeg2, nullptr, nBins,
+                   distances, config, cut);
 }
 
 
@@ -365,54 +519,40 @@ otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracers,
                                              const Config& config,
                                              const RedshiftCut& cut)
 {
-  const unsigned seed = internal::check_config(config);
+  return lightcone(&tracers, &randoms, tracersSky, randomsSky, skyAreaDeg2, nullptr, nBins,
+                   distances, config, cut);
+}
 
-  const std::size_t nObjects = internal::check_coordinates(tracers, "the tracer array");
-  const std::size_t nRandoms = internal::check_coordinates(randoms, "the random array");
-  const std::size_t nObjectsSky = internal::check_coordinates(tracersSky, "the tracer sky array");
 
-  // randomsSky is not read by this overload: mps(z) is measured from the
-  // tracers, and Result carries no sky columns. It is validated all the
-  // same, and its object count must equal the Cartesian random array's,
-  // because the two arrays are required to describe the same randoms; a
-  // caller whose arrays are out of step gets an error here.
-  const std::size_t nRandomsSky = internal::check_coordinates(randomsSky, "the random sky array");
+// ============================================================================
 
-  if (nObjects != nObjectsSky)
-    throw Error("the Cartesian tracer array describes " + std::to_string(nObjects) +
-                " objects and the sky one " + std::to_string(nObjectsSky));
 
-  if (nRandoms != nRandomsSky)
-    throw Error("the Cartesian random array describes " + std::to_string(nRandoms) +
-                " objects and the sky one " + std::to_string(nRandomsSky));
+otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracersSky,
+                                             const std::vector<double>& randomsSky,
+                                             const Mask& mask,
+                                             const unsigned nBins,
+                                             const DistanceTable& distances,
+                                             const Config& config,
+                                             const RedshiftCut& cut)
+{
+  return lightcone(nullptr, nullptr, tracersSky, randomsSky, mask.skyAreaDeg2(), &mask, nBins,
+                   distances, config, cut);
+}
 
-  // The cut comes first, decided on the sky redshifts; the same rows are
-  // dropped from the Cartesian arrays.
-  check_cut(cut);
-  const std::vector<std::size_t> keepTracers = inside(tracersSky, cut);
-  const std::vector<std::size_t> keepRandoms = inside(randomsSky, cut);
-  const bool cutTracers = keepTracers.size() != nObjects;
-  const bool cutRandoms = keepRandoms.size() != nRandoms;
-  if (cutTracers || cutRandoms)
-    check_kept(cut, keepTracers.size(), nObjects, keepRandoms.size(), nRandoms, config.nRealizations);
 
-  const std::vector<double> keptTracers = cutTracers ? rows(tracers, keepTracers) : std::vector<double>();
-  const std::vector<double> keptTracersSky = cutTracers ? rows(tracersSky, keepTracers) : std::vector<double>();
-  const std::vector<double> keptRandoms = cutRandoms ? rows(randoms, keepRandoms) : std::vector<double>();
-  const std::vector<double>& t = cutTracers ? keptTracers : tracers;
-  const std::vector<double>& ts = cutTracers ? keptTracersSky : tracersSky;
-  const std::vector<double>& r = cutRandoms ? keptRandoms : randoms;
-  const std::size_t nKept = t.size() / 3;
+// ============================================================================
 
-  internal::check_random_supply(r.size() / 3, nKept, config.nRealizations);
 
-  const internal::MpsProfile profile = internal::mps_profile(ts, skyAreaDeg2, nBins, distances);
-
-  std::vector<double> mps(nKept);
-  for (std::size_t i = 0; i < nKept; ++i)
-    mps[i] = internal::mps_at(profile, ts[3*i+2]);
-
-  const Result result = internal::reconstruct(t, r, mps,
-                                              internal::representative(profile), config, seed);
-  return cutTracers ? expand(result, keepTracers, nObjects) : result;
+otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracers,
+                                             const std::vector<double>& randoms,
+                                             const std::vector<double>& tracersSky,
+                                             const std::vector<double>& randomsSky,
+                                             const Mask& mask,
+                                             const unsigned nBins,
+                                             const DistanceTable& distances,
+                                             const Config& config,
+                                             const RedshiftCut& cut)
+{
+  return lightcone(&tracers, &randoms, tracersSky, randomsSky, mask.skyAreaDeg2(), &mask, nBins,
+                   distances, config, cut);
 }

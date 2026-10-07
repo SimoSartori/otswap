@@ -95,6 +95,26 @@ namespace otswap {
                                    const std::string& name,
                                    bool allowEmpty = false);
 
+    /// check_coordinates for a sky array, which also refuses a
+    /// declination outside [-pi/2, pi/2]; the right ascension may be any
+    /// finite value.
+    std::size_t check_sky (const std::vector<double>& sky,
+                           const std::string& name,
+                           bool allowEmpty = false);
+
+    /// Checks that each flag array of @p result, outsideRedshiftCut and
+    /// outsideMask, is empty or holds nObjects entries.
+    void check_flags (const Result& result);
+
+    /// True when tracer @p i of @p result took no part in the
+    /// reconstruction: flagged in outsideRedshiftCut or in outsideMask.
+    /// The flags must have passed check_flags.
+    inline bool excluded (const Result& result, const std::size_t i)
+    {
+      return (!result.outsideRedshiftCut.empty() && result.outsideRedshiftCut[i] != 0) ||
+             (!result.outsideMask.empty() && result.outsideMask[i] != 0);
+    }
+
     /// Check the fields of Config, and resolve seed 0 to a drawn seed.
     unsigned check_config (const Config& config);
 

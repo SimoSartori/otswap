@@ -194,6 +194,18 @@ def compute():
         out["reject_mask_crossings.2.valid"] = digest(r2.valid)
         out["reject_mask_crossings.2.mean_displacement"] = digest(r2.mean_displacement)
 
+        # The mask given to the reconstruction: tracers and randoms on
+        # unobserved pixels left out before it, crossings rejected after it;
+        # alone, and with a redshift cut.
+        for label, cut in (("mask", None), ("mask_cut", (0.35, 0.55))):
+            masked = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, n_bins=2,
+                                                  distances=lc_table, angle_unit="deg",
+                                                  n_realizations=3, seed=6789, redshift_cut=cut,
+                                                  verbose=False)
+            out[f"reconstruct_lightcone.{label}.displacement"] = digest(masked.displacement)
+            out[f"reconstruct_lightcone.{label}.valid"] = digest(masked.valid)
+            out[f"reconstruct_lightcone.{label}.outside_mask"] = digest(masked.outside_mask)
+
     # The redshift-space correction, on the lightcone filtered at limit 0,
     # whose tracers without a valid realization exercise the NaN paths, and
     # on the box reconstructed from given randoms. The bias table is
@@ -234,7 +246,8 @@ def compute():
 
         cut = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0,
                                            n_bins=2, distances=lc_table, angle_unit="deg",
-                                           n_realizations=3, seed=6789, redshift_cut=(0.35, 0.55))
+                                           n_realizations=3, seed=6789, redshift_cut=(0.35, 0.55),
+                                           verbose=False)
         out["reconstruct_lightcone.cut.displacement"] = digest(cut.displacement)
         out["reconstruct_lightcone.cut.outside_redshift_cut"] = digest(cut.outside_redshift_cut)
         c = otswap.real_space_lightcone(cut, tracers_sky, distances=lc_table, bias_redshift=bias_z,

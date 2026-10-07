@@ -165,7 +165,8 @@ def result_arrays(result):
 def test_exports():
     assert sorted(otswap.__all__) == sorted([
         "AngleUnit", "DistanceTable", "Error", "ExtrapolationWarning", "Mask",
-        "RealSpaceCatalog", "Result", "line_of_sight_projection", "neighbour_average",
+        "RealSpaceCatalog", "Result", "SelectionCounts", "line_of_sight_projection",
+        "neighbour_average",
         "real_space_box", "real_space_lightcone", "reconstruct_box", "reconstruct_lightcone",
         "reject_mask_crossings", "rsd_factor", "rsd_factor_box", "shift_along_line_of_sight",
         "to_cartesian"])
@@ -780,6 +781,214 @@ def test_reconstruct_lightcone_input_errors(table, lightcone):
 
 
 # --------------------------------------------------------------------------
+# the mask in reconstruct_lightcone
+
+
+def nine_mask():
+    """NSIDE 64, RING, every ninth pixel unobserved."""
+    pixels = np.ones(12 * 64 ** 2)
+    pixels[::9] = 0
+    return otswap.Mask.from_array(pixels)
+
+
+MASK_CUT = (0.35, 0.55)
+
+
+def test_lightcone_mask_flags_rows_and_area(table, lightcone):
+    tracers_sky, randoms_sky = lightcone
+    mask = nine_mask()
+    options = dict(n_bins=1, distances=table, angle_unit="deg", n_realizations=2, seed=5,
+                   redshift_cut=MASK_CUT, verbose=False)
+    plain = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask,
+                                         reject_crossings=False, **options)
+
+    def outside(sky):
+        cut = ~((sky[:, 2] >= MASK_CUT[0]) & (sky[:, 2] <= MASK_CUT[1]))
+        return cut, ~mask.allows(sky[:, 0], sky[:, 1], angle_unit="deg")
+
+    cut, masked = outside(tracers_sky)
+    flags = plain.outside_mask
+    assert flags.dtype == np.bool_ and flags.shape == (1600,) and not flags.flags.writeable
+    assert np.array_equal(flags, masked) and np.array_equal(plain.outside_redshift_cut, cut)
+    assert (cut & masked).any() and (masked & ~cut).any() and (cut & ~masked).any()
+
+    keep = ~cut & ~masked
+    random_cut, random_masked = outside(randoms_sky)
+    kept = otswap.reconstruct_lightcone(tracers_sky[keep], randoms_sky[~random_cut & ~random_masked],
+                                        sky_area_deg2=mask.sky_area_deg2, n_bins=1, distances=table,
+                                        angle_unit="deg", n_realizations=2, seed=5)
+    for name, array in result_arrays(kept).items():
+        full = getattr(plain, name)
+        rows = full[:, keep] if full.ndim > 1 and full.shape[1] == 1600 else full[keep]
+        assert same_bytes(rows, array), name
+    assert np.isnan(plain.displacement[:, ~keep]).all() and not plain.valid[:, ~keep].any()
+
+
+def test_lightcone_mask_filters_the_result(table, lightcone):
+    mask = nine_mask()
+    options = dict(mask=mask, n_bins=1, distances=table, angle_unit="deg", n_realizations=2,
+                   seed=5, verbose=False)
+    filtered = otswap.reconstruct_lightcone(*lightcone, **options)
+    by_hand = otswap.reconstruct_lightcone(*lightcone, reject_crossings=False, **options)
+    assert by_hand.filtered_nside == 0 and filtered.filtered_nside == 64
+    otswap.reject_mask_crossings(by_hand, mask)
+    assert np.array_equal(filtered.valid, by_hand.valid)
+    assert 0 < (~filtered.valid[:, ~filtered.outside_mask]).sum()
+
+    two = otswap.reconstruct_lightcone(*lightcone, max_unobserved_pixels_crossed=2, **options)
+    by_hand_two = otswap.reconstruct_lightcone(*lightcone, reject_crossings=False, **options)
+    otswap.reject_mask_crossings(by_hand_two, mask, max_unobserved_pixels_crossed=2)
+    assert np.array_equal(two.valid, by_hand_two.valid)
+    assert two.selection.max_unobserved_pixels_crossed == 2
+
+
+def test_lightcone_selection_counts(table, lightcone):
+    tracers_sky, randoms_sky = lightcone
+    mask = nine_mask()
+    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, n_bins=1,
+                                          distances=table, angle_unit="deg", n_realizations=2,
+                                          seed=5, redshift_cut=MASK_CUT, verbose=False)
+    s = result.selection
+    assert isinstance(s, otswap.SelectionCounts)
+    cut = result.outside_redshift_cut
+    masked = result.outside_mask
+    assert s.redshift_cut == MASK_CUT and s.mask_applied
+    assert (s.tracers, s.tracers_outside_redshift_cut, s.tracers_outside_mask,
+            s.tracers_outside_both) == (1600, cut.sum(), masked.sum(), (cut & masked).sum())
+    random_masked = ~mask.allows(randoms_sky[:, 0], randoms_sky[:, 1], angle_unit="deg")
+    assert s.randoms == 4800 and s.randoms_outside_mask == random_masked.sum()
+    kept = 1600 - cut.sum() - masked.sum() + (cut & masked).sum()
+    assert s.displacements == 2 * kept
+    assert s.displacements_crossing_mask == 2 * kept - result.valid.sum()
+    assert s.max_unobserved_pixels_crossed == 0
+    lines = repr(s).split("\n")
+    assert lines == [
+        f"otswap: kept {kept} of 1600 tracers: {cut.sum()} outside the redshift cut [0.35, 0.55], "
+        f"{masked.sum()} outside the mask ({(cut & masked).sum()} outside both)",
+        f"otswap: kept {4800 - s.randoms_outside_redshift_cut - s.randoms_outside_mask + s.randoms_outside_both}"
+        f" of 4800 randoms: {s.randoms_outside_redshift_cut} outside the redshift cut [0.35, 0.55], "
+        f"{s.randoms_outside_mask} outside the mask ({s.randoms_outside_both} outside both)",
+        f"otswap: rejected {s.displacements_crossing_mask} of {s.displacements} displacements "
+        "crossing more than 0 unobserved pixels"]
+    # the counts keep the result alive
+    del result
+    gc.collect()
+    assert s.tracers == 1600
+
+    plain = lightcone_result(table, lightcone)
+    p = plain.selection
+    assert p.redshift_cut is None and not p.mask_applied
+    assert p.max_unobserved_pixels_crossed is None and p.displacements == 0
+    assert p.tracers == 1600 and p.tracers_outside_mask == 0
+    assert not plain.outside_mask.any() and repr(p) == "SelectionCounts(no selection)"
+    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, seed=3)
+    assert box.selection.tracers == 0 and not box.outside_mask.any()
+    with pytest.raises(TypeError):
+        otswap.SelectionCounts()
+
+
+def test_lightcone_report_is_printed_from_python(table, lightcone, capfd):
+    mask = nine_mask()
+    options = dict(n_bins=1, distances=table, angle_unit="deg", n_realizations=2, seed=5)
+    result = otswap.reconstruct_lightcone(*lightcone, mask=mask, redshift_cut=MASK_CUT, **options)
+    out, err = capfd.readouterr()
+    assert out == repr(result.selection) + "\n" and len(out.splitlines()) == 3
+    assert err == "", "nothing is written to the process's stderr"
+
+    otswap.reconstruct_lightcone(*lightcone, mask=mask, verbose=False, **options)
+    otswap.reconstruct_lightcone(*lightcone, sky_area_deg2=patch_area_deg2(), **options)
+    assert capfd.readouterr() == ("", "")
+
+    cut = otswap.reconstruct_lightcone(*lightcone, sky_area_deg2=patch_area_deg2(),
+                                       redshift_cut=MASK_CUT, **options)
+    out, err = capfd.readouterr()
+    assert out.splitlines() == repr(cut.selection).split("\n") and len(out.splitlines()) == 2
+    assert "outside the redshift cut [0.35, 0.55]" in out and "mask" not in out and err == ""
+
+
+def test_lightcone_cartesian_with_mask(table, lightcone):
+    tracers_sky, randoms_sky = lightcone
+    mask = nine_mask()
+    options = dict(mask=mask, n_bins=1, distances=table, angle_unit="deg", n_realizations=2,
+                   seed=5, redshift_cut=MASK_CUT, verbose=False)
+    sky = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, **options)
+    cartesian = otswap.reconstruct_lightcone(
+        tracers_sky, randoms_sky, tracers=otswap.to_cartesian(tracers_sky, table, angle_unit="deg"),
+        randoms=otswap.to_cartesian(randoms_sky, table, angle_unit="deg"), **options)
+    for name, array in result_arrays(sky).items():
+        assert same_bytes(array, getattr(cartesian, name)), name
+    assert same_bytes(sky.outside_mask, cartesian.outside_mask)
+    assert repr(sky.selection) == repr(cartesian.selection)
+
+
+@pytest.mark.parametrize("kwargs, text", [
+    (dict(sky_area_deg2=900.0, mask="mask"), "not both"),
+    (dict(), "one is required"),
+    (dict(mask="mask.fits"), "mask must be an otswap.Mask"),
+    (dict(mask=None), "one is required"),
+    (dict(mask=True, sky_area_deg2=None), "mask must be an otswap.Mask"),
+    (dict(sky_area_deg2=900.0, reject_crossings=1), "reject_crossings must be True or False"),
+    (dict(sky_area_deg2=900.0, verbose="yes"), "verbose must be True or False"),
+    (dict(sky_area_deg2=900.0, max_unobserved_pixels_crossed=-1),
+     "max_unobserved_pixels_crossed is -1"),
+])
+def test_lightcone_mask_argument_errors(table, lightcone, kwargs, text):
+    kwargs = {k: (nine_mask() if v == "mask" else v) for k, v in kwargs.items()}
+    with pytest.raises(otswap.Error, match=text):
+        otswap.reconstruct_lightcone(*lightcone, n_bins=1, distances=table, angle_unit="deg",
+                                     **kwargs)
+
+
+def test_declinations_are_checked_in_the_unit_given(table, lightcone):
+    tracers_sky, randoms_sky = lightcone
+    above = np.nextafter(90.0, 91.0)
+    bad = tracers_sky.copy()
+    bad[7, 1] = above
+    options = dict(sky_area_deg2=patch_area_deg2(), n_bins=1, distances=table)
+    with pytest.raises(otswap.Error, match=r"tracers_sky holds a declination of 90\.000000 degrees "
+                                           r"at object 7, outside \[-90, 90\]"):
+        otswap.reconstruct_lightcone(bad, randoms_sky, angle_unit="deg", **options)
+    bad_randoms = randoms_sky.copy()
+    bad_randoms[3, 1] = -above
+    with pytest.raises(otswap.Error, match=r"randoms_sky holds a declination of -90\.000000 degrees "
+                                           r"at object 3"):
+        otswap.reconstruct_lightcone(tracers_sky, bad_randoms, angle_unit="deg", **options)
+    with pytest.raises(otswap.Error, match=r"randoms_sky holds a declination"):
+        otswap.reconstruct_lightcone(tracers_sky, bad_randoms, angle_unit="deg", mask=nine_mask(),
+                                     n_bins=1, distances=table)
+    with pytest.raises(otswap.Error, match=r"^sky holds a declination of 90\.000000 degrees"):
+        otswap.to_cartesian(bad[:10], table, angle_unit="deg")
+    with pytest.raises(otswap.Error, match=r"the declination is 90\.000000 degrees; it must lie in "
+                                           r"\[-90, 90\]"):
+        nine_mask().allows([1.0], [above], angle_unit="deg")
+
+    radians = np.column_stack([np.deg2rad(bad[:, 0]), np.deg2rad(bad[:, 1]), bad[:, 2]])
+    radians[7, 1] = np.nextafter(np.pi / 2, 2.0)
+    with pytest.raises(otswap.Error, match=r"the tracer sky array holds a declination of 1\.570796 "
+                                           r"at object 7, outside \[-pi/2, pi/2\]"):
+        otswap.reconstruct_lightcone(radians, to_radians(randoms_sky), angle_unit="rad", **options)
+    with pytest.raises(otswap.Error, match=r"the sky array holds a declination of 1\.570796"):
+        otswap.to_cartesian(radians[:10], table, angle_unit="rad")
+
+    poles = [[10.0, 90.0, 0.4], [20.0, -90.0, 0.4]]
+    assert np.isfinite(otswap.to_cartesian(poles, table, angle_unit="deg")).all()
+    assert otswap.to_cartesian(np.deg2rad(poles) * [1, 1, 0] + [0, 0, 0.4], table,
+                               angle_unit="rad").shape == (2, 3)
+
+
+def test_stub_lists_the_mask_keywords():
+    stub = os.path.join(os.path.dirname(otswap.__file__), "__init__.pyi")
+    with open(stub) as f:
+        text = f.read()
+    for line in ("    sky_area_deg2: Optional[float] = None,", "    mask: Optional[Mask] = None,",
+                 "    reject_crossings: bool = True,", "    max_unobserved_pixels_crossed: int = 0,",
+                 "    verbose: bool = True,", "class SelectionCounts:",
+                 "    def outside_mask(self) -> NDArray[np.bool_]:"):
+        assert line in text, line
+    assert "max_forbidden_pixels" not in text
+
+
+# --------------------------------------------------------------------------
 # reject_mask_crossings
 
 
@@ -820,12 +1029,12 @@ def test_reject_mask_crossings_threshold(table, lightcone, sieve_mask):
     strict = lightcone_result(table, lightcone)
     otswap.reject_mask_crossings(strict, mask)
     loose = lightcone_result(table, lightcone)
-    otswap.reject_mask_crossings(loose, mask, max_forbidden_pixels=2)
+    otswap.reject_mask_crossings(loose, mask, max_unobserved_pixels_crossed=2)
     assert np.all(loose.valid >= strict.valid)
     assert loose.valid.sum() > strict.valid.sum()
     # it only ever marks displacements invalid
     before = strict.valid.copy()
-    otswap.reject_mask_crossings(strict, mask, max_forbidden_pixels=1000)
+    otswap.reject_mask_crossings(strict, mask, max_unobserved_pixels_crossed=1000)
     assert same_bytes(strict.valid, before)
     otswap.reject_mask_crossings(loose, mask)
     assert same_bytes(loose.valid, before)
@@ -837,7 +1046,7 @@ def test_reject_mask_crossings_errors(table, lightcone, sieve_mask, full_mask32)
     with pytest.raises(otswap.Error):
         otswap.reject_mask_crossings(result, otswap.Mask(full_mask32))
     with pytest.raises(otswap.Error):
-        otswap.reject_mask_crossings(result, otswap.Mask(sieve_mask), max_forbidden_pixels=-1)
+        otswap.reject_mask_crossings(result, otswap.Mask(sieve_mask), max_unobserved_pixels_crossed=-1)
     with pytest.raises(otswap.Error):
         otswap.reject_mask_crossings(result, sieve_mask)
     with pytest.raises(otswap.Error):
@@ -882,7 +1091,7 @@ def test_reconstructions_release_the_gil(table, lightcone, sieve_mask):
     cone = lambda: lightcone_result(table, lightcone, n_realizations=3)
     big = otswap.reconstruct_box(tracers, mps=10.0, n_realizations=4, seed=1)
     mask = otswap.Mask(sieve_mask)
-    crossings = lambda: otswap.reject_mask_crossings(big, mask, max_forbidden_pixels=1000)
+    crossings = lambda: otswap.reject_mask_crossings(big, mask, max_unobserved_pixels_crossed=1000)
     for call in (box, cone, crossings):
         elapsed, pause = largest_pause_while(call)
         assert elapsed > 0.02, "the call is too short to tell"
@@ -961,13 +1170,36 @@ def test_lightcone_matches_cpp(tmp_path, table, lightcone, sieve_mask, cartesian
         arrays.update(extra)
     config = dict(n_realizations=2, convergence=1e-3, seed=5, cell_size=4.0)
     out = run_cpp(tmp_path, "lightcone", arrays, sky_area_deg2=patch_area_deg2(), n_bins=3,
-                  **TABLE_ARGS, **config, mask=sieve_mask, max_forbidden_pixels=1)
+                  **TABLE_ARGS, **config, mask=sieve_mask, max_unobserved_pixels_crossed=1)
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=patch_area_deg2(),
                                           n_bins=3, distances=table, angle_unit="deg",
                                           **extra, **config)
-    otswap.reject_mask_crossings(result, otswap.Mask(sieve_mask), max_forbidden_pixels=1)
+    otswap.reject_mask_crossings(result, otswap.Mask(sieve_mask), max_unobserved_pixels_crossed=1)
     assert not result.valid.all()
     assert_same_result(result, read_cpp_result(out, 2, len(tracers_sky)))
+
+
+@needs_cpp
+@pytest.mark.parametrize("cartesian", [False, True])
+def test_lightcone_mask_overload_matches_cpp(tmp_path, table, lightcone, sieve_mask, cartesian):
+    tracers_sky, randoms_sky = lightcone
+    arrays = {"tracers_sky": to_radians(tracers_sky), "randoms_sky": to_radians(randoms_sky)}
+    extra = {}
+    if cartesian:
+        extra = dict(tracers=otswap.to_cartesian(tracers_sky, table, angle_unit="deg") * 1.001,
+                     randoms=otswap.to_cartesian(randoms_sky, table, angle_unit="deg") * 1.001)
+        arrays.update(extra)
+    config = dict(n_realizations=2, convergence=1e-3, seed=5, cell_size=4.0)
+    out = run_cpp(tmp_path, "lightcone", arrays, n_bins=3, **TABLE_ARGS, **config,
+                  mask=sieve_mask, max_unobserved_pixels_crossed=1)
+    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=otswap.Mask(sieve_mask),
+                                          n_bins=3, distances=table, angle_unit="deg",
+                                          max_unobserved_pixels_crossed=1, verbose=False,
+                                          **extra, **config)
+    assert result.outside_mask.any() and not result.valid.all()
+    assert_same_result(result, read_cpp_result(out, 2, len(tracers_sky)))
+    assert same_bytes(result.outside_mask.view(np.uint8),
+                      np.fromfile(f"{out}.outside_mask", dtype=np.uint8))
 
 
 @needs_cpp

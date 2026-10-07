@@ -630,6 +630,7 @@ int main ()
     Config config;
     config.nRealizations = 2;
     config.seed = 11;
+    config.verbose = false;
     const RedshiftCut cut {0.3, 0.6};
 
     const Result withCut = reconstructLightcone(sky, randomsSky, 800., 1, table, config, cut);
@@ -782,6 +783,278 @@ int main ()
     check(all.uncorrected.size() == (n - m) + sub.uncorrected.size(), "and nothing else is uncorrected");
     const RealSpaceCatalog beyond = realSpaceLightcone(farCut, far, table, zb, b, 10.);
     check(std::isnan(beyond.positions[3*5+2]), "a cut tracer beyond the distance table is not converted");
+  }
+
+  group("the selection report: one line per array listing the selections applied, one for the "
+        "crossings; empty when nothing was applied");
+  {
+    SelectionCounts c;
+    check(c.message().empty(), "no selection, no report");
+    c.tracers = 100;
+    c.randoms = 400;
+    c.redshiftCutApplied = true;
+    c.redshiftCut = RedshiftCut{0.9, 1.08};
+    c.tracersOutsideRedshiftCut = 7;
+    c.randomsOutsideRedshiftCut = 30;
+    check(c.message() == "otswap: kept 93 of 100 tracers: 7 outside the redshift cut [0.9, 1.08]\n"
+                         "otswap: kept 370 of 400 randoms: 30 outside the redshift cut [0.9, 1.08]\n",
+          "the cut alone: " + c.message());
+    c.redshiftCutApplied = false;
+    c.tracersOutsideRedshiftCut = c.randomsOutsideRedshiftCut = 0;
+    c.maskApplied = true;
+    c.tracersOutsideMask = 5;
+    c.randomsOutsideMask = 20;
+    check(c.message() == "otswap: kept 95 of 100 tracers: 5 outside the mask\n"
+                         "otswap: kept 380 of 400 randoms: 20 outside the mask\n",
+          "the mask alone: " + c.message());
+    c.tracersOutsideRedshiftCut = 7;
+    c.randomsOutsideRedshiftCut = 30;
+    c.tracersOutsideBoth = 2;
+    c.redshiftCutApplied = true;
+    c.redshiftCut = RedshiftCut{-kInf, 1e-5};
+    c.crossingsRejected = true;
+    c.maxUnobservedPixelsCrossed = 2;
+    c.displacements = 180;
+    c.displacementsCrossingMask = 11;
+    check(c.message() == "otswap: kept 90 of 100 tracers: 7 outside the redshift cut [-inf, 1e-05], "
+                         "5 outside the mask (2 outside both)\n"
+                         "otswap: kept 350 of 400 randoms: 30 outside the redshift cut [-inf, 1e-05], "
+                         "20 outside the mask (0 outside both)\n"
+                         "otswap: rejected 11 of 180 displacements crossing more than 2 unobserved pixels\n",
+          "both, an open bound, and the crossings: " + c.message());
+  }
+
+  {
+    const DistanceTable table(0.3, 0.7, -1., 0., 0., 1.5, 4000);
+    const std::vector<double> sky = sky_points(900, 0.2, 0.7, rng);
+    const std::vector<double> randomsSky = sky_points(3600, 0.2, 0.7, rng);
+    Config config;
+    config.nRealizations = 2;
+    config.seed = 11;
+    config.verbose = false;
+    const RedshiftCut cut {0.3, 0.6};
+
+    // NSIDE 64, RING, one pixel in nine unobserved, with values of every
+    // kind.
+    std::vector<double> values(12 * 64 * 64, 1.);
+    for (std::size_t p = 0; p < values.size(); p += 9) values[p] = (p % 2) ? kNaN : -1.;
+    const Mask mask(values, PixelOrdering::Ring);
+
+    const std::size_t n = 900;
+    std::vector<std::size_t> keep, keepRandoms;
+    std::vector<std::uint8_t> expectCut(n), expectMask(n);
+    std::size_t both = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+      expectCut[i] = !(sky[3*i+2] >= cut.min && sky[3*i+2] <= cut.max);
+      expectMask[i] = !mask.allows(sky[3*i], sky[3*i+1]);
+      both += expectCut[i] && expectMask[i];
+      if (!expectCut[i] && !expectMask[i]) keep.push_back(i);
+    }
+    std::size_t randomsOutsideMask = 0;
+    for (std::size_t i = 0; i < randomsSky.size() / 3; ++i) {
+      const bool outsideCut = !(randomsSky[3*i+2] >= cut.min && randomsSky[3*i+2] <= cut.max);
+      const bool outsideMask = !mask.allows(randomsSky[3*i], randomsSky[3*i+1]);
+      randomsOutsideMask += outsideMask;
+      if (!outsideCut && !outsideMask) keepRandoms.push_back(i);
+    }
+    const std::size_t m = keep.size();
+
+    Config unfiltered = config;
+    unfiltered.rejectCrossings = false;
+    const Result masked = reconstructLightcone(sky, randomsSky, mask, 1, table, config, cut);
+    const Result plain = reconstructLightcone(sky, randomsSky, mask, 1, table, unfiltered, cut);
+    const Result kept = reconstructLightcone(rows(sky, keep), rows(randomsSky, keepRandoms),
+                                             mask.skyAreaDeg2(), 1, table, config);
+
+    group("mask in reconstructLightcone: both selections on every object, the flags independent");
+    check(masked.outsideMask == expectMask && masked.outsideRedshiftCut == expectCut,
+          "outsideMask is !Mask::allows and outsideRedshiftCut the cut, each on every tracer");
+    check(both > 0 && std::count(expectMask.begin(), expectMask.end(), 1) > (std::ptrdiff_t)both &&
+          m > 300 && m < 700, "some tracers carry both flags, some one, and part is kept");
+
+    group("the kept tracers are reconstructed exactly as the catalogue selected beforehand, with "
+          "the mask's area; the rest keep a NaN row");
+    bool keptSame = true, outNaN = true;
+    std::size_t k = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+      const bool isKept = k < m && keep[k] == i;
+      for (unsigned rec = 0; rec < 2; ++rec) {
+        const std::size_t to = (std::size_t)rec * n + i;
+        if (isKept) {
+          const std::size_t from = (std::size_t)rec * m + k;
+          keptSame = keptSame && plain.valid[to] == kept.valid[from];
+          for (int c = 0; c < 3; ++c)
+            keptSame = keptSame && same_double(plain.displacement[3*to+c], kept.displacement[3*from+c]) &&
+                       same_double(plain.matchedRandom[3*to+c], kept.matchedRandom[3*from+c]);
+        }
+        else {
+          outNaN = outNaN && plain.valid[to] == 0 && masked.valid[to] == 0;
+          for (int c = 0; c < 3; ++c)
+            outNaN = outNaN && std::isnan(plain.displacement[3*to+c]) && std::isnan(plain.matchedRandom[3*to+c]);
+        }
+      }
+      if (isKept) ++k;
+      else outNaN = outNaN && plain.validRealizations[i] == 0 && std::isnan(plain.meanDisplacement[3*i]);
+    }
+    check(keptSame, "the kept rows are, bit for bit, those of the selected catalogue");
+    check(outNaN, "a tracer left out has NaN rows, no valid realization and a NaN mean");
+
+    group("with rejectCrossings, the result is filtered as rejectMaskCrossings filters it, with "
+          "the threshold of Config; without, it is not");
+    Result byHand = plain;
+    rejectMaskCrossings(byHand, mask, 0);
+    check(masked.valid == byHand.valid && masked.filteredNside == 64 && plain.filteredNside == 0,
+          "the filter is applied once, with the mask, and recorded");
+    check(std::count(masked.valid.begin(), masked.valid.end(), 1) <
+          std::count(plain.valid.begin(), plain.valid.end(), 1),
+          "it rejects some displacements here");
+    Config two = config;
+    two.maxUnobservedPixelsCrossed = 2;
+    Result byHandTwo = plain;
+    rejectMaskCrossings(byHandTwo, mask, 2);
+    check(reconstructLightcone(sky, randomsSky, mask, 1, table, two, cut).valid == byHandTwo.valid,
+          "maxUnobservedPixelsCrossed is the threshold");
+
+    group("the counts in Result::selection");
+    const SelectionCounts& s = masked.selection;
+    const std::size_t validBefore = (std::size_t)std::count(plain.valid.begin(), plain.valid.end(), 1);
+    const std::size_t validAfter = (std::size_t)std::count(masked.valid.begin(), masked.valid.end(), 1);
+    check(s.redshiftCutApplied && s.redshiftCut.min == 0.3 && s.redshiftCut.max == 0.6 && s.maskApplied,
+          "the selections applied");
+    check(s.tracers == n &&
+          s.tracersOutsideRedshiftCut == (std::size_t)std::count(expectCut.begin(), expectCut.end(), 1) &&
+          s.tracersOutsideMask == (std::size_t)std::count(expectMask.begin(), expectMask.end(), 1) &&
+          s.tracersOutsideBoth == both &&
+          s.tracers - (s.tracersOutsideRedshiftCut + s.tracersOutsideMask - s.tracersOutsideBoth) == m,
+          "the tracer counts");
+    check(s.randoms == 3600 && s.randomsOutsideMask == randomsOutsideMask &&
+          s.randoms - (s.randomsOutsideRedshiftCut + s.randomsOutsideMask - s.randomsOutsideBoth) ==
+            keepRandoms.size(),
+          "the random counts");
+    check(s.crossingsRejected && s.maxUnobservedPixelsCrossed == 0 && s.displacements == 2 * m &&
+          validBefore == 2 * m && s.displacementsCrossingMask == validBefore - validAfter,
+          "the crossing counts");
+    check(!plain.selection.crossingsRejected && plain.selection.displacements == 0,
+          "no crossing count without the filter");
+
+    group("the Cartesian mask overload drops the same rows and gives the same result");
+    const Result cartesian = reconstructLightcone(toCartesian(sky, table), toCartesian(randomsSky, table),
+                                                  sky, randomsSky, mask, 1, table, config, cut);
+    check(same_bits(cartesian.displacement, masked.displacement) && cartesian.valid == masked.valid &&
+          cartesian.outsideMask == masked.outsideMask &&
+          cartesian.outsideRedshiftCut == masked.outsideRedshiftCut &&
+          cartesian.selection.message() == masked.selection.message(),
+          "bit for bit, flags and counts included");
+
+    group("Config::verbose writes Result::selection.message() to std::clog, and nothing without a "
+          "selection");
+    Config loud = config;
+    loud.verbose = true;
+    Result reported;
+    const std::string text = captured_clog([&] {
+      reported = reconstructLightcone(sky, randomsSky, mask, 1, table, loud, cut);
+    });
+    check(text == reported.selection.message() && lines(text) == 3, "three lines: " + text);
+    check(captured_clog([&] { reconstructLightcone(sky, randomsSky, mask, 1, table, config, cut); }).empty(),
+          "verbose false writes nothing");
+    check(captured_clog([&] { reconstructLightcone(sky, randomsSky, 800., 1, table, loud); }).empty(),
+          "the area overload without a cut writes nothing");
+    const std::string cutText = captured_clog([&] {
+      reconstructLightcone(sky, randomsSky, 800., 1, table, loud, cut);
+    });
+    check(lines(cutText) == 2 && cutText.find("outside the redshift cut [0.3, 0.6]") != std::string::npos &&
+          cutText.find("mask") == std::string::npos,
+          "the cut alone reports in two lines: " + cutText);
+    const Result unmasked = reconstructLightcone(sky, randomsSky, 800., 1, table, config);
+    check(unmasked.outsideMask == std::vector<std::uint8_t>(n, 0) && !unmasked.selection.maskApplied &&
+          !unmasked.selection.redshiftCutApplied && unmasked.selection.message().empty(),
+          "the area overload flags nothing outside the mask, and applies nothing");
+    const Result box = reconstructBox(toCartesian(sky, table), {}, 20., config);
+    check(box.outsideMask == std::vector<std::uint8_t>(n, 0) && box.selection.tracers == 0 &&
+          box.selection.message().empty(), "a box result: no flag, all counts 0");
+
+    group("too few objects left by the mask raise, naming the selections and the counts");
+    std::vector<double> mostlyUnobserved(12 * 64 * 64, 0.);
+    for (std::size_t p = 0; p < mostlyUnobserved.size(); p += 20) mostlyUnobserved[p] = 1.;
+    const Mask sparse(mostlyUnobserved, PixelOrdering::Ring);
+    check(throws_naming([&] { reconstructLightcone(sky, randomsSky, sparse, 1, table, config); },
+                        "the mask keeps"), "the mask alone");
+    check(throws_naming([&] { reconstructLightcone(sky, randomsSky, sparse, 1, table, config, cut); },
+                        "the redshift cut [0.300000, 0.600000] and the mask keeps"), "both");
+
+    group("rejectMaskCrossings leaves masked tracers alone, and refuses one with a valid entry");
+    Result again = masked;
+    rejectMaskCrossings(again, mask, 0);
+    check(again.valid == masked.valid && again.outsideMask == masked.outsideMask,
+          "filtering again with the same mask and threshold changes nothing");
+    std::size_t aMasked = n;
+    for (std::size_t i = 0; i < n && aMasked == n; ++i)
+      if (expectMask[i] && !expectCut[i]) aMasked = i;
+    Result validMasked = masked;
+    validMasked.valid[aMasked] = 1;
+    check(throws_naming([&] { rejectMaskCrossings(validMasked, mask); }, "outside the redshift cut or the mask"),
+          "a masked tracer with a valid entry is malformed");
+    Result badMask = masked;
+    badMask.outsideMask.pop_back();
+    check(throws_naming([&] { rejectMaskCrossings(badMask, mask); }, "outsideMask holds"),
+          "an outsideMask of the wrong size is malformed");
+
+    group("the correction leaves masked tracers out: uncorrected, diagnostics 0, never a neighbour");
+    const std::vector<double> zb {0.2, 0.8}, b {1.2, 1.8};
+    const RealSpaceCatalog all = realSpaceLightcone(plain, sky, table, zb, b, 10.);
+    const RealSpaceCatalog sub = realSpaceLightcone(kept, rows(sky, keep), table, zb, b, 10.);
+    bool same = true;
+    k = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+      if (k < m && keep[k] == i) {
+        for (int c = 0; c < 3; ++c) same = same && same_double(all.positions[3*i+c], sub.positions[3*k+c]);
+        same = same && all.nNeighbours[i] == sub.nNeighbours[k];
+        ++k;
+      }
+      else {
+        same = same && std::isnan(all.positions[3*i+2]) && all.nNeighbours[i] == 0 &&
+               std::binary_search(all.uncorrected.begin(), all.uncorrected.end(), i);
+      }
+    }
+    check(same, "the kept tracers are corrected exactly as the selected catalogue; the others are listed");
+    Result maskedHasValid = plain;
+    maskedHasValid.validRealizations[aMasked] = 1;
+    check(throws_naming([&] { realSpaceLightcone(maskedHasValid, sky, table, zb, b, 10.); },
+                        "outside the redshift cut or the mask"),
+          "a masked tracer with valid realizations is malformed");
+
+    group("a declination outside [-pi/2, pi/2] is refused, with or without a mask; pi/2 is accepted");
+    const double kPi = 3.14159265358979323846;
+    const double above = std::nextafter(kPi / 2., 2.);
+    std::vector<double> bad = sky;
+    bad[3*7+1] = above;
+    std::vector<double> badRandoms = randomsSky;
+    badRandoms[3*9+1] = -above;
+    const std::vector<double> cart = toCartesian(sky, table), cartRandoms = toCartesian(randomsSky, table);
+    check(throws_naming([&] { reconstructLightcone(bad, randomsSky, 800., 1, table, config); },
+                        "the tracer sky array holds a declination of 1.570796 at object 7, outside [-pi/2, pi/2]"),
+          "the sky overload, tracers");
+    check(throws_naming([&] { reconstructLightcone(sky, badRandoms, 800., 1, table, config); },
+                        "the random sky array holds a declination of -1.570796 at object 9"),
+          "the sky overload, randoms");
+    check(throws_naming([&] { reconstructLightcone(cart, cartRandoms, bad, randomsSky, 800., 1, table, config); },
+                        "the tracer sky array holds a declination"), "the Cartesian overload");
+    check(throws_naming([&] { reconstructLightcone(sky, badRandoms, mask, 1, table, config); },
+                        "the random sky array holds a declination"), "the sky mask overload");
+    check(throws_naming([&] { reconstructLightcone(cart, cartRandoms, sky, badRandoms, mask, 1, table, config); },
+                        "the random sky array holds a declination"), "the Cartesian mask overload");
+    check(throws_naming([&] { toCartesian(bad, table); }, "the sky array holds a declination"), "toCartesian");
+    check(throws_naming([&] { realSpaceLightcone(plain, bad, table, zb, b, 10.); },
+                        "the tracer sky array holds a declination"), "realSpaceLightcone");
+    const std::vector<double> poles {1., kPi / 2., 0.5, 2., -kPi / 2., 0.5};
+    bool accepted = true;
+    try {
+      toCartesian(poles, table);
+    }
+    catch (const Error&) {
+      accepted = false;
+    }
+    check(accepted, "the poles themselves are accepted");
   }
 
   return report("test_rsd");

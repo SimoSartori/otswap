@@ -249,8 +249,8 @@ namespace otswap {
 
     /// Objects left without a correction, in increasing order: those with
     /// no valid object within 3 sigma, themselves included (with sigma = 0,
-    /// those with no valid realization), and those outside the
-    /// reconstruction's redshift cut.
+    /// those with no valid realization), and those flagged in the
+    /// reconstruction's outsideRedshiftCut or outsideMask.
     std::vector<std::size_t> uncorrected;
   };
 
@@ -269,8 +269,8 @@ namespace otswap {
    *     the redshift of comoving distance d(z_i) + s_i, where s_i is the
    *     factor times the average.
    *
-   *  Tracers flagged in result.outsideRedshiftCut are left out: they are
-   *  not converted, take no part in any average, are not corrected, have
+   *  Tracers flagged in result.outsideRedshiftCut or result.outsideMask are
+   *  left out: they are not converted, take no part in any average, are not corrected, have
    *  diagnostics 0, and are listed in uncorrected.
    *
    *  Nothing checks that result belongs to these tracers beyond their
@@ -286,8 +286,8 @@ namespace otswap {
    *  @param weightByRealizations as in neighbourAverage.
    *
    *  @exception Error if result does not hold N objects or is malformed, if
-   *  a sky coordinate is invalid or a redshift lies outside the distance
-   *  table, if the table carries no growth rate, if the bias table is
+   *  a sky coordinate is not finite, a declination lies outside
+   *  [-pi/2, pi/2] or a redshift outside the distance table, if the table carries no growth rate, if the bias table is
    *  malformed or extrapolates to a bias that is not positive, or if a
    *  corrected comoving distance is not positive or lies outside the
    *  distance table; the message names the object, and in the last case

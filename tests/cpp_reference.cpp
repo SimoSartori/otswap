@@ -29,18 +29,22 @@
  *
  *    cpp_reference box tracers=F [randoms=F] mps=X n_realizations=N
  *                      convergence=X seed=N cell_size=X out=P
- *                      [mask=FITS max_forbidden_pixels=N]
+ *                      [mask=FITS max_unobserved_pixels_crossed=N]
  *
  *    cpp_reference lightcone tracers_sky=F randoms_sky=F [tracers=F randoms=F]
- *                      sky_area_deg2=X n_bins=N omega_m=X h=X z_min=X z_max=X
+ *                      [sky_area_deg2=X] n_bins=N omega_m=X h=X z_min=X z_max=X
  *                      n_samples=N n_realizations=N convergence=X seed=N
- *                      cell_size=X out=P [mask=FITS max_forbidden_pixels=N]
+ *                      cell_size=X out=P [mask=FITS max_unobserved_pixels_crossed=N]
+ *
+ *  A lightcone with sky_area_deg2 is filtered with rejectMaskCrossings
+ *  afterwards when a mask is given; without it, the mask overload is called,
+ *  which applies the mask and the filter itself.
  *
  *    cpp_reference cartesian sky=F omega_m=X h=X z_min=X z_max=X n_samples=N out=P
  *
  *  Input files hold native float64 values, flat and row-major; sky angles
  *  are in radians. A reconstruction writes P.displacement, P.matched_random
- *  and P.mean_displacement (float64), P.valid (uint8) and
+ *  and P.mean_displacement (float64), P.valid and P.outside_mask (uint8) and
  *  P.valid_realizations (uint32); cartesian writes P.xyz (float64). The
  *  table of a lightcone is DistanceTable(omega_m, h, -1, 0, z_min, z_max,
  *  n_samples).
@@ -100,6 +104,9 @@ namespace {
     c.convergence = real("convergence");
     c.seed = integer("seed");
     c.cellSize = real("cell_size");
+    if (has("max_unobserved_pixels_crossed"))
+      c.maxUnobservedPixelsCrossed = integer("max_unobserved_pixels_crossed");
+    c.verbose = false;
     return c;
   }
 
@@ -109,14 +116,16 @@ namespace {
                                  integer("n_samples"));
   }
 
-  void finish (otswap::Result& result)
+  void finish (otswap::Result& result, const bool filter)
   {
-    if (has("mask"))
-      otswap::rejectMaskCrossings(result, otswap::Mask(arg("mask")), integer("max_forbidden_pixels"));
+    if (filter)
+      otswap::rejectMaskCrossings(result, otswap::Mask(arg("mask")),
+                                  integer("max_unobserved_pixels_crossed"));
     write("displacement", result.displacement);
     write("matched_random", result.matchedRandom);
     write("mean_displacement", result.meanDisplacement);
     write("valid", result.valid);
+    write("outside_mask", result.outsideMask);
     write("valid_realizations", result.validRealizations);
   }
 
@@ -143,17 +152,30 @@ int main (int argc, char** argv)
     if (mode == "box") {
       const std::vector<double> randoms = has("randoms") ? read("randoms") : std::vector<double>();
       otswap::Result result = otswap::reconstructBox(read("tracers"), randoms, real("mps"), config());
-      finish(result);
+      finish(result, has("mask"));
     }
     else if (mode == "lightcone") {
       const otswap::DistanceTable distances = table();
-      otswap::Result result = has("tracers")
-        ? otswap::reconstructLightcone(read("tracers"), read("randoms"), read("tracers_sky"),
-                                       read("randoms_sky"), real("sky_area_deg2"), integer("n_bins"),
-                                       distances, config())
-        : otswap::reconstructLightcone(read("tracers_sky"), read("randoms_sky"), real("sky_area_deg2"),
-                                       integer("n_bins"), distances, config());
-      finish(result);
+      otswap::Result result;
+      if (has("sky_area_deg2")) {
+        result = has("tracers")
+          ? otswap::reconstructLightcone(read("tracers"), read("randoms"), read("tracers_sky"),
+                                         read("randoms_sky"), real("sky_area_deg2"), integer("n_bins"),
+                                         distances, config())
+          : otswap::reconstructLightcone(read("tracers_sky"), read("randoms_sky"), real("sky_area_deg2"),
+                                         integer("n_bins"), distances, config());
+        finish(result, has("mask"));
+      }
+      else {
+        const otswap::Mask mask(arg("mask"));
+        result = has("tracers")
+          ? otswap::reconstructLightcone(read("tracers"), read("randoms"), read("tracers_sky"),
+                                         read("randoms_sky"), mask, integer("n_bins"), distances,
+                                         config())
+          : otswap::reconstructLightcone(read("tracers_sky"), read("randoms_sky"), mask,
+                                         integer("n_bins"), distances, config());
+        finish(result, false);
+      }
     }
     else if (mode == "cartesian") {
       write("xyz", otswap::toCartesian(read("sky"), table()));

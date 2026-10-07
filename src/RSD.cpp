@@ -108,15 +108,12 @@ namespace {
                           std::to_string(result.meanDisplacement.size()) + " and " +
                           std::to_string(result.validRealizations.size()) + " entries for " +
                           std::to_string(n) + " objects");
-    if (!result.outsideRedshiftCut.empty() && result.outsideRedshiftCut.size() != n)
-      throw otswap::Error("the result is malformed: outsideRedshiftCut holds " +
-                          std::to_string(result.outsideRedshiftCut.size()) + " entries for " +
-                          std::to_string(n) + " objects");
+    otswap::internal::check_flags(result);
     for (std::size_t i = 0; i < n; ++i) {
-      const bool cut = !result.outsideRedshiftCut.empty() && result.outsideRedshiftCut[i] != 0;
-      if (cut && result.validRealizations[i] != 0)
-        throw otswap::Error("the result is malformed: object " + std::to_string(i) + " lies outside "
-                            "the redshift cut but has valid realizations");
+      if (otswap::internal::excluded(result, i) && result.validRealizations[i] != 0)
+        throw otswap::Error("the result is malformed: object " + std::to_string(i) + " took no part "
+                            "in the reconstruction (outside the redshift cut or the mask) but has "
+                            "valid realizations");
       if (result.validRealizations[i] > 0)
         for (std::size_t c = 0; c < 3; ++c)
           if (!std::isfinite(result.meanDisplacement[3*i+c]))
@@ -125,14 +122,14 @@ namespace {
     }
   }
 
-  // Indices, increasing, of the tracers the correction works on: all but
-  // those outside the result's redshift cut.
+  /// Indices, increasing, of the tracers the correction works on: all but
+  /// those outside the result's redshift cut or mask.
   std::vector<std::size_t> kept_tracers (const otswap::Result& result, const std::size_t n)
   {
     std::vector<std::size_t> keep;
     keep.reserve(n);
     for (std::size_t i = 0; i < n; ++i)
-      if (result.outsideRedshiftCut.empty() || result.outsideRedshiftCut[i] == 0) keep.push_back(i);
+      if (!otswap::internal::excluded(result, i)) keep.push_back(i);
     return keep;
   }
 
@@ -557,7 +554,7 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
                                                      const bool weightByRealizations,
                                                      std::size_t& nExtrapolated)
 {
-  const std::size_t n = internal::check_coordinates(tracersSky, "the tracer sky array");
+  const std::size_t n = internal::check_sky(tracersSky, "the tracer sky array");
   check_result(result, n);
   internal::check_bias_table(biasRedshift, bias, "the bias table");
   if (!distances.hasGrowthRate())
@@ -565,8 +562,6 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
   if (!std::isfinite(sigma) || sigma < 0.)
     throw Error("sigma is " + std::to_string(sigma) + "; it must be finite and non-negative");
 
-  // The tracers outside the result's redshift cut are left out: never
-  // converted, never neighbours, never corrected. Errors name input indices.
   const std::vector<std::size_t> keep = kept_tracers(result, n);
   const std::size_t m = keep.size();
 
@@ -696,8 +691,6 @@ otswap::RealSpaceCatalog otswap::realSpaceBox (const Result& result,
   check_result(result, n);
   const double factor = rsdFactorBox(redshift, distances, bias);
 
-  // Tracers flagged outside a redshift cut, possible in a Result built by
-  // hand, are left out as in realSpaceLightcone.
   const std::vector<std::size_t> keep = kept_tracers(result, n);
   const std::size_t m = keep.size();
 

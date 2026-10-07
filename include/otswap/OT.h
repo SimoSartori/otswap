@@ -124,11 +124,82 @@ namespace otswap {
     /// Grid cell size, in units of the representative mean particle
     /// separation. Affects speed only, never the result.
     double cellSize = 4.;
+
+    /// With a Mask given to reconstructLightcone, apply rejectMaskCrossings
+    /// to the result, with maxUnobservedPixelsCrossed, before returning it.
+    /// Read by the mask overloads of reconstructLightcone only.
+    bool rejectCrossings = true;
+
+    /// The threshold of that call; see rejectMaskCrossings. Read by the
+    /// mask overloads of reconstructLightcone only.
+    unsigned maxUnobservedPixelsCrossed = 0;
+
+    /// Write Result::selection.message() to std::clog when
+    /// reconstructLightcone applied a selection: a redshift cut with a
+    /// finite bound, or a mask. Nothing is written otherwise, and never by
+    /// reconstructBox.
+    bool verbose = true;
   };
 
   // ==========================================================================
   // Result
   // ==========================================================================
+
+  /**
+   *  @brief A closed redshift range for reconstructLightcone. The default,
+   *  (-inf, +inf), cuts nothing.
+   */
+  struct RedshiftCut {
+    double min = -std::numeric_limits<double>::infinity();
+    double max =  std::numeric_limits<double>::infinity();
+  };
+
+  /**
+   *  @brief The objects a lightcone reconstruction left out, and why, and
+   *  the displacements its mask filter rejected.
+   *
+   *  The tracers removed are tracersOutsideRedshiftCut + tracersOutsideMask
+   *  - tracersOutsideBoth, and the same for the randoms. All counts are 0,
+   *  and nothing is applied, in a box result.
+   */
+  struct SelectionCounts {
+
+    bool redshiftCutApplied = false;  ///< a bound of the cut was finite
+    RedshiftCut redshiftCut;          ///< the cut, as given
+    bool maskApplied = false;         ///< a Mask was given
+
+    std::size_t tracers = 0;                    ///< tracers given
+    std::size_t tracersOutsideRedshiftCut = 0;  ///< of them, outside the cut
+    std::size_t tracersOutsideMask = 0;         ///< of them, on an unobserved pixel
+    std::size_t tracersOutsideBoth = 0;         ///< counted in both of the above
+
+    std::size_t randoms = 0;                    ///< randoms given
+    std::size_t randomsOutsideRedshiftCut = 0;  ///< of them, outside the cut
+    std::size_t randomsOutsideMask = 0;         ///< of them, on an unobserved pixel
+    std::size_t randomsOutsideBoth = 0;         ///< counted in both of the above
+
+    bool crossingsRejected = false;             ///< rejectMaskCrossings was applied
+    unsigned maxUnobservedPixelsCrossed = 0;    ///< with this threshold
+    std::size_t displacements = 0;              ///< valid displacements before it
+    std::size_t displacementsCrossingMask = 0;  ///< of them, rejected by it
+
+    /**
+     *  @brief The report Config::verbose writes to std::clog.
+     *
+     *  One line for the tracers and one for the randoms, each listing the
+     *  selections applied, then one for the rejected crossings when the
+     *  filter was applied; each line ends in '\n'. A line is written even
+     *  when nothing was removed. For example:
+     *
+     *      otswap: kept 29120 of 29579 tracers: 312 outside the redshift cut [0.9, 1.08], 160 outside the mask (13 outside both)
+     *      otswap: kept 238101 of 242548 randoms: 2655 outside the redshift cut [0.9, 1.08], 1903 outside the mask (111 outside both)
+     *      otswap: rejected 1834 of 87360 displacements crossing more than 0 unobserved pixels
+     *
+     *  @return the report, or an empty string when no selection was
+     *  applied.
+     */
+    std::string message () const;
+  };
 
   /**
    *  @brief Displacement field produced by a reconstruction.
@@ -183,15 +254,18 @@ namespace otswap {
     /// built by hand may leave the field empty, which every function reads
     /// as all 0.
     std::vector<std::uint8_t> outsideRedshiftCut;
-  };
 
-  /**
-   *  @brief A closed redshift range for reconstructLightcone. The default,
-   *  (-inf, +inf), cuts nothing.
-   */
-  struct RedshiftCut {
-    double min = -std::numeric_limits<double>::infinity();
-    double max =  std::numeric_limits<double>::infinity();
+    /// Whether each tracer fell on an unobserved pixel of the Mask given to
+    /// reconstructLightcone, and so took no part in the reconstruction: 1
+    /// for such a tracer, 0 otherwise. Flat, [object]. Size nObjects, all 0
+    /// when no mask was given and in a box result. Independent of
+    /// outsideRedshiftCut: a tracer may carry both flags. A flagged
+    /// tracer's rows are as for outsideRedshiftCut, and no filter changes
+    /// the flag. An empty field is read as all 0.
+    std::vector<std::uint8_t> outsideMask;
+
+    /// What reconstructLightcone left out, and why.
+    SelectionCounts selection;
   };
 
   // ==========================================================================
@@ -442,8 +516,9 @@ namespace otswap {
    *  3 * nObjects entries ordered x, y, z.
    *
    *  @exception Error if the array's size is not a multiple of three, if
-   *  an entry is not finite, or if a redshift falls outside the distance
-   *  table; the message names the object.
+   *  an entry is not finite, if a declination lies outside [-pi/2, pi/2],
+   *  or if a redshift falls outside the distance table; the message names
+   *  the object.
    */
   std::vector<double> toCartesian (const std::vector<double>& sky,
                                    const DistanceTable& distances);
@@ -470,9 +545,9 @@ namespace otswap {
    *  config.nRealizations * nObjects of them. They may lie outside the
    *  Cartesian bounding box of the tracers.
    *
-   *  @param skyAreaDeg2 effective area of the survey. Take it from
-   *  Mask::skyAreaDeg2 when a mask is available, otherwise supply the
-   *  published value: a bounding box in right ascension and declination
+   *  @param skyAreaDeg2 effective area of the survey. When a mask is
+   *  available, pass the mask instead, to the overload below, which takes
+   *  the area from it; otherwise supply the published value: a bounding box in right ascension and declination
    *  overestimates it for any footprint that is not rectangular, and the
    *  error propagates into the mean particle separation.
    *
@@ -485,14 +560,17 @@ namespace otswap {
    *  tracers kept, and only their redshifts need lie in the distance
    *  table. The default cuts nothing.
    *
+   *  The counts are recorded in Result::selection and, with a cut that
+   *  has a finite bound and config.verbose, written to std::clog.
+   *
    *  @exception Error if a bin holds too few tracers for its density to
    *  be meaningful; the message reports how many bins the catalog
    *  supports. Also if the profile extrapolates to a mps that is not
-   *  positive at a tracer's redshift, if any array is malformed, if the
-   *  randoms are too few, or if a redshift falls outside the distance
-   *  table. Also if a bound of the cut is NaN or min > max, or if too few
-   *  tracers or randoms remain inside it; the message gives the counts
-   *  kept and dropped.
+   *  positive at a tracer's redshift, if any array is malformed, if a
+   *  declination lies outside [-pi/2, pi/2], if the randoms are too few,
+   *  or if a redshift falls outside the distance table. Also if a bound of
+   *  the cut is NaN or min > max, or if too few tracers or randoms remain
+   *  inside it; the message gives the counts kept and dropped.
    */
   Result reconstructLightcone (const std::vector<double>& tracersSky,
                                const std::vector<double>& randomsSky,
@@ -535,6 +613,68 @@ namespace otswap {
                                const Config& config,
                                const RedshiftCut& cut = {});
 
+  /**
+   *  @brief Reconstruct in lightcone geometry, from sky coordinates, within
+   *  the observed pixels of a mask.
+   *
+   *  As the overload with the sky area, with the area taken from the mask,
+   *  mask.skyAreaDeg2(), and the mask applied twice:
+   *  - before the reconstruction, tracers and randoms on unobserved pixels
+   *    are left out, decided on their right ascension and declination as
+   *    Mask::allows decides: the randoms are dropped, and the tracers keep
+   *    their row, flagged in Result::outsideMask;
+   *  - after it, when config.rejectCrossings is set, rejectMaskCrossings is
+   *    applied with config.maxUnobservedPixelsCrossed, so the result
+   *    carries filteredNside = mask.nside().
+   *
+   *  The mask and the redshift cut are both evaluated on every object, so a
+   *  tracer may be flagged by both; the objects kept are those that pass
+   *  both. The counts are recorded in Result::selection and, with
+   *  config.verbose, written to std::clog.
+   *
+   *  To filter with another threshold afterwards, set
+   *  config.maxUnobservedPixelsCrossed instead: a second rejectMaskCrossings
+   *  with the same mask and a higher threshold changes nothing, since the
+   *  filter only clears entries. Or set config.rejectCrossings to false and
+   *  call rejectMaskCrossings on the result.
+   *
+   *  @param mask the survey's veto mask; borrowed for the call only.
+   *
+   *  @exception Error as the overload with the sky area, the counts in the
+   *  message naming the mask as well as the cut.
+   */
+  Result reconstructLightcone (const std::vector<double>& tracersSky,
+                               const std::vector<double>& randomsSky,
+                               const Mask& mask,
+                               unsigned nBins,
+                               const DistanceTable& distances,
+                               const Config& config,
+                               const RedshiftCut& cut = {});
+
+  /**
+   *  @brief Reconstruct in lightcone geometry, with the Cartesian
+   *  coordinates already computed, within the observed pixels of a mask.
+   *
+   *  The overload above with the conversion skipped, as for the overloads
+   *  with the sky area. The mask is applied on the sky coordinates; the
+   *  same rows are dropped from the Cartesian arrays.
+   *
+   *  @exception Error as above, and if the Cartesian and sky arrays
+   *  describe a different number of objects.
+   *
+   *  @warning No check verifies that the Cartesian coordinates agree with
+   *  the sky ones under the given cosmology; disagreement is silent.
+   */
+  Result reconstructLightcone (const std::vector<double>& tracers,
+                               const std::vector<double>& randoms,
+                               const std::vector<double>& tracersSky,
+                               const std::vector<double>& randomsSky,
+                               const Mask& mask,
+                               unsigned nBins,
+                               const DistanceTable& distances,
+                               const Config& config,
+                               const RedshiftCut& cut = {});
+
   // ==========================================================================
   // Filtering
   // ==========================================================================
@@ -553,7 +693,7 @@ namespace otswap {
    *  are counted. The pixels holding the two endpoints are exempt.
    *
    *  A displacement is rejected when its arc crosses more than
-   *  maxForbiddenPixels distinct unobserved pixels; the search stops as
+   *  maxUnobservedPixelsCrossed distinct unobserved pixels; the search stops as
    *  soon as the count exceeds it. With 0, the first one rejects. A
    *  displacement with an endpoint at the origin is kept, and one whose
    *  endpoints lie in exactly opposite directions, which defines no arc,
@@ -565,26 +705,27 @@ namespace otswap {
    *  nothing. validRealizations and meanDisplacement are then recomputed
    *  from valid.
    *
-   *  @param maxForbiddenPixels distinct unobserved pixels tolerated along
-   *  the arc, the endpoint pixels excluded.
+   *  @param maxUnobservedPixelsCrossed distinct unobserved pixels tolerated
+   *  along the arc, the endpoint pixels excluded.
    *
    *  @warning The count is of pixels, not an angular length, so it depends
    *  on NSIDE: the same arc crosses about twice as many pixels when NSIDE
    *  doubles, and the same threshold is a different criterion.
    *
-   *  A tracer flagged in Result::outsideRedshiftCut is left as it is:
-   *  its displacement and matchedRandom rows may be NaN, and its entries of
-   *  valid must be 0. Every other displacement must be finite.
+   *  A tracer flagged in Result::outsideRedshiftCut or Result::outsideMask
+   *  is left as it is: its displacement and matchedRandom rows may be NaN,
+   *  and its entries of valid must be 0. Every other displacement must be
+   *  finite.
    *
    *  @exception Error if the result is malformed (including a NaN outside
-   *  the cut tracers' rows, a cut tracer with a valid entry, or a flag
-   *  array whose size is neither 0 nor nObjects), if an entry of valid is
+   *  the flagged tracers' rows, a flagged tracer with a valid entry, or a
+   *  flag array whose size is neither 0 nor nObjects), if an entry of valid is
    *  neither 0 nor 1, or if the result was already filtered against a
    *  mask of a different NSIDE.
    */
   void rejectMaskCrossings (Result& result,
                             const Mask& mask,
-                            unsigned maxForbiddenPixels = 0);
+                            unsigned maxUnobservedPixelsCrossed = 0);
 
   // ==========================================================================
   // Tables

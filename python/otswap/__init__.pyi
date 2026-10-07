@@ -85,6 +85,78 @@ class Result:
         displacements and matched randoms, no valid realization and a NaN
         mean displacement."""
 
+    @property
+    def outside_mask(self) -> NDArray[np.bool_]:
+        """Whether each tracer fell on an unobserved pixel of the ``mask`` of
+        ``reconstruct_lightcone`` and took no part in the reconstruction,
+        shape (n_objects,). All false without a mask. Independent of
+        ``outside_redshift_cut``: a tracer may carry both flags. A flagged
+        tracer's rows are as for a cut one."""
+
+    @property
+    def selection(self) -> "SelectionCounts":
+        """What ``reconstruct_lightcone`` left out, and why. Keeps this
+        result alive."""
+
+
+class SelectionCounts:
+    """What a lightcone reconstruction left out, and why. Read-only.
+
+    The tracers removed are ``tracers_outside_redshift_cut +
+    tracers_outside_mask - tracers_outside_both``, and the same for the
+    randoms. All counts are 0, and nothing is applied, for ``reconstruct_box``.
+    ``repr`` gives the report ``reconstruct_lightcone`` prints.
+    """
+
+    @property
+    def redshift_cut(self) -> Optional[tuple[float, float]]:
+        """The (min, max) of the redshift cut; None when no cut was applied."""
+
+    @property
+    def mask_applied(self) -> bool:
+        """Whether a mask was given."""
+
+    @property
+    def tracers(self) -> int:
+        """Tracers given."""
+
+    @property
+    def tracers_outside_redshift_cut(self) -> int: ...
+
+    @property
+    def tracers_outside_mask(self) -> int: ...
+
+    @property
+    def tracers_outside_both(self) -> int:
+        """Tracers counted in both of the two above."""
+
+    @property
+    def randoms(self) -> int:
+        """Randoms given."""
+
+    @property
+    def randoms_outside_redshift_cut(self) -> int: ...
+
+    @property
+    def randoms_outside_mask(self) -> int: ...
+
+    @property
+    def randoms_outside_both(self) -> int:
+        """Randoms counted in both of the two above."""
+
+    @property
+    def max_unobserved_pixels_crossed(self) -> Optional[int]:
+        """The threshold of the mask filter the call applied
+        (``reject_crossings``); None when it applied none."""
+
+    @property
+    def displacements(self) -> int:
+        """Valid displacements before the mask filter."""
+
+    @property
+    def displacements_crossing_mask(self) -> int:
+        """Of them, those the filter rejected."""
+
 
 # ---------------------------------------------------------------------------
 # Cosmology
@@ -152,7 +224,9 @@ def to_cartesian(
     angle_unit: AngleUnit,
 ) -> NDArray[np.float64]:
     """Convert sky coordinates, shape (N, 3), to Cartesian ones in Mpc/h,
-    using the same convention as ``reconstruct_lightcone``."""
+    using the same convention as ``reconstruct_lightcone``. Raises if a
+    declination lies outside [-90, 90] degrees ([-pi/2, pi/2] radians); the
+    message gives it in ``angle_unit``."""
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +290,8 @@ class Mask:
     ) -> NDArray[np.bool_]:
         """Whether each direction falls in an observed pixel. Raises if a
         right ascension is not finite, or a declination is not in
-        [-90, 90] degrees."""
+        [-90, 90] degrees ([-pi/2, pi/2] radians); the message gives it in
+        ``angle_unit``."""
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +333,8 @@ def reconstruct_lightcone(
     tracers_sky: ArrayLike,
     randoms_sky: ArrayLike,
     *,
-    sky_area_deg2: float,
+    sky_area_deg2: Optional[float] = None,
+    mask: Optional[Mask] = None,
     n_bins: int,
     distances: DistanceTable,
     angle_unit: AngleUnit,
@@ -269,15 +345,18 @@ def reconstruct_lightcone(
     seed: int = 0,
     cell_size: float = 4.0,
     redshift_cut: Optional[tuple[float, float]] = None,
+    reject_crossings: bool = True,
+    max_unobserved_pixels_crossed: int = 0,
+    verbose: bool = True,
 ) -> Result:
     """Reconstruct in lightcone geometry.
 
     The mean particle separation is measured from the tracers: n_bins
     uniform redshift bins over the observed range, mps = (N / V)^(-1/3) in
-    each, with V the shell volume implied by ``sky_area_deg2``. The bin
-    values are joined by linear interpolation and extrapolated linearly
-    beyond the outermost bins. Raises if a bin holds too few tracers for a
-    2% accuracy on its mps.
+    each, with V the shell volume implied by the sky area. The bin values
+    are joined by linear interpolation and extrapolated linearly beyond the
+    outermost bins. Raises if a bin holds too few tracers for a 2% accuracy
+    on its mps.
 
     Randoms are required: they carry the survey geometry, the selection
     function and the completeness.
@@ -287,11 +366,21 @@ def reconstruct_lightcone(
     tracers_sky : (N, 3) sky coordinates of the tracers.
     randoms_sky : (M, 3) sky coordinates of the randoms,
         M >= n_realizations * N.
-    sky_area_deg2 : effective survey area. ``Mask.sky_area_deg2`` gives it
-        when a mask is available.
+    sky_area_deg2 : effective survey area, when no mask is given: the
+        published value. Give exactly one of ``sky_area_deg2`` and ``mask``.
+    mask : the survey's ``Mask``. The sky area is then ``mask.sky_area_deg2``,
+        and the mask is applied twice. Before the reconstruction, tracers and
+        randoms on unobserved pixels are left out, as ``Mask.allows`` decides:
+        the randoms are dropped, and the tracers keep their row, flagged in
+        ``Result.outside_mask``. After it, with ``reject_crossings``,
+        ``reject_mask_crossings`` is applied with
+        ``max_unobserved_pixels_crossed``. The mask and the redshift cut are
+        both evaluated on every object; the objects kept pass both.
     n_bins : redshift bins used to measure mps(z).
     distances : table used for the conversion to Cartesian coordinates.
-    angle_unit : unit of right ascension and declination.
+    angle_unit : unit of right ascension and declination. A declination
+        outside [-90, 90] degrees ([-pi/2, pi/2] radians) raises, the message
+        giving it in this unit.
     tracers, randoms : Cartesian coordinates already computed. Give both or
         neither; when given, the conversion is skipped, and their agreement
         with the sky coordinates is not checked.
@@ -301,6 +390,20 @@ def reconstruct_lightcone(
         in ``Result.outside_redshift_cut``. mps(z) is measured on the tracers
         kept, and only their redshifts need lie in the distance table. None,
         the default, cuts nothing.
+    reject_crossings : with a mask, filter the result with
+        ``reject_mask_crossings``. Ignored without a mask.
+    max_unobserved_pixels_crossed : the threshold of that filter. To filter
+        with another threshold, set it here: a second filter with the same
+        mask and a higher threshold changes nothing, since the filter only
+        marks displacements invalid.
+    verbose : when a mask or a cut with a finite bound is applied, print
+        what was left out, to ``sys.stdout``: one line for the tracers, one
+        for the randoms, one for the rejected crossings, as
+        ``Result.selection`` records them. For example::
+
+            otswap: kept 29120 of 29579 tracers: 312 outside the redshift cut [0.9, 1.08], 160 outside the mask (13 outside both)
+            otswap: kept 238101 of 242548 randoms: 2655 outside the redshift cut [0.9, 1.08], 1903 outside the mask (111 outside both)
+            otswap: rejected 1834 of 87360 displacements crossing more than 0 unobserved pixels
 
     The remaining parameters are as in ``reconstruct_box``.
     """
@@ -309,17 +412,18 @@ def reconstruct_lightcone(
 def reject_mask_crossings(
     result: Result,
     mask: Mask,
-    max_forbidden_pixels: int = 0,
+    max_unobserved_pixels_crossed: int = 0,
 ) -> None:
     """Mark as invalid the displacements whose path crosses more than
-    ``max_forbidden_pixels`` distinct unobserved pixels of the mask; 0
-    rejects at the first one.
+    ``max_unobserved_pixels_crossed`` distinct unobserved pixels of the mask;
+    0 rejects at the first one.
 
     The path is the great-circle arc between the directions of the tracer and
     of its matched random. The pixels containing the two endpoints are not
     tested. The count depends on NSIDE. Updates ``result`` in place; it only
     ever marks displacements invalid, and raises if ``result`` was already
-    filtered against a mask of a different NSIDE.
+    filtered against a mask of a different NSIDE. Tracers flagged in
+    ``outside_redshift_cut`` or ``outside_mask`` are left as they are.
     """
 
 
@@ -506,11 +610,13 @@ def real_space_lightcone(
     weight_by_realizations : weight each neighbour by its number of valid
         realizations as well.
 
-    Tracers outside the reconstruction's redshift cut are not corrected,
-    take no part in any average, and are listed in ``uncorrected``.
+    Tracers outside the reconstruction's redshift cut or mask are not
+    corrected, take no part in any average, and are listed in
+    ``uncorrected``.
 
-    Raises if a corrected comoving distance is not positive or lies outside
-    the distance table; the message names the tracer.
+    Raises if a declination lies outside [-90, 90] degrees ([-pi/2, pi/2]
+    radians), or if a corrected comoving distance is not positive or lies
+    outside the distance table; the message names the tracer.
     """
 
 

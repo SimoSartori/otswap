@@ -14,6 +14,12 @@
   "reconstruct_lightcone.cut.displacement": "ae738fcff51cba02f0ad96a93898865d63e69f4ff2b33304bef64441a31e12f2",
   "reconstruct_lightcone.cut.outside_redshift_cut": "202d2db30b097c1639a68b9a1ccc4def10e3052b19d5e887613c4dd4a9b1766b",
   "reconstruct_lightcone.displacement": "0710fb24db7810e8c7a14e9aae6b3229f9aa051296cbbf65f51604880b08467c",
+  "reconstruct_lightcone.mask.displacement": "c79102523839ef02aea1d963c991e97520c1fb49649a140a1590ae421c156016",
+  "reconstruct_lightcone.mask.outside_mask": "33ecc10b49dccd5d2fe60a862e8623086a4166923d27bf9b4e24c99ba255a81a",
+  "reconstruct_lightcone.mask.valid": "f2ce758fd792ccc706a584c67ae74e10cf4a78ccf9904b29dc73bef604ecf0f8",
+  "reconstruct_lightcone.mask_cut.displacement": "53f1e9a127597d3d60db2ef50a6a2a5a18db388a84d1200c36609a0f952feabe",
+  "reconstruct_lightcone.mask_cut.outside_mask": "33ecc10b49dccd5d2fe60a862e8623086a4166923d27bf9b4e24c99ba255a81a",
+  "reconstruct_lightcone.mask_cut.valid": "c69bd3332a5c65dd224798edc92c7838aeed91282a1a9b5e635f6b472be1799c",
   "reconstruct_lightcone.mean_displacement": "385e1696482559400219157089ac67f4e575e5333b213536db884534d2d5de10",
   "reject_mask_crossings.0.mean_displacement": "391492a908980254f2f109cd04218e11cd52ce34209c113f920dfc4e3ad366eb",
   "reject_mask_crossings.0.valid": "aec99dbfbff19485c3e0072ffd42306f7986e413667a4993bee8fee2794aa29e",
@@ -48,7 +54,7 @@
   "to_cartesian": "07c484cc187ec43e570a320df0dc6ef351c986aec0d0335bed11454fea0e5967"
  },
  "recorded": {
-  "date": "2026-10-06",
+  "date": "2026-10-07",
   "machine": "arm64",
   "numpy": "2.5.3",
   "platform": "macOS-14.5-arm64-arm-64bit-Mach-O",

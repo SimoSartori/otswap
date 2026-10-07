@@ -30,6 +30,8 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <string>
+#include <vector>
 
 #include "detmath.h"
 #include "internal.h"
@@ -120,6 +122,41 @@ std::size_t otswap::internal::check_coordinates (const std::vector<double>& a,
                   ", component " + std::to_string(i%3) + ")");
 
   return a.size() / 3;
+}
+
+
+// ============================================================================
+
+
+std::size_t otswap::internal::check_sky (const std::vector<double>& sky,
+                                         const std::string& name,
+                                         const bool allowEmpty)
+{
+  constexpr double kPi = 3.14159265358979323846;
+
+  const std::size_t nObjects = check_coordinates(sky, name, allowEmpty);
+
+  for (std::size_t i = 0; i < nObjects; ++i)
+    if (!(std::fabs(sky[3*i+1]) <= kPi/2.))
+      throw Error(name + " holds a declination of " + std::to_string(sky[3*i+1]) + " at object " +
+                  std::to_string(i) + ", outside [-pi/2, pi/2]");
+
+  return nObjects;
+}
+
+
+// ============================================================================
+
+
+void otswap::internal::check_flags (const Result& result)
+{
+  auto check = [&result] (const std::vector<std::uint8_t>& flags, const std::string& name) {
+    if (!flags.empty() && flags.size() != result.nObjects)
+      throw Error("the result is malformed: " + name + " holds " + std::to_string(flags.size()) +
+                  " entries for " + std::to_string(result.nObjects) + " objects");
+  };
+  check(result.outsideRedshiftCut, "outsideRedshiftCut");
+  check(result.outsideMask, "outsideMask");
 }
 
 
