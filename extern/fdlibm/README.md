@@ -64,9 +64,10 @@ otswap's GPL-2.0-or-later.
 
 ## How otswap builds them
 
-- As the static internal library `otswap_fdlibm`, in C, with warnings
+- As the internal object library `otswap_fdlibm`, in C, with warnings
   suppressed for these files only, and with `-ffp-contract=off` like every
-  other target.
+  other target. Its objects go into `libotswap.a`; nothing of it is
+  installed or exported on its own.
 - `otswap_fdlibm.h`, otswap's own file, is force-included in every one of
   them. It renames each external symbol to `otswap_fdlibm_<name>`, so
   nothing clashes with the system libm, and supplies the FreeBSD

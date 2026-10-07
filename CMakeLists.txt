@@ -2,18 +2,42 @@ cmake_minimum_required(VERSION 3.16)
 
 project(otswap VERSION 0.1.0 LANGUAGES C CXX)
 
+# PROJECT_IS_TOP_LEVEL needs CMake 3.21; this is the 3.16 equivalent, true
+# for a standalone build and false under add_subdirectory or FetchContent.
+if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+  set(OTSWAP_IS_TOP_LEVEL ON)
+else()
+  set(OTSWAP_IS_TOP_LEVEL OFF)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+# Only a top-level build may choose these for the whole build tree; as a
+# subproject, the parent's choices stand.
+if (OTSWAP_IS_TOP_LEVEL)
+  set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+  if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+  endif()
 endif()
 
-option(OTSWAP_BUILD_TESTS "Build the C++ test suite" ON)
-option(OTSWAP_BUILD_EXAMPLES "Build the examples" ON)
+# scikit-build-core defines SKBUILD. The wheel carries the Python module only,
+# so the C++ install rules are off there.
+if (DEFINED SKBUILD)
+  set(OTSWAP_INSTALL_DEFAULT OFF)
+else()
+  set(OTSWAP_INSTALL_DEFAULT ON)
+endif()
+
+option(OTSWAP_BUILD_TESTS "Build the C++ test suite" ${OTSWAP_IS_TOP_LEVEL})
+option(OTSWAP_BUILD_EXAMPLES "Build the examples" ${OTSWAP_IS_TOP_LEVEL})
 option(OTSWAP_BUILD_PYTHON "Build the Python bindings" OFF)
+option(OTSWAP_INSTALL "Generate the C++ install rules" ${OTSWAP_INSTALL_DEFAULT})
+
+include(GNUInstallDirs)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 # ---------------------------------------------------------------------------
 # Floating-point contraction
@@ -21,8 +45,9 @@ option(OTSWAP_BUILD_PYTHON "Build the Python bindings" OFF)
 # No a*b+c is fused into one FMA anywhere: compilers differ in what they
 # contract by default, and so do the instruction sets, so contraction would
 # make the results depend on the platform. meshsearch sets it on its own
-# targets; this covers otswap's, fdlibm, the tests' Healpix and the extension
-# module.
+# targets; this covers otswap's, fdlibm, a fetched meshsearch, the tests'
+# Healpix and the extension module. It is not exported: all of otswap's
+# arithmetic is in its own archive.
 # ---------------------------------------------------------------------------
 
 if (NOT MSVC)
@@ -32,22 +57,43 @@ endif()
 # ---------------------------------------------------------------------------
 # meshsearch
 #
-# Consumed from source, against a pinned tag.
+# An installed meshsearch of the same minor version is used when found;
+# otherwise the pinned tag is fetched and built from source. A parent
+# project that already defines meshsearch::meshsearch provides its own.
 # ---------------------------------------------------------------------------
 
+set(OTSWAP_MESHSEARCH_VERSION 0.2)
 set(OTSWAP_MESHSEARCH_TAG "v0.2.0" CACHE STRING
-    "meshsearch tag to build against")
+    "meshsearch tag to fetch when no installed meshsearch is found")
 set(OTSWAP_MESHSEARCH_REPOSITORY "https://github.com/SimoSartori/meshsearch.git"
-    CACHE STRING "meshsearch repository; may be a local path")
+    CACHE STRING "meshsearch repository to fetch from; may be a local path")
 
-include(FetchContent)
+if (NOT TARGET meshsearch::meshsearch)
+  find_package(meshsearch ${OTSWAP_MESHSEARCH_VERSION} CONFIG QUIET)
+endif()
 
-FetchContent_Declare(meshsearch
-  GIT_REPOSITORY ${OTSWAP_MESHSEARCH_REPOSITORY}
-  GIT_TAG        ${OTSWAP_MESHSEARCH_TAG}
-  GIT_SHALLOW    TRUE)
+if (TARGET meshsearch::meshsearch)
+  if (meshsearch_FOUND)
+    message(STATUS "otswap: using meshsearch ${meshsearch_VERSION} from ${meshsearch_DIR}")
+  else()
+    message(STATUS "otswap: using the parent project's meshsearch::meshsearch")
+  endif()
+else()
+  message(STATUS "otswap: no installed meshsearch ${OTSWAP_MESHSEARCH_VERSION}; "
+                 "fetching ${OTSWAP_MESHSEARCH_TAG}")
 
-FetchContent_MakeAvailable(meshsearch)
+  # meshsearch's install rules follow otswap's, so that an installed otswap
+  # comes with the meshsearch it was built against, and the wheel installs
+  # neither. A normal variable overrides meshsearch's option (CMP0077).
+  set(MESHSEARCH_INSTALL ${OTSWAP_INSTALL})
+
+  include(FetchContent)
+  FetchContent_Declare(meshsearch
+    GIT_REPOSITORY ${OTSWAP_MESHSEARCH_REPOSITORY}
+    GIT_TAG        ${OTSWAP_MESHSEARCH_TAG}
+    GIT_SHALLOW    TRUE)
+  FetchContent_MakeAvailable(meshsearch)
+endif()
 
 # ---------------------------------------------------------------------------
 # External dependencies
@@ -55,7 +101,9 @@ FetchContent_MakeAvailable(meshsearch)
 
 # AppleClang needs to be pointed at a libomp; Homebrew's is the usual one,
 # used unless OpenMP_ROOT is set, as a CMake variable or in the environment.
-if (APPLE AND NOT DEFINED OpenMP_ROOT AND NOT DEFINED ENV{OpenMP_ROOT})
+# otswapConfig.cmake repeats this for consumers.
+if (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND
+    NOT DEFINED OpenMP_ROOT AND NOT DEFINED ENV{OpenMP_ROOT})
   foreach (candidate /opt/homebrew/opt/libomp /usr/local/opt/libomp)
     if (EXISTS ${candidate}/include/omp.h)
       set(OpenMP_ROOT ${candidate})
@@ -66,25 +114,12 @@ endif()
 
 find_package(OpenMP COMPONENTS CXX)
 
-find_path(CFITSIO_INCLUDE_DIR fitsio.h
-  HINTS ${CFITSIO_ROOT} ENV CFITSIO_ROOT
-  PATH_SUFFIXES include include/cfitsio cfitsio)
-find_library(CFITSIO_LIBRARY NAMES cfitsio
-  HINTS ${CFITSIO_ROOT} ENV CFITSIO_ROOT PATH_SUFFIXES lib)
-
-if (NOT CFITSIO_INCLUDE_DIR OR NOT CFITSIO_LIBRARY)
+# cmake/FindCFITSIO.cmake, installed with the package for consumers.
+find_package(CFITSIO)
+if (NOT CFITSIO_FOUND)
   message(FATAL_ERROR
     "cfitsio was not found. Set CFITSIO_ROOT, or pass -DCFITSIO_INCLUDE_DIR "
     "and -DCFITSIO_LIBRARY.")
-endif()
-
-# A static cfitsio brings its own dependency, zlib, to every link; a shared
-# one resolves it itself.
-if (CFITSIO_LIBRARY MATCHES "\\${CMAKE_STATIC_LIBRARY_SUFFIX}$")
-  find_package(ZLIB REQUIRED)
-  set(CFITSIO_LIBRARIES ${CFITSIO_LIBRARY} ZLIB::ZLIB)
-else()
-  set(CFITSIO_LIBRARIES ${CFITSIO_LIBRARY})
 endif()
 
 # ---------------------------------------------------------------------------
@@ -95,12 +130,13 @@ endif()
 # platform computes them with the same code rather than with its own libm.
 # Third-party code that must not be edited: its warnings are suppressed, and
 # extern/fdlibm/otswap_fdlibm.h is force-included to rename its symbols.
-# Only src/detmath.h calls it.
+# Only src/detmath.h calls it. An object library, whose objects go into
+# libotswap.a: nothing of it is installed or exported on its own.
 # ---------------------------------------------------------------------------
 
 set(OTSWAP_FDLIBM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/extern/fdlibm)
 
-add_library(otswap_fdlibm STATIC
+add_library(otswap_fdlibm OBJECT
   ${OTSWAP_FDLIBM_DIR}/msun/src/s_sin.c
   ${OTSWAP_FDLIBM_DIR}/msun/src/s_cos.c
   ${OTSWAP_FDLIBM_DIR}/msun/src/k_sin.c
@@ -143,26 +179,32 @@ add_library(otswap STATIC
   src/Reconstruct.cpp
   src/RSD.cpp
   src/Support.cpp
-  src/Table.cpp)
+  src/Table.cpp
+  $<TARGET_OBJECTS:otswap_fdlibm>)
+add_library(otswap::otswap ALIAS otswap)
 
 set_target_properties(otswap PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(otswap
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CFITSIO_INCLUDE_DIR})
+    ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 target_compile_features(otswap PUBLIC cxx_std_17)
 
+# meshsearch is public: the documented meshsearch::Error can reach callers.
+# OpenMP is private: neither public header needs it, and a consumer of the
+# static archive gets its link requirement only.
 target_link_libraries(otswap
   PUBLIC  meshsearch::meshsearch
-  PRIVATE ${CFITSIO_LIBRARIES} otswap_fdlibm)
+  PRIVATE CFITSIO::CFITSIO)
 
+set(OTSWAP_WITH_OPENMP OFF)
 if (OpenMP_CXX_FOUND)
-  target_link_libraries(otswap PUBLIC OpenMP::OpenMP_CXX)
+  target_link_libraries(otswap PRIVATE OpenMP::OpenMP_CXX)
+  set(OTSWAP_WITH_OPENMP ON)
 endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
@@ -205,10 +247,11 @@ if (OTSWAP_BUILD_TESTS)
   foreach (test_name test_support test_distance_table test_reconstruct test_table test_mask
                    test_detmath test_pixel test_rsd)
     add_executable(${test_name} tests/${test_name}.cpp)
-    target_link_libraries(${test_name} PRIVATE otswap)
-    target_include_directories(${test_name} PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/src ${CFITSIO_INCLUDE_DIR})
-    target_link_libraries(${test_name} PRIVATE ${CFITSIO_LIBRARIES} otswap_healpix)
+    target_include_directories(${test_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(${test_name} PRIVATE otswap CFITSIO::CFITSIO otswap_healpix)
+    if (OpenMP_CXX_FOUND)
+      target_link_libraries(${test_name} PRIVATE OpenMP::OpenMP_CXX)
+    endif()
     if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
       target_compile_options(${test_name} PRIVATE -Wall -Wextra)
     endif()
@@ -249,4 +292,43 @@ if (OTSWAP_BUILD_PYTHON)
   set_target_properties(otswap_python PROPERTIES OUTPUT_NAME _otswap)
   target_link_libraries(otswap_python PRIVATE otswap)
   install(TARGETS otswap_python LIBRARY DESTINATION otswap)
+endif()
+
+# ---------------------------------------------------------------------------
+# Install and export
+#
+# find_package(otswap 0.1 CONFIG) then otswap::otswap. The archive holds
+# fdlibm's objects; its other dependencies are found again on the consumer's
+# machine by otswapConfig.cmake: meshsearch of the same minor version,
+# cfitsio through the FindCFITSIO.cmake installed beside it, and OpenMP when
+# otswap was built with it.
+# ---------------------------------------------------------------------------
+
+if (OTSWAP_INSTALL)
+  include(CMakePackageConfigHelpers)
+
+  set(OTSWAP_CMAKE_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/otswap)
+
+  install(TARGETS otswap EXPORT otswapTargets
+          ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(DIRECTORY include/otswap DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+  install(EXPORT otswapTargets
+          NAMESPACE otswap::
+          DESTINATION ${OTSWAP_CMAKE_DIR})
+
+  configure_package_config_file(cmake/otswapConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/otswapConfig.cmake
+    INSTALL_DESTINATION ${OTSWAP_CMAKE_DIR})
+
+  # Before 1.0 a minor release may change the interface, so a request for 0.1
+  # accepts any 0.1.x and nothing else.
+  write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/otswapConfigVersion.cmake
+    COMPATIBILITY SameMinorVersion)
+
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/otswapConfig.cmake
+                ${CMAKE_CURRENT_BINARY_DIR}/otswapConfigVersion.cmake
+                cmake/FindCFITSIO.cmake
+          DESTINATION ${OTSWAP_CMAKE_DIR})
 endif()
