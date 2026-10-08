@@ -1,0 +1,27 @@
+# Doxygen for the C++ reference: XML only, read by Breathe. Run by conf.py.
+
+PROJECT_NAME           = otswap
+INPUT                  = ../include/otswap
+FILE_PATTERNS          = *.h
+RECURSIVE              = NO
+OUTPUT_DIRECTORY       = doxygen
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = ../include
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+EXTRACT_LOCAL_CLASSES  = NO
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = YES
+INTERNAL_DOCS          = NO
+WARN_IF_UNDOCUMENTED   = YES
+WARN_NO_PARAMDOC       = NO
+WARN_AS_ERROR          = NO
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+XML_PROGRAMLISTING     = NO
+QUIET                  = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES

@@ -1,0 +1,10 @@
+# The documentation build, pinned: a new release of any of these can bring new
+# warnings, and the build treats warnings as errors. Update them deliberately.
+# Doxygen is installed separately. otswap itself is not needed: the Python
+# reference is read from the stubs.
+sphinx==9.1.0
+furo==2025.12.19
+breathe==5.1.0
+myst-parser==5.1.0
+sphinx-autoapi==3.8.1
+sphinx-design==0.7.0

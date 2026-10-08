@@ -6,6 +6,7 @@ build-backend = "scikit_build_core.build"
 name = "otswap"
 version = "0.1.0"
 description = "Optimal transport reconstruction of the displacement field of a tracer catalogue, by local swapping"
+readme = "README.md"
 requires-python = ">= 3.9"
 license = "GPL-2.0-or-later"
 license-files = ["LICENSE"]
@@ -15,6 +16,8 @@ dependencies = ["numpy"]
 [project.urls]
 Documentation = "https://simosartori.github.io/otswap/"
 Source = "https://github.com/simosartori/otswap"
+Issues = "https://github.com/simosartori/otswap/issues"
+Changelog = "https://github.com/simosartori/otswap/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = ["pytest"]
@@ -23,8 +26,9 @@ test = ["pytest"]
 minimum-version = "0.11"
 build-dir = "build/{wheel_tag}"
 wheel.packages = ["python/otswap"]
-# the examples and their data are for the source repository only
-sdist.exclude = ["examples/"]
+# the examples, their data and the documentation sources are for the source
+# repository only
+sdist.exclude = ["examples/", "docs/"]
 
 [tool.scikit-build.cmake.define]
 OTSWAP_BUILD_PYTHON = "ON"

@@ -1,0 +1,54 @@
+cff-version: 1.2.0
+message: "If you use otswap, please cite the paper below and CosmoBolognaLib."
+title: otswap
+abstract: >-
+  Optimal transport reconstruction of the displacement field of a tracer
+  catalogue, by local swapping.
+type: software
+authors:
+  - family-names: Sartori
+    given-names: Simone
+    email: simone.sartori@inaf.it
+version: 0.1.0
+license: GPL-2.0-or-later
+repository-code: "https://github.com/SimoSartori/otswap"
+url: "https://simosartori.github.io/otswap/"
+preferred-citation:
+  type: article
+  title: "The Back-in-time Void Finder: dynamical identification of cosmic voids through optimal transport reconstruction"
+  authors:
+    - family-names: Sartori
+      given-names: Simone
+    - family-names: Contarini
+      given-names: Sofia
+    - family-names: Sarpa
+      given-names: Elena
+    - family-names: Degni
+      given-names: Giulia
+    - family-names: Marulli
+      given-names: Federico
+    - family-names: Escoffier
+      given-names: Stephanie
+    - family-names: Moscardini
+      given-names: Lauro
+  year: 2026
+  identifiers:
+    - type: other
+      value: "arXiv:2601.15378"
+  url: "https://arxiv.org/abs/2601.15378"
+references:
+  - type: article
+    title: "CosmoBolognaLib: C++ libraries for cosmological calculations"
+    authors:
+      - family-names: Marulli
+        given-names: Federico
+      - family-names: Veropalumbo
+        given-names: Alfonso
+      - family-names: Moresco
+        given-names: Michele
+    journal: Astronomy and Computing
+    volume: 14
+    start: 35
+    end: 42
+    year: 2016
+    doi: 10.1016/j.ascom.2016.01.005
