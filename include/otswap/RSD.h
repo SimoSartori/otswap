@@ -44,6 +44,9 @@
 #define OTSWAP_RSD_H
 
 #include <cstddef>
+#include <cstdint>
+#include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -60,17 +63,17 @@ namespace otswap {
    *  object, r_i . d_i / |r_i|: positive when the displacement points away
    *  from the observer.
    *
-   *  @param positions Cartesian, 3 * N; every position finite and away
-   *  from the origin.
    *  @param displacement 3 * N, for example Result::meanDisplacement. NaN
    *  is allowed, and gives NaN for that object; infinities are not.
+   *  @param positions Cartesian, 3 * N, for example Result::tracers; every
+   *  position finite and away from the origin.
    *
    *  @exception Error if the sizes differ or are not multiples of three,
    *  if a position is not finite or is at the origin, or if a displacement
    *  is infinite; the message names the object.
    */
-  std::vector<double> lineOfSightProjection (const std::vector<double>& positions,
-                                             const std::vector<double>& displacement);
+  std::vector<double> radialProjection (const std::vector<double>& displacement,
+                                        const std::vector<double>& positions);
 
   /**
    *  @brief Component of each displacement along a Cartesian axis, the
@@ -82,8 +85,23 @@ namespace otswap {
    *  @exception Error if the size is not a multiple of three, if the axis
    *  is not 0, 1 or 2, or if a displacement is infinite.
    */
-  std::vector<double> lineOfSightProjection (const std::vector<double>& displacement,
-                                             unsigned axis);
+  std::vector<double> axisProjection (const std::vector<double>& displacement,
+                                      unsigned axis);
+
+  /// The result of neighbourAverage: N entries each.
+  struct NeighbourAverage {
+
+    /// The average at each object; NaN with no valid object within 3 sigma.
+    std::vector<double> values;
+
+    /// The number of valid objects averaged, the object itself included
+    /// when it is valid. With sigma = 0, 1 for a valid object and 0
+    /// otherwise.
+    std::vector<unsigned> nNeighbours;
+
+    /// The sum of validRealizations over those objects.
+    std::vector<unsigned> nRealizationsAveraged;
+  };
 
   /**
    *  @brief Gaussian average of a value over the neighbours of each object.
@@ -116,6 +134,8 @@ namespace otswap {
    *  @param weightByRealizations weight each neighbour by its count of
    *  valid realizations as well.
    *
+   *  @return the average and two diagnostics per object.
+   *
    *  @exception Error if the sizes differ, if a position is not finite, if
    *  the value of a valid object is not finite, or if sigma is negative or
    *  not finite; the message names the object.
@@ -123,44 +143,36 @@ namespace otswap {
    *  volume (a single object, or all of them in one plane or on one line):
    *  the neighbour grid cannot be built.
    */
-  std::vector<double> neighbourAverage (const std::vector<double>& positions,
-                                        const std::vector<double>& values,
-                                        const std::vector<unsigned>& validRealizations,
-                                        double sigma,
-                                        bool weightByRealizations = false);
+  NeighbourAverage neighbourAverage (const std::vector<double>& positions,
+                                     const std::vector<double>& values,
+                                     const std::vector<unsigned>& validRealizations,
+                                     double sigma,
+                                     bool weightByRealizations = false);
 
   /**
-   *  @brief As above, with two diagnostics per object.
-   *
-   *  @param[out] nNeighbours N entries: the number of valid objects
-   *  averaged, the object itself included when it is valid. With
-   *  sigma = 0, 1 for a valid object and 0 otherwise.
-   *  @param[out] nRealizations N entries: the sum of validRealizations
-   *  over those objects.
+   *  @brief A b(z) table: the linear bias of the tracers at redshift nodes,
+   *  interpolated linearly between them and extrapolated linearly beyond
+   *  them from the first or last segment. Read one from a file with
+   *  io::readBiasTable.
    */
-  std::vector<double> neighbourAverage (const std::vector<double>& positions,
-                                        const std::vector<double>& values,
-                                        const std::vector<unsigned>& validRealizations,
-                                        double sigma,
-                                        bool weightByRealizations,
-                                        std::vector<unsigned>& nNeighbours,
-                                        std::vector<unsigned>& nRealizations);
+  struct BiasTable {
+    std::vector<double> redshift;   ///< at least two, finite, strictly increasing
+    std::vector<double> bias;       ///< same length, finite and positive
+  };
 
   /**
    *  @brief The factor f / (b + 3 f / 5) that turns the averaged
    *  line-of-sight displacement into the shift to real space, at each
    *  redshift.
    *
-   *  f is distances.growthRateAt(z). b(z) is interpolated linearly between
-   *  the nodes of the bias table, and extrapolated linearly beyond its ends
-   *  from the first or last segment. When any redshift lies outside the
-   *  table, one line is written to std::clog, giving how many and the
-   *  table's range.
+   *  f is distances.growthRateAt(z), b(z) the bias table at z. Nothing is
+   *  written: the redshifts at which b(z) is extrapolated beyond the table
+   *  are counted in *nExtrapolated, when given.
    *
    *  @param redshift observed redshifts, inside the distance table's range.
-   *  @param biasRedshift redshifts of the bias nodes: at least two, finite,
-   *  strictly increasing.
-   *  @param bias bias at each node: same length, finite and positive.
+   *  @param bias the b(z) table.
+   *  @param nExtrapolated if not null, receives the number of redshifts
+   *  outside the bias table.
    *
    *  @exception Error if the distance table carries no growth rate, if a
    *  redshift is not finite or lies outside the distance table, if the bias
@@ -169,18 +181,8 @@ namespace otswap {
    */
   std::vector<double> rsdFactor (const std::vector<double>& redshift,
                                  const DistanceTable& distances,
-                                 const std::vector<double>& biasRedshift,
-                                 const std::vector<double>& bias);
-
-  /**
-   *  @brief As above, writing nothing: the number of redshifts at which
-   *  b(z) was extrapolated is returned in nExtrapolated instead.
-   */
-  std::vector<double> rsdFactor (const std::vector<double>& redshift,
-                                 const DistanceTable& distances,
-                                 const std::vector<double>& biasRedshift,
-                                 const std::vector<double>& bias,
-                                 std::size_t& nExtrapolated);
+                                 const BiasTable& bias,
+                                 std::size_t* nExtrapolated = nullptr);
 
   /**
    *  @brief The factor f / (b + 3 f / 5) of a box at a single redshift,
@@ -208,8 +210,8 @@ namespace otswap {
    *  is at the origin, or if a shift is infinite; the message names the
    *  object.
    */
-  std::vector<double> shiftAlongLineOfSight (const std::vector<double>& positions,
-                                             const std::vector<double>& shift);
+  std::vector<double> shiftRadially (const std::vector<double>& positions,
+                                     const std::vector<double>& shift);
 
   /**
    *  @brief Move each position by shift_i along a Cartesian axis. Positions
@@ -220,13 +222,35 @@ namespace otswap {
    *  refused.
    *  @param axis 0, 1 or 2.
    */
-  std::vector<double> shiftAlongLineOfSight (const std::vector<double>& positions,
-                                             const std::vector<double>& shift,
-                                             unsigned axis);
+  std::vector<double> shiftAlongAxis (const std::vector<double>& positions,
+                                      const std::vector<double>& shift,
+                                      unsigned axis);
 
   // ==========================================================================
   // Redshift-space correction: the whole chain
   // ==========================================================================
+
+  /// Options of realSpaceLightcone and realSpaceBox.
+  struct CorrectionConfig {
+
+    /// Weight each neighbour by its count of valid realizations as well,
+    /// as in neighbourAverage.
+    bool weightByRealizations = false;
+
+    /// What the call reports; see Verbosity.
+    Verbosity verbosity = Verbosity::Normal;
+
+    /// Where the report is written; null writes nothing, as Silent.
+    std::ostream* log = &std::clog;
+  };
+
+  /// What the correction did with each tracer.
+  enum class CorrectionStatus : std::uint8_t {
+    Corrected         = 0,  ///< had a valid realization; moved
+    MovedByNeighbours = 1,  ///< had no valid realization; moved with its neighbours' average
+    NoValidNeighbour  = 2,  ///< no valid tracer within 3 sigma (with sigma = 0: no valid realization); not moved
+    LeftOut           = 3   ///< outside the reconstruction's redshift cut or mask; not moved
+  };
 
   /**
    *  @brief A catalogue moved to real space. Row i describes input object
@@ -236,150 +260,135 @@ namespace otswap {
 
     std::size_t nObjects = 0;
 
-    /// Lightcone: right ascension and declination, copied from the input,
-    /// and the corrected redshift. Box: the Cartesian position, corrected
-    /// along the line-of-sight axis. Flat, [object][3]. NaN in all three
-    /// for an object in uncorrected.
-    std::vector<double> positions;
+    /// The geometry of the reconstruction corrected.
+    Geometry geometry = Geometry::Box;
 
-    /// The diagnostics of neighbourAverage: valid objects averaged, and
-    /// the sum of their valid realizations. nObjects entries each.
+    /// Lightcone: right ascension, folded into [0, 2 pi), and declination of
+    /// the tracer, and its corrected redshift; radians. Flat, [object][3]. NaN
+    /// rows for the tracers not moved. Empty in a box.
+    std::vector<double> sky;
+
+    /// The corrected Cartesian position, Mpc/h. Box: the tracer with its
+    /// axis coordinate moved. Lightcone: r (1 + shift / |r|), the tracer r
+    /// moved along its line of sight. Flat, [object][xyz]. NaN rows for the
+    /// tracers not moved.
+    std::vector<double> cartesian;
+
+    /// The shift applied along the line of sight, in Mpc/h: the factor times
+    /// the averaged projection. NaN for a tracer not moved. nObjects entries.
+    std::vector<double> shift;
+
+    /// The factor f / (b + 3 f / 5) at each tracer's observed redshift; in a
+    /// box, the single factor repeated. NaN for a tracer left out of the
+    /// reconstruction. nObjects entries.
+    std::vector<double> factor;
+
+    /// What the correction did with each tracer. nObjects entries.
+    std::vector<CorrectionStatus> status;
+
+    /// The valid realizations of each tracer, copied from the result
+    /// corrected. nObjects entries.
+    std::vector<unsigned> validRealizations;
+
+    /// The diagnostics of neighbourAverage: valid tracers averaged, and the
+    /// sum of their valid realizations; 0 for a tracer left out. nObjects
+    /// entries each.
     std::vector<unsigned> nNeighbours;
     std::vector<unsigned> nRealizationsAveraged;
 
-    /// Objects left without a correction, in increasing order: those with
-    /// no valid object within 3 sigma, themselves included (with sigma = 0,
-    /// those with no valid realization), and those flagged in the
-    /// reconstruction's outsideRedshiftCut or outsideMask.
-    std::vector<std::size_t> uncorrected;
+    /// Tracers at whose redshift b(z) was extrapolated beyond its table; 0
+    /// in a box.
+    std::size_t nExtrapolated = 0;
+
+    /// The width of the average and its weighting, as given.
+    double sigma = std::numeric_limits<double>::quiet_NaN();
+    bool weightByRealizations = false;
+
+    /// Box: the line-of-sight axis, the redshift and the bias, as given. 0
+    /// and NaN in a lightcone.
+    unsigned axis = 0;
+    double boxRedshift = std::numeric_limits<double>::quiet_NaN();
+    double boxBias = std::numeric_limits<double>::quiet_NaN();
+
+    /// Wall time of the call that made the catalogue, in seconds.
+    double elapsedSeconds = 0.;
   };
 
   /**
    *  @brief Move a lightcone catalogue from redshift space to real space.
    *
-   *  The chain, for the tracers that result was reconstructed from:
+   *  The chain, for the tracers of the result:
    *  1. the projection of result.meanDisplacement on the line of sight of
-   *     each tracer, at toCartesian(tracersSky, distances);
+   *     each tracer, at result.tracers (radialProjection);
    *  2. its gaussian average of width sigma over the tracers with a valid
    *     realization (neighbourAverage); a tracer without one still receives
    *     the average around its own position;
-   *  3. the factor f / (b + 3 f / 5) at each observed redshift (rsdFactor),
-   *     which writes to std::clog when b(z) is extrapolated;
+   *  3. the factor f / (b + 3 f / 5) at each observed redshift, as
+   *     rsdFactor computes it; the tracers at which b(z) is extrapolated are
+   *     counted in RealSpaceCatalog::nExtrapolated, and reported;
    *  4. each tracer keeps its right ascension and declination and moves to
    *     the redshift of comoving distance d(z_i) + s_i, where s_i is the
-   *     factor times the average.
+   *     factor times the average; its Cartesian position moves by s_i along
+   *     its line of sight.
    *
    *  Tracers flagged in result.outsideRedshiftCut or result.outsideMask are
-   *  left out: they are not converted, take no part in any average, are not corrected, have
-   *  diagnostics 0, and are listed in uncorrected.
+   *  left out: they take no part in any average, are not moved, have
+   *  diagnostics 0, and the status LeftOut.
    *
-   *  Nothing checks that result belongs to these tracers beyond their
-   *  number: pass the arrays the reconstruction was run on, in the same
-   *  order.
-   *
-   *  @param result the reconstruction of these tracers.
-   *  @param tracersSky sky coordinates, 3 * N, radians, as observed.
-   *  @param biasRedshift,bias the bias table, as in rsdFactor.
+   *  @param result a lightcone reconstruction, with its tracers and
+   *  tracersSky, as reconstructLightcone returns it.
+   *  @param bias the b(z) table.
    *  @param sigma width of the average, in Mpc/h; 0 for none. 10 Mpc/h is a
    *  reasonable starting value; the best value depends on the sample, and
    *  should be checked in each analysis.
-   *  @param weightByRealizations as in neighbourAverage.
+   *  @param config the weighting, and what the call reports.
    *
-   *  @exception Error if result does not hold N objects or is malformed, if
-   *  a sky coordinate is not finite, a declination lies outside
-   *  [-pi/2, pi/2] or a redshift outside the distance table, if the table carries no growth rate, if the bias table is
-   *  malformed or extrapolates to a bias that is not positive, or if a
+   *  @exception Error if result is not a lightcone result, is malformed or
+   *  lacks its tracers or tracersSky, if a tracer kept is not finite or is
+   *  at the origin, if the table carries no growth rate, if the bias table
+   *  is malformed or extrapolates to a bias that is not positive, or if a
    *  corrected comoving distance is not positive or lies outside the
    *  distance table; the message names the object, and in the last case
    *  suggests a table covering a wider redshift range.
    *  @exception meshsearch::Error as neighbourAverage.
    */
   RealSpaceCatalog realSpaceLightcone (const Result& result,
-                                       const std::vector<double>& tracersSky,
                                        const DistanceTable& distances,
-                                       const std::vector<double>& biasRedshift,
-                                       const std::vector<double>& bias,
+                                       const BiasTable& bias,
                                        double sigma,
-                                       bool weightByRealizations = false);
-
-  /**
-   *  @brief As above, writing nothing: the number of tracers at which b(z)
-   *  was extrapolated is returned in nExtrapolated instead.
-   */
-  RealSpaceCatalog realSpaceLightcone (const Result& result,
-                                       const std::vector<double>& tracersSky,
-                                       const DistanceTable& distances,
-                                       const std::vector<double>& biasRedshift,
-                                       const std::vector<double>& bias,
-                                       double sigma,
-                                       bool weightByRealizations,
-                                       std::size_t& nExtrapolated);
+                                       const CorrectionConfig& config = {});
 
   /**
    *  @brief Move a box catalogue from redshift space to real space, with
    *  the line of sight along a Cartesian axis.
    *
-   *  The chain is that of realSpaceLightcone, with the projection on the
-   *  axis, a single factor f / (b + 3 f / 5) at the box's redshift, and the
-   *  shift applied along the axis. Positions are not wrapped.
+   *  The chain is that of realSpaceLightcone, on result.tracers, with the
+   *  projection on the axis, a single factor f / (b + 3 f / 5) at the box's
+   *  redshift, and the shift applied along the axis. Positions are not
+   *  wrapped.
    *
    *  The box is not periodic, here or in reconstructBox: nothing flows
    *  through its faces, so modes on the scale of the box itself cannot be
    *  reconstructed.
    *
-   *  @param result the reconstruction of these tracers.
-   *  @param tracers Cartesian, 3 * N, as observed.
+   *  @param result a box reconstruction, with its tracers.
    *  @param axis the line of sight: 0, 1 or 2.
    *  @param redshift the box's redshift, at which f is taken.
    *  @param bias the tracers' linear bias; finite and positive.
    *  @param sigma as in realSpaceLightcone.
+   *  @param config the weighting, and what the call reports.
    *
-   *  @exception Error if result does not hold N objects or is malformed, if
-   *  a position is not finite, if the axis is not 0, 1 or 2, or as
-   *  rsdFactorBox.
+   *  @exception Error if result is not a box result, is malformed or lacks
+   *  its tracers, if the axis is not 0, 1 or 2, or as rsdFactorBox.
    *  @exception meshsearch::Error as neighbourAverage.
    */
   RealSpaceCatalog realSpaceBox (const Result& result,
-                                 const std::vector<double>& tracers,
                                  unsigned axis,
                                  double redshift,
                                  const DistanceTable& distances,
                                  double bias,
                                  double sigma,
-                                 bool weightByRealizations = false);
-
-  // ==========================================================================
-  // Bias table
-  // ==========================================================================
-
-  namespace io {
-
-    /// A b(z) table, in the form rsdFactor and realSpaceLightcone take.
-    struct BiasTable {
-      std::vector<double> redshift;   ///< strictly increasing, at least two
-      std::vector<double> bias;       ///< same length, finite and positive
-    };
-
-    /**
-     *  @brief Read a b(z) table.
-     *
-     *  The format follows the extension, as in io::read: .fits, .fit and
-     *  .fits.gz are read as FITS, from the columns named REDSHIFT and BIAS
-     *  (case insensitively); anything else as ASCII, from columns 0 and 1,
-     *  with the given delimiter and comment character.
-     *
-     *  The table is checked as rsdFactor checks its arrays, so a table read
-     *  without error is one rsdFactor accepts.
-     *
-     *  @exception Error if the file cannot be read (as io::read), if it
-     *  holds fewer than two rows, if a redshift is not finite or not greater
-     *  than the one before, or if a bias is not finite or not positive; the
-     *  message names the file and the row.
-     */
-    BiasTable readBiasTable (const std::string& file,
-                             char delimiter = ' ', char comment = '#');
-
-  }
+                                 const CorrectionConfig& config = {});
 
 }
 

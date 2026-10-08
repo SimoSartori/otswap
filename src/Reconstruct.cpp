@@ -27,11 +27,15 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <exception>
+#include <iomanip>
 #include <limits>
+#include <locale>
 #include <numeric>
+#include <sstream>
 #include <string>
 
 #ifdef _OPENMP
@@ -384,9 +388,30 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
   result.valid.assign((std::size_t)nRealizations * nObjects, 1);
   result.outsideRedshiftCut.assign(nObjects, 0);
   result.outsideMask.assign(nObjects, 0);
+  result.config = config;
+  result.config.seed = seed;
+  result.tracers = tracers;
   summarize(result);
 
   return result;
+}
+
+
+// ============================================================================
+
+
+std::string otswap::internal::reconstruction_line (const std::string& name, const Result& result)
+{
+  const std::size_t without =
+    (std::size_t)std::count(result.validRealizations.begin(), result.validRealizations.end(), 0u);
+
+  std::ostringstream out;
+  out.imbue(std::locale::classic());
+  out << "otswap: " << name << ": " << result.nRealizations
+      << (result.nRealizations == 1 ? " realization of " : " realizations of ") << result.nObjects
+      << " tracers in " << std::fixed << std::setprecision(2) << result.elapsedSeconds << " s; "
+      << without << " without a valid displacement\n";
+  return out.str();
 }
 
 
@@ -429,6 +454,92 @@ void otswap::internal::summarize (Result& result)
       result.meanDisplacement[3*i+2] /= (double)kept;
     }
   }
+
+  if (result.tracers.size() == 3 * nObjects) {
+    result.lagrangian.resize(3 * nObjects);
+    for (std::size_t k = 0; k < 3 * nObjects; ++k)
+      result.lagrangian[k] = result.tracers[k] + result.meanDisplacement[k];
+  }
+  else result.lagrangian.clear();
+
+  if (result.geometry == Geometry::Lightcone && result.distances && !result.lagrangian.empty())
+    sky_of_positions(result.lagrangian, *result.distances, result.lagrangianSky);
+  else result.lagrangianSky.clear();
+}
+
+
+// ============================================================================
+
+
+void otswap::recomputeMeans (Result& result)
+{
+  const std::size_t nDisplacements = (std::size_t)result.nRealizations * result.nObjects;
+
+  if (result.displacement.size() != 3 * nDisplacements || result.valid.size() != nDisplacements)
+    throw Error("the result is malformed: displacement and valid hold " +
+                std::to_string(result.displacement.size()) + " and " +
+                std::to_string(result.valid.size()) + " entries for " +
+                std::to_string(result.nRealizations) + " realizations of " +
+                std::to_string(result.nObjects) + " objects");
+
+  for (std::size_t k = 0; k < nDisplacements; ++k)
+    if (result.valid[k] > 1)
+      throw Error("the result is malformed: valid holds " + std::to_string(result.valid[k]) +
+                  " at entry " + std::to_string(k) + "; every entry must be 0 or 1");
+
+  internal::check_flags(result);
+  internal::summarize(result);
+}
+
+
+// ============================================================================
+
+
+namespace {
+
+  /// Both box overloads; a null mps is computed from the tracers.
+  otswap::Result box (const std::vector<double>& tracers, const std::vector<double>& randoms,
+                      const double* givenMps, const otswap::Config& config)
+  {
+    using namespace otswap;
+
+    const auto start = std::chrono::steady_clock::now();
+    const unsigned seed = internal::check_config(config);
+
+    const std::size_t nObjects = internal::check_coordinates(tracers, "the tracer array");
+    const std::size_t nRandoms = internal::check_coordinates(randoms, "the random array", true);
+
+    const double mps = givenMps != nullptr ? *givenMps : internal::bounding_box_separation(tracers);
+    if (givenMps == nullptr && !(mps > 0.))
+      throw Error("the tracers span no volume (all of them in one plane, on one line or at one "
+                  "point), so their mean particle separation cannot be computed; give it");
+    if (!std::isfinite(mps) || mps <= 0.)
+      throw Error("the mean particle separation is " + std::to_string(mps) +
+                  "; it must be positive");
+
+    if (!randoms.empty())
+      internal::check_random_supply(nRandoms, nObjects, config.nRealizations);
+
+    const std::vector<double> perObject(nObjects, mps);
+
+    Result result = internal::reconstruct(tracers, randoms, perObject, mps, config, seed);
+    result.mps = mps;
+    result.elapsedSeconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+
+    if (config.log != nullptr && config.verbosity != Verbosity::Silent) {
+      std::ostringstream out;
+      out.imbue(std::locale::classic());
+      if (config.verbosity == Verbosity::Detailed)
+        out << "otswap: mean particle separation " << mps << " Mpc/h ("
+            << (givenMps != nullptr ? "given" : "from the tracers' bounding box") << ")\n";
+      out << internal::reconstruction_line("reconstructBox", result);
+      *config.log << out.str() << std::flush;
+    }
+
+    return result;
+  }
+
 }
 
 
@@ -440,19 +551,16 @@ otswap::Result otswap::reconstructBox (const std::vector<double>& tracers,
                                        const double mps,
                                        const Config& config)
 {
-  const unsigned seed = internal::check_config(config);
+  return box(tracers, randoms, &mps, config);
+}
 
-  const std::size_t nObjects = internal::check_coordinates(tracers, "the tracer array");
-  const std::size_t nRandoms = internal::check_coordinates(randoms, "the random array", true);
 
-  if (!std::isfinite(mps) || mps <= 0.)
-    throw Error("the mean particle separation is " + std::to_string(mps) +
-                "; it must be positive");
+// ============================================================================
 
-  if (!randoms.empty())
-    internal::check_random_supply(nRandoms, nObjects, config.nRealizations);
 
-  const std::vector<double> perObject(nObjects, mps);
-
-  return internal::reconstruct(tracers, randoms, perObject, mps, config, seed);
+otswap::Result otswap::reconstructBox (const std::vector<double>& tracers,
+                                       const std::vector<double>& randoms,
+                                       const Config& config)
+{
+  return box(tracers, randoms, nullptr, config);
 }

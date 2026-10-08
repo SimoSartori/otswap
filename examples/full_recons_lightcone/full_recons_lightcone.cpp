@@ -31,7 +31,6 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
-#include <initializer_list>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -64,19 +63,12 @@ int main (int argc, char** argv)
 
     // Right ascension, declination and redshift for each object, one row
     // after the other. The angles are read in degrees and converted to
-    // radians with pi/180 as a double, the factor numpy.deg2rad and
-    // otswap's Python interface multiply by; the degrees as read are kept
-    // for the output
-    const std::vector<double> tracersDeg = otswap::io::read(data + "/lightcone_tracers.dat", {"0", "1", "2"}).values;
-    const std::vector<double> randomsDeg = otswap::io::read(data + "/lightcone_randoms.dat", {"0", "1", "2"}).values;
-
-    const double degToRad = 3.14159265358979323846 / 180.;
-    std::vector<double> tracersSky = tracersDeg, randomsSky = randomsDeg;
-    for (std::vector<double>* sky : {&tracersSky, &randomsSky})
-      for (std::size_t i = 0; i < sky->size(); i += 3) {
-        (*sky)[i]   *= degToRad;
-        (*sky)[i+1] *= degToRad;
-      }
+    // radians by skyToRadians, with the factor numpy.deg2rad and otswap's
+    // Python interface use
+    const std::vector<double> tracersSky =
+      otswap::skyToRadians(otswap::io::read(data + "/lightcone_tracers.dat", {"0", "1", "2"}).values);
+    const std::vector<double> randomsSky =
+      otswap::skyToRadians(otswap::io::read(data + "/lightcone_randoms.dat", {"0", "1", "2"}).values);
 
     const std::size_t nTracers = tracersSky.size() / 3;
     const std::size_t nRandoms = randomsSky.size() / 3;
@@ -113,14 +105,16 @@ int main (int argc, char** argv)
     // As in the lightcone example, without a redshift cut: 8
     // realizations, a convergence threshold of 1e-2, a fixed seed, 30
     // redshift bins for the mean particle separation, and the
-    // displacements crossing an unobserved pixel of the mask rejected
+    // displacements crossing an unobserved pixel of the mask rejected.
+    // The report goes to std::cout, in order with this program's lines
     otswap::Config config;
     config.nRealizations = 8;
     config.convergence = 1.e-2;
     config.seed = 12345;
     config.rejectCrossings = true;
     config.maxUnobservedPixelsCrossed = 0;
-    config.verbose = true;
+    config.verbosity = otswap::Verbosity::Normal;
+    config.log = &std::cout;
 
     const otswap::Result result = otswap::reconstructLightcone(tracersSky, randomsSky, mask, 30, distances, config);
 
@@ -131,9 +125,10 @@ int main (int argc, char** argv)
 
     // The tracers' linear bias b(z), as nodes in redshift: b is
     // interpolated linearly between them, and extrapolated linearly beyond
-    // the first and last, with a message on std::clog saying for how many
-    // tracers. This table covers the whole catalogue
-    const otswap::io::BiasTable bias = otswap::io::readBiasTable(data + "/lightcone_bias.dat");
+    // the first and last, which the correction reports and counts in
+    // RealSpaceCatalog::nExtrapolated. This table covers the whole
+    // catalogue
+    const otswap::BiasTable bias = otswap::io::readBiasTable(data + "/lightcone_bias.dat");
 
 
     // ----------------------------------------------------------------
@@ -144,16 +139,21 @@ int main (int argc, char** argv)
     // reasonable starting value, but the best value depends on the sample
     // and should be checked in each analysis. With
     // weightByRealizations, each neighbour would be weighted by its number
-    // of valid realizations.
+    // of valid realizations. Detailed reports, besides the line of the
+    // call, how many tracers moved with their neighbours' average and why
+    // the others were left uncorrected.
     //
-    // Pass the sky coordinates the reconstruction was run on, in the same
-    // order. A tracer without a valid realization still receives the
-    // average of its neighbours; one with no valid neighbour within
-    // 3 sigma, or left out of the reconstruction by the mask, is left
-    // uncorrected, with NaN coordinates, and listed in uncorrected
+    // The correction reads the tracers from the result. A tracer without a
+    // valid realization still receives the average of its neighbours; one
+    // with no valid neighbour within 3 sigma, or left out of the
+    // reconstruction by the mask, is left uncorrected, with NaN
+    // coordinates; RealSpaceCatalog::status says which
     const double sigma = 10.;
-    const otswap::RealSpaceCatalog catalogue = otswap::realSpaceLightcone(result, tracersSky, distances,
-                                                                          bias.redshift, bias.bias, sigma, false);
+    otswap::CorrectionConfig correction;
+    correction.weightByRealizations = false;
+    correction.verbosity = otswap::Verbosity::Detailed;
+    correction.log = &std::cout;
+    const otswap::RealSpaceCatalog catalogue = otswap::realSpaceLightcone(result, distances, bias, sigma, correction);
 
 
     // ----------------------------------------------
@@ -161,31 +161,23 @@ int main (int argc, char** argv)
     // ----------------------------------------------
 
     // The factor f/(b + 3f/5) at the redshifts of the tracers that took
-    // part in the reconstruction
-    std::vector<double> redshifts;
-    for (std::size_t i = 0; i < nTracers; ++i)
-      if (!result.outsideMask[i]) redshifts.push_back(tracersSky[3*i+2]);
-    const std::vector<double> factor = otswap::rsdFactor(redshifts, distances, bias.redshift, bias.bias);
-    std::cout << "RSD factor f/(b + 3f/5): from " << *std::min_element(factor.begin(), factor.end())
-              << " to " << *std::max_element(factor.begin(), factor.end()) << std::endl;
-
-    std::size_t corrected = 0, byNeighbours = 0, masked = 0;
-    double sum = 0., squares = 0.;
+    // part in the reconstruction, and the shift applied along the line of
+    // sight to each corrected tracer, both kept in the catalogue
+    double factorMin = INFINITY, factorMax = -INFINITY, sum = 0., squares = 0.;
+    std::size_t corrected = 0;
     for (std::size_t i = 0; i < nTracers; ++i) {
-      masked += result.outsideMask[i] ? 1 : 0;
-      if (std::isnan(catalogue.positions[3*i+2])) continue;
+      if (!std::isnan(catalogue.factor[i])) {
+        factorMin = std::min(factorMin, catalogue.factor[i]);
+        factorMax = std::max(factorMax, catalogue.factor[i]);
+      }
+      if (std::isnan(catalogue.shift[i])) continue;
       ++corrected;
-      byNeighbours += result.validRealizations[i] == 0 ? 1 : 0;
-      const double shift = distances.distanceAt(catalogue.positions[3*i+2]) - distances.distanceAt(tracersSky[3*i+2]);
-      sum += shift;
-      squares += shift * shift;
+      sum += catalogue.shift[i];
+      squares += catalogue.shift[i] * catalogue.shift[i];
     }
-    std::cout << "Tracers corrected: " << corrected << std::endl;
-    std::cout << "  of which moved with the average of their neighbours (no valid realization): " << byNeighbours << std::endl;
-    std::cout << "Tracers left uncorrected: " << catalogue.uncorrected.size() << " (left out by the mask: " << masked
-              << ", no valid tracer within 3 sigma: " << catalogue.uncorrected.size() - masked << ")" << std::endl;
-    std::cout << "Shift along the line of sight, d(z') - d(z): mean " << sum / (double)corrected << ", rms "
-              << std::sqrt(squares / (double)corrected) << " Mpc/h" << std::endl;
+    std::cout << "RSD factor f/(b + 3f/5): from " << factorMin << " to " << factorMax << std::endl;
+    std::cout << "Shift along the line of sight over the " << corrected << " corrected tracers: mean "
+              << sum / (double)corrected << ", rms " << std::sqrt(squares / (double)corrected) << " Mpc/h" << std::endl;
 
 
     // ------------------------------------------
@@ -193,27 +185,11 @@ int main (int argc, char** argv)
     // ------------------------------------------
 
     // One row per tracer, in the order of the input: the right ascension
-    // and declination, unchanged, and the corrected redshift; NaN for an
-    // uncorrected tracer. Then the number of valid realizations and the
-    // two diagnostics of the average
-    const std::vector<otswap::io::Column> columns = {
-      {"RA", 'D', "corrected position, in degrees", {}},
-      {"Dec", 'D', "corrected position, in degrees", {}},
-      {"z", 'D', "corrected redshift", {}},
-      {"nValidRec", 'J', "number of valid OT realizations of the tracer", {}},
-      {"nNeighbours", 'J', "number of tracers with a valid OT realization averaged within 3 sigma, the tracer included if valid", {}},
-      {"nRealizationsAveraged", 'J', "sum of nValidRec over those tracers", {}}};
-
-    otswap::io::write(output + "/reconstructed_catalogue_lightcone.dat", columns, nTracers,
-                      [&] (const std::size_t i, std::vector<double>& row) {
-                        const bool isCorrected = !std::isnan(catalogue.positions[3*i+2]);
-                        row[0] = isCorrected ? tracersDeg[3*i] : catalogue.positions[3*i];
-                        row[1] = isCorrected ? tracersDeg[3*i+1] : catalogue.positions[3*i+1];
-                        row[2] = catalogue.positions[3*i+2];
-                        row[3] = result.validRealizations[i];
-                        row[4] = catalogue.nNeighbours[i];
-                        row[5] = catalogue.nRealizationsAveraged[i];
-                      });
+    // and declination, unchanged, and the corrected redshift; the corrected
+    // Cartesian position; the number of valid realizations, the two
+    // diagnostics of the average and the status of the tracer; NaN
+    // positions for an uncorrected tracer
+    otswap::io::writeRealSpaceCatalog(output + "/reconstructed_catalogue_lightcone.dat", catalogue);
 
     std::cout << "Written: output/reconstructed_catalogue_lightcone.dat" << std::endl;
 

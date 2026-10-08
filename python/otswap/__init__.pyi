@@ -8,14 +8,38 @@ converted to float64; the reconstruction works on its own copy of them.
 
 The number of threads follows ``OMP_NUM_THREADS``. The reconstruction
 functions release the GIL while they run.
+
+Tables are read and written by the submodule ``otswap.io``.
 """
 
-from typing import Literal, Optional, overload
+from enum import IntEnum
+from typing import Literal, NamedTuple, Optional
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from . import io as io
+
 AngleUnit = Literal["deg", "rad"]
+
+Verbosity = Literal["silent", "normal", "detailed"]
+"""What a reconstruction or a correction prints, to ``sys.stdout``, each line
+starting with ``otswap:``:
+
+- ``"silent"``: nothing;
+- ``"normal"``: the selection report of a lightcone, when a selection
+  applied, then one line per call with its time and what was lost::
+
+      otswap: reconstructLightcone: 8 realizations of 29579 tracers in 0.84 s; 62 without a valid displacement
+      otswap: realSpaceLightcone: corrected 29517 of 29579 tracers in 0.12 s; 62 left uncorrected
+
+- ``"detailed"``: as ``"normal"``, with the lines that explain it: the mean
+  particle separation of a box and its source, the mps(z) profile of a
+  lightcone, and the breakdown of the corrected and of the uncorrected.
+
+The counts behind every line are in the object returned. The extrapolation
+of b(z) is an ``ExtrapolationWarning``, whatever the verbosity.
+"""
 
 
 class Error(RuntimeError):
@@ -38,17 +62,106 @@ class Result:
     its reconstructed (Lagrangian) position, which is the position of the
     random it is matched to.
 
-    Every array attribute is a read-only view on memory owned by this object,
-    and keeps it alive. Use ``.copy()`` to obtain a writable array. Filtering
-    with ``reject_mask_crossings`` updates ``valid``, ``valid_realizations``
-    and ``mean_displacement`` in place, so views taken earlier reflect it.
+    Every array attribute is read-only. The sky arrays (``tracers_sky``,
+    ``lagrangian_sky``) are in the ``angle_unit`` of the call that made the
+    result; in degrees they are converted once, on first access, and kept.
+    Every other array is a view on memory owned by this object, and keeps it
+    alive. Use ``.copy()`` to obtain a writable array. Filtering with
+    ``reject_mask_crossings`` updates ``valid``, ``valid_realizations``,
+    ``mean_displacement`` and ``lagrangian`` in place, so views taken earlier
+    reflect it; ``lagrangian_sky`` is recomputed, and an array taken from it
+    in degrees before the filter is not updated.
     """
+
+    @staticmethod
+    def from_arrays(
+        displacement: ArrayLike,
+        matched_random: ArrayLike,
+        valid: ArrayLike,
+        tracers: ArrayLike,
+        *,
+        tracers_sky: Optional[ArrayLike] = None,
+        angle_unit: Optional[AngleUnit] = None,
+        distances: Optional["DistanceTable"] = None,
+        outside_redshift_cut: Optional[ArrayLike] = None,
+        outside_mask: Optional[ArrayLike] = None,
+        seed: int = 0,
+    ) -> "Result":
+        """Build a result from its arrays, as read back from a file.
+
+        displacement, matched_random : (n_realizations, n_objects, 3).
+        valid : (n_realizations, n_objects), each entry 0 or 1 (or bool).
+        tracers : (n_objects, 3), Cartesian.
+        tracers_sky : (n_objects, 3), for a lightcone result, with its
+            ``angle_unit`` and the ``distances`` table of the reconstruction,
+            from which ``lagrangian_sky`` is computed. Without it the result
+            is a box result, and neither may be given.
+        outside_redshift_cut, outside_mask : (n_objects,), 0 or 1; all 0
+            when omitted.
+        seed : the seed to record.
+
+        ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
+        ``lagrangian_sky`` are computed as ``recompute_means`` computes them,
+        so arrays read back exactly give the reconstruction's values, bit for
+        bit. The profile, the mps and the selection counts are not
+        reconstructed: ``mps`` and ``mps_profile`` are None.
+        """
 
     @property
     def n_objects(self) -> int: ...
 
     @property
     def n_realizations(self) -> int: ...
+
+    @property
+    def geometry(self) -> Literal["box", "lightcone"]: ...
+
+    @property
+    def angle_unit(self) -> Optional[AngleUnit]:
+        """The unit of ``tracers_sky`` and ``lagrangian_sky``: the
+        ``angle_unit`` of the call that made the result. None for a box."""
+
+    @property
+    def seed(self) -> int:
+        """The seed used: the one drawn when ``seed=0`` was given, so that the
+        result can be reproduced."""
+
+    @property
+    def tracers(self) -> NDArray[np.float64]:
+        """Cartesian position of each tracer, the start of its
+        displacements, shape (n_objects, 3): the array given, or the
+        conversion of ``tracers_sky``. A tracer left out by the redshift cut
+        or the mask has its conversion when its redshift lies in the
+        distance table, NaN otherwise."""
+
+    @property
+    def tracers_sky(self) -> Optional[NDArray[np.float64]]:
+        """Sky coordinates of each tracer, shape (n_objects, 3), in
+        ``angle_unit``; None for a box. In degrees, the angles come back as
+        ``x * (pi/180) * (180/pi)``, which can differ from the input in the
+        last bit."""
+
+    @property
+    def lagrangian(self) -> NDArray[np.float64]:
+        """Mean Lagrangian position of each tracer, ``tracers +
+        mean_displacement``, shape (n_objects, 3). NaN rows where the mean
+        displacement is NaN."""
+
+    @property
+    def mps(self) -> Optional[float]:
+        """Box: the mean particle separation used, given or computed, in
+        Mpc/h. None for a lightcone, whose separation is ``mps_profile``."""
+
+    @property
+    def mps_profile(self) -> Optional["MpsProfile"]:
+        """Lightcone: the mean particle separation as a function of redshift,
+        measured on the tracers kept. None for a box. Keeps this result
+        alive."""
+
+    @property
+    def elapsed_seconds(self) -> float:
+        """Wall time of the call that made the result, in seconds. Two runs
+        with the same seed give the same result but for this value."""
 
     @property
     def displacement(self) -> NDArray[np.float64]:
@@ -100,16 +213,50 @@ class Result:
 
     @property
     def lagrangian_sky(self) -> Optional[NDArray[np.float64]]:
-        """Sky coordinates of each tracer's mean Lagrangian position, the
-        tracer's position plus ``mean_displacement``, shape (n_objects, 3), in
-        the ``angle_unit`` of the ``reconstruct_lightcone`` call: right
+        """Sky coordinates of each tracer's mean Lagrangian position,
+        ``lagrangian``, shape (n_objects, 3), in ``angle_unit``: right
         ascension in [0, 360) degrees ([0, 2 pi) radians), declination,
         redshift, as ``to_sky`` computes them with the reconstruction's
-        distance table. NaN rows for the tracers left out by a selection and
-        for those with no valid realization; a position whose distance falls
-        outside the table has a NaN redshift. None for ``reconstruct_box``,
-        and after a ``reject_mask_crossings`` call that rejected any
-        displacement (recompute it with ``to_sky``)."""
+        distance table. NaN rows where ``lagrangian`` is NaN: the tracers left
+        out by a selection and those with no valid realization; a position
+        whose distance falls outside the table has a NaN redshift. None for a
+        box. Recomputed by ``reject_mask_crossings``."""
+
+
+class MpsProfile:
+    """The mean particle separation of a lightcone as a function of
+    redshift, measured by ``reconstruct_lightcone``: the tracers kept in
+    ``n_bins`` uniform redshift bins over [``redshift_min``,
+    ``redshift_max``], mps = (N / V)^(-1/3) in each, joined linearly and
+    extrapolated linearly beyond the outermost bins. Read-only."""
+
+    @property
+    def redshift(self) -> NDArray[np.float64]:
+        """Bin centres, shape (n_bins,)."""
+
+    @property
+    def mps(self) -> NDArray[np.float64]:
+        """Mean particle separation at each centre, Mpc/h, shape (n_bins,)."""
+
+    @property
+    def count(self) -> NDArray[np.uint64]:
+        """Tracers in each bin, shape (n_bins,)."""
+
+    @property
+    def redshift_min(self) -> float: ...
+
+    @property
+    def redshift_max(self) -> float: ...
+
+    @property
+    def representative(self) -> float:
+        """The count-weighted median of ``mps``, which sizes the grids of the
+        reconstruction."""
+
+    def at(self, z: ArrayLike) -> NDArray[np.float64]:
+        """The mps at each redshift, Mpc/h, the shape of ``z`` kept: the value
+        the reconstruction used at a tracer of that redshift. Raises where the
+        extrapolation is not positive."""
 
 
 class SelectionCounts:
@@ -159,16 +306,17 @@ class SelectionCounts:
 
     @property
     def max_unobserved_pixels_crossed(self) -> Optional[int]:
-        """The threshold of the mask filter the call applied
-        (``reject_crossings``); None when it applied none."""
+        """The threshold of the latest mask filter applied to the result, by
+        ``reconstruct_lightcone`` (``reject_crossings``) or by
+        ``reject_mask_crossings`` afterwards; None when none was."""
 
     @property
     def displacements(self) -> int:
-        """Valid displacements before the mask filter."""
+        """Valid displacements before the first mask filter."""
 
     @property
     def displacements_crossing_mask(self) -> int:
-        """Of them, those the filter rejected."""
+        """Of them, those rejected by every mask filter so far."""
 
 
 # ---------------------------------------------------------------------------
@@ -329,11 +477,12 @@ def reconstruct_box(
     tracers: ArrayLike,
     randoms: Optional[ArrayLike] = None,
     *,
-    mps: float,
+    mps: Optional[float] = None,
     n_realizations: int = 1,
     convergence: float = 1e-3,
     seed: int = 0,
     cell_size: float = 4.0,
+    verbosity: Verbosity = "normal",
 ) -> Result:
     """Reconstruct in box geometry, with a constant mean particle separation.
 
@@ -343,13 +492,18 @@ def reconstruct_box(
     randoms : (M, 3) Cartesian coordinates, M >= n_realizations * N; each
         realization uses a disjoint subset. If omitted, n_realizations * N
         randoms are drawn uniformly in the bounding box of the tracers.
-    mps : mean particle separation, in the units of the coordinates.
+    mps : mean particle separation, in the units of the coordinates. If
+        omitted, (V / N)^(1/3), with V the volume of the tracers' bounding
+        box, the box drawn randoms fill; it is ``Result.mps``. Raises if the
+        tracers span no volume.
     n_realizations : independent reconstructions to run.
     convergence : the loop stops after a sweep that changes at most this
         fraction of the pairs.
     seed : seed of the random streams; 0 draws one at random. With a fixed
         seed the result does not depend on the number of threads.
     cell_size : grid cell size in units of the mps. Affects speed only.
+    verbosity : what the call prints; see ``Verbosity``. ``"normal"`` prints
+        one line, ``"detailed"`` the mps and its source before it.
 
     The box is not periodic: nothing flows through its faces, so modes on the
     scale of the box itself cannot be reconstructed.
@@ -374,7 +528,7 @@ def reconstruct_lightcone(
     redshift_cut: Optional[tuple[float, float]] = None,
     reject_crossings: bool = True,
     max_unobserved_pixels_crossed: int = 0,
-    verbose: bool = True,
+    verbosity: Verbosity = "normal",
 ) -> Result:
     """Reconstruct in lightcone geometry.
 
@@ -423,14 +577,18 @@ def reconstruct_lightcone(
         with another threshold, set it here: a second filter with the same
         mask and a higher threshold changes nothing, since the filter only
         marks displacements invalid.
-    verbose : when a mask or a cut with a finite bound is applied, print
-        what was left out, to ``sys.stdout``: one line for the tracers, one
-        for the randoms, one for the rejected crossings, as
-        ``Result.selection`` records them. For example::
+    verbosity : what the call prints; see ``Verbosity``. With ``"normal"``,
+        when a mask or a cut with a finite bound is applied, what was left
+        out: one line for the tracers, one for the randoms, one for the
+        rejected crossings, as ``Result.selection`` records them; then the
+        line of the call. For example::
 
             otswap: kept 29120 of 29579 tracers: 312 outside the redshift cut [0.9, 1.08], 160 outside the mask (13 outside both)
             otswap: kept 238101 of 242548 randoms: 2655 outside the redshift cut [0.9, 1.08], 1903 outside the mask (111 outside both)
             otswap: rejected 1834 of 87360 displacements crossing more than 0 unobserved pixels
+            otswap: reconstructLightcone: 8 realizations of 29579 tracers in 0.84 s; 2293 without a valid displacement
+
+        ``"detailed"`` adds the mps(z) profile before the last line.
 
     The remaining parameters are as in ``reconstruct_box``.
     """
@@ -450,9 +608,18 @@ def reject_mask_crossings(
     tested. The count depends on NSIDE. Updates ``result`` in place; it only
     ever marks displacements invalid, and raises if ``result`` was already
     filtered against a mask of a different NSIDE. Tracers flagged in
-    ``outside_redshift_cut`` or ``outside_mask`` are left as they are. When
-    any displacement is rejected, ``result.lagrangian_sky`` becomes None.
+    ``outside_redshift_cut`` or ``outside_mask`` are left as they are.
+    ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
+    ``lagrangian_sky`` are recomputed, and ``result.selection`` records the
+    filter.
     """
+
+
+def recompute_means(result: Result) -> None:
+    """Recompute ``valid_realizations``, ``mean_displacement``, ``lagrangian``
+    and ``lagrangian_sky`` from ``displacement`` and ``valid``, as the
+    reconstruction computes them: the sum over the valid realizations in
+    realization order, divided by their count. Updates ``result`` in place."""
 
 
 # ---------------------------------------------------------------------------
@@ -469,53 +636,162 @@ def reject_mask_crossings(
 # chain; the four steps are also available on their own.
 # ---------------------------------------------------------------------------
 
+class BiasTable:
+    """A b(z) table: the linear bias of the tracers at redshift nodes,
+    interpolated linearly between them and extrapolated linearly beyond them
+    from the first or last segment. Immutable.
+
+    Read one from a file with ``otswap.io.read_bias_table``."""
+
+    def __init__(self, redshift: ArrayLike, bias: ArrayLike) -> None:
+        """At least two nodes, of equal length; redshifts finite and strictly
+        increasing; bias finite and positive. Raises otswap.Error otherwise,
+        naming the node."""
+
+    @property
+    def redshift(self) -> NDArray[np.float64]:
+        """Redshifts of the nodes, shape (n,)."""
+
+    @property
+    def bias(self) -> NDArray[np.float64]:
+        """Bias at each node, shape (n,)."""
+
+
+class CorrectionStatus(IntEnum):
+    """The values of ``RealSpaceCatalog.status``."""
+
+    CORRECTED = 0
+    """Had a valid realization; moved."""
+    MOVED_BY_NEIGHBOURS = 1
+    """Had no valid realization; moved with its neighbours' average."""
+    NO_VALID_NEIGHBOUR = 2
+    """No valid tracer within 3 sigma (with sigma = 0: no valid realization); not moved."""
+    LEFT_OUT = 3
+    """Outside the reconstruction's redshift cut or mask; not moved."""
+
+
 class RealSpaceCatalog:
     """A catalogue moved to real space; row i describes input tracer i.
 
-    Every array attribute is a read-only view on memory owned by this object,
-    as for Result."""
+    Every array attribute is read-only; ``sky`` is in the ``angle_unit`` of
+    the result corrected, converted once and kept, and every other array is a
+    view on memory owned by this object, as for Result."""
 
     @property
     def n_objects(self) -> int: ...
 
     @property
-    def positions(self) -> NDArray[np.float64]:
-        """Shape (n_objects, 3). Lightcone: right ascension and declination as
-        given, in the angle_unit of the call, and the corrected redshift. Box:
-        the Cartesian position, corrected along the axis. NaN rows for the
-        tracers in ``uncorrected``."""
+    def geometry(self) -> Literal["box", "lightcone"]: ...
+
+    @property
+    def angle_unit(self) -> Optional[AngleUnit]:
+        """The unit of ``sky``, that of the result corrected; None for a box."""
+
+    @property
+    def sky(self) -> Optional[NDArray[np.float64]]:
+        """Lightcone: right ascension, in [0, 360) degrees ([0, 2 pi)
+        radians), and declination of each tracer, and its corrected redshift,
+        shape (n_objects, 3). The angles are those of ``Result.tracers_sky``;
+        in degrees they come back as ``x * (pi/180) * (180/pi)``, which can
+        differ from the input in the last bit. NaN rows for the tracers not
+        moved. None for a box."""
+
+    @property
+    def cartesian(self) -> NDArray[np.float64]:
+        """Corrected Cartesian position, Mpc/h, shape (n_objects, 3). Box: the
+        tracer with its axis coordinate moved. Lightcone: ``r (1 + shift /
+        |r|)``, the tracer moved along its line of sight. NaN rows for the
+        tracers not moved."""
+
+    @property
+    def shift(self) -> NDArray[np.float64]:
+        """Shift applied along the line of sight, Mpc/h, shape (n_objects,):
+        the factor times the averaged projection. NaN where nothing moved."""
+
+    @property
+    def factor(self) -> NDArray[np.float64]:
+        """f / (b + 3 f / 5) at each tracer's observed redshift, shape
+        (n_objects,); in a box the single factor, repeated. NaN for the
+        tracers left out of the reconstruction."""
+
+    @property
+    def status(self) -> NDArray[np.uint8]:
+        """What the correction did with each tracer, shape (n_objects,): 0
+        corrected, 1 moved with the average of its neighbours (it had no
+        valid realization), 2 not moved, with no valid tracer within 3 sigma
+        (with sigma = 0: no valid realization), 3 not moved, left out of the
+        reconstruction by its redshift cut or mask (``Result.outside_*`` say
+        which). See ``CorrectionStatus``."""
+
+    @property
+    def valid_realizations(self) -> NDArray[np.uint32]:
+        """Valid realizations of each tracer, as in the result corrected,
+        shape (n_objects,)."""
 
     @property
     def n_neighbours(self) -> NDArray[np.uint32]:
         """Tracers with a valid realization averaged for each tracer, itself
-        included if valid, shape (n_objects,)."""
+        included if valid, shape (n_objects,); 0 for a tracer left out."""
 
     @property
     def n_realizations_averaged(self) -> NDArray[np.uint32]:
         """Sum of the valid realizations of those tracers, shape (n_objects,)."""
 
     @property
-    def uncorrected(self) -> NDArray[np.int64]:
-        """Indices, increasing, of the tracers left without a correction: those
-        with no tracer with a valid realization within 3 sigma, themselves
-        included. With sigma = 0, those without a valid realization."""
+    def n_extrapolated(self) -> int:
+        """Tracers at whose redshift b(z) was extrapolated beyond its table;
+        0 for a box."""
+
+    @property
+    def sigma(self) -> float:
+        """The width of the average, Mpc/h, as given."""
+
+    @property
+    def weight_by_realizations(self) -> bool: ...
+
+    @property
+    def axis(self) -> Optional[int]:
+        """Box: the line-of-sight axis; None for a lightcone."""
+
+    @property
+    def box_redshift(self) -> Optional[float]:
+        """Box: the redshift of the box; None for a lightcone."""
+
+    @property
+    def box_bias(self) -> Optional[float]:
+        """Box: the bias of the tracers; None for a lightcone."""
+
+    @property
+    def elapsed_seconds(self) -> float:
+        """Wall time of the call that made the catalogue, in seconds."""
 
 
-def line_of_sight_projection(
-    displacement: ArrayLike,
-    *,
-    positions: Optional[ArrayLike] = None,
-    axis: Optional[int] = None,
-) -> NDArray[np.float64]:
-    """Component of each displacement, shape (N, 3), along its line of sight,
-    shape (N,): positive when it points away from the observer.
-
-    Give exactly one of ``positions``, Cartesian (N, 3), finite and away from
-    the origin, for a radial line of sight, and ``axis`` (0, 1 or 2) for a
-    box. NaN displacements give NaN; infinite ones raise."""
+def radial_projection(displacement: ArrayLike, positions: ArrayLike) -> NDArray[np.float64]:
+    """Component of each displacement, shape (N, 3), along the line of sight
+    of its position, shape (N, 3), Cartesian, finite and away from the origin
+    (for example ``Result.tracers``): r . d / |r|, shape (N,), positive when
+    the displacement points away from the observer. NaN displacements give
+    NaN; infinite ones raise."""
 
 
-@overload
+def axis_projection(displacement: ArrayLike, axis: int) -> NDArray[np.float64]:
+    """Component of each displacement, shape (N, 3), along the Cartesian axis
+    0, 1 or 2, the line of sight of a box; shape (N,)."""
+
+
+class NeighbourAverage(NamedTuple):
+    """What ``neighbour_average`` returns, shape (N,) each."""
+
+    values: NDArray[np.float64]
+    """The average at each object; NaN with no valid object within 3 sigma."""
+
+    n_neighbours: NDArray[np.uint32]
+    """Valid objects averaged, the object itself included when it is valid."""
+
+    n_realizations_averaged: NDArray[np.uint32]
+    """Sum of the valid realizations of those objects."""
+
+
 def neighbour_average(
     positions: ArrayLike,
     values: ArrayLike,
@@ -523,18 +799,7 @@ def neighbour_average(
     *,
     sigma: float,
     weight_by_realizations: bool = False,
-    diagnostics: Literal[False] = False,
-) -> NDArray[np.float64]: ...
-@overload
-def neighbour_average(
-    positions: ArrayLike,
-    values: ArrayLike,
-    valid_realizations: ArrayLike,
-    *,
-    sigma: float,
-    weight_by_realizations: bool = False,
-    diagnostics: Literal[True],
-) -> tuple[NDArray[np.float64], NDArray[np.uint32], NDArray[np.uint32]]:
+) -> NeighbourAverage:
     """Gaussian average of ``values`` over the neighbours of each object.
 
     An object is valid when its entry of ``valid_realizations`` is greater
@@ -555,8 +820,9 @@ def neighbour_average(
     sigma : width of the gaussian, in the unit of the positions; finite and
         non-negative. 10 Mpc/h is a reasonable starting value; the best value
         depends on the sample, and should be checked in each analysis.
-    diagnostics : also return, per object, the number of valid objects
-        averaged and the sum of their valid realizations.
+
+    Returns the averages and, per object, the number of valid objects
+    averaged and the sum of their valid realizations.
 
     The result does not depend on the internal neighbour grid within
     rounding, and is the same bit for bit for the same inputs, whatever the
@@ -570,17 +836,14 @@ def rsd_factor(
     redshift: ArrayLike,
     distances: DistanceTable,
     *,
-    bias_redshift: ArrayLike,
-    bias: ArrayLike,
+    bias: BiasTable,
 ) -> NDArray[np.float64]:
     """The factor f / (b + 3 f / 5) at each redshift, shape (N,).
 
-    f is ``distances.growth_rate_at(z)``. b(z) is interpolated linearly
-    between the nodes (``bias_redshift``, ``bias``): at least two, redshifts
-    strictly increasing, bias finite and positive. Beyond the nodes it is
-    extrapolated linearly from the end segments, and one
-    ``ExtrapolationWarning`` is issued for the call. Raises if the
-    extrapolated bias is not positive, if a redshift lies outside the
+    f is ``distances.growth_rate_at(z)``, b(z) the ``bias`` table at z.
+    Beyond the table's nodes b(z) is extrapolated linearly from the end
+    segments, and one ``ExtrapolationWarning`` is issued for the call. Raises
+    if the extrapolated bias is not positive, if a redshift lies outside the
     distance table, or if the table has no growth rate."""
 
 
@@ -589,68 +852,68 @@ def rsd_factor_box(redshift: float, distances: DistanceTable, *, bias: float) ->
     constant, positive bias."""
 
 
-def shift_along_line_of_sight(
-    positions: ArrayLike,
-    shift: ArrayLike,
-    *,
-    axis: Optional[int] = None,
-) -> NDArray[np.float64]:
+def shift_radially(positions: ArrayLike, shift: ArrayLike) -> NDArray[np.float64]:
     """Move each position, shape (N, 3), by its shift, shape (N,), along its
-    own line of sight, r (1 + shift / |r|), or, with ``axis``, along that
-    Cartesian axis without periodic wrapping. A positive shift moves away from
-    the observer. A NaN shift gives NaN; infinite ones raise."""
+    own line of sight: r (1 + shift / |r|). A positive shift moves away from
+    the observer. A NaN shift gives a NaN row; infinite ones raise."""
+
+
+def shift_along_axis(positions: ArrayLike, shift: ArrayLike, axis: int) -> NDArray[np.float64]:
+    """Move each position, shape (N, 3), by its shift, shape (N,), along the
+    Cartesian axis 0, 1 or 2, without periodic wrapping. A NaN shift gives NaN
+    along the axis; infinite ones raise."""
 
 
 def real_space_lightcone(
     result: Result,
-    tracers_sky: ArrayLike,
     *,
     distances: DistanceTable,
-    bias_redshift: ArrayLike,
-    bias: ArrayLike,
+    bias: BiasTable,
     sigma: float,
-    angle_unit: AngleUnit,
     weight_by_realizations: bool = False,
+    verbosity: Verbosity = "normal",
 ) -> RealSpaceCatalog:
-    """Move a lightcone catalogue from redshift space to real space.
+    """Move a lightcone catalogue, the tracers of ``result``, from redshift
+    space to real space.
 
     For each tracer: the projection of ``result.mean_displacement`` on its line
-    of sight, the gaussian average of width ``sigma`` over the tracers with a
-    valid realization, times f / (b + 3 f / 5) at its observed redshift; the
-    tracer keeps its right ascension and declination and moves to the redshift
-    of comoving distance d(z) + shift. A tracer without a valid realization
-    still moves with the average of its neighbours; only one with no valid
-    tracer within 3 sigma is left uncorrected.
+    of sight, at ``result.tracers``, the gaussian average of width ``sigma``
+    over the tracers with a valid realization, times f / (b + 3 f / 5) at its
+    observed redshift; the tracer keeps its right ascension and declination
+    and moves to the redshift of comoving distance d(z) + shift. A tracer
+    without a valid realization still moves with the average of its
+    neighbours; only one with no valid tracer within 3 sigma is not moved.
 
     Parameters
     ----------
-    result : the reconstruction of these tracers. Only their number is
-        checked: pass the arrays the reconstruction was run on, in the same
-        order.
-    tracers_sky : (N, 3) observed sky coordinates.
+    result : a lightcone result, which carries its tracers; ``sky`` comes back
+        in its ``angle_unit``.
     distances : must carry the growth rate, and cover the corrected
         distances as well as the observed ones.
-    bias_redshift, bias : the b(z) table, as in ``rsd_factor``; warns
+    bias : the b(z) table, as in ``rsd_factor``; warns
         ``ExtrapolationWarning`` once if b(z) is extrapolated.
     sigma : width of the average, in Mpc/h; 0 for none. 10 Mpc/h is a
         reasonable starting value; the best value depends on the sample, and
         should be checked in each analysis.
     weight_by_realizations : weight each neighbour by its number of valid
         realizations as well.
+    verbosity : what the call prints; see ``Verbosity``. ``"normal"`` prints
+        the line of the call; ``"detailed"`` before it how many of the
+        corrected moved with their neighbours' average, having no valid
+        realization, and how many of the uncorrected were left out of the
+        reconstruction or had no valid tracer within 3 sigma.
 
     Tracers outside the reconstruction's redshift cut or mask are not
-    corrected, take no part in any average, and are listed in
-    ``uncorrected``.
+    corrected, take no part in any average, and have status 3.
 
-    Raises if a declination lies outside [-90, 90] degrees ([-pi/2, pi/2]
-    radians), or if a corrected comoving distance is not positive or lies
-    outside the distance table; the message names the tracer.
+    Raises for a box result, or if a corrected comoving distance is not
+    positive or lies outside the distance table; the message names the
+    tracer.
     """
 
 
 def real_space_box(
     result: Result,
-    tracers: ArrayLike,
     *,
     axis: int,
     redshift: float,
@@ -658,11 +921,13 @@ def real_space_box(
     bias: float,
     sigma: float,
     weight_by_realizations: bool = False,
+    verbosity: Verbosity = "normal",
 ) -> RealSpaceCatalog:
-    """Move a box catalogue from redshift space to real space, with the line of
-    sight along ``axis``: the chain of ``real_space_lightcone`` with the
-    projection on the axis, a single factor at ``redshift`` with the constant
-    ``bias``, and the shift along the axis, without periodic wrapping.
+    """Move a box catalogue, the tracers of ``result``, from redshift space to
+    real space, with the line of sight along ``axis``: the chain of
+    ``real_space_lightcone`` with the projection on the axis, a single factor
+    at ``redshift`` with the constant ``bias``, and the shift along the axis,
+    without periodic wrapping. Raises for a lightcone result.
 
     The box is not periodic: nothing flows through its faces, so modes on the
     scale of the box itself cannot be reconstructed.

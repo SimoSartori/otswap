@@ -179,6 +179,7 @@ add_library(otswap STATIC
   src/RSD.cpp
   src/Support.cpp
   src/Table.cpp
+  src/Writers.cpp
   $<TARGET_OBJECTS:otswap_fdlibm>)
 add_library(otswap::otswap ALIAS otswap)
 
@@ -192,6 +193,9 @@ target_include_directories(otswap
     ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 target_compile_features(otswap PUBLIC cxx_std_17)
+
+# The version the writers record in the files they write.
+target_compile_definitions(otswap PRIVATE OTSWAP_VERSION="${PROJECT_VERSION}")
 
 # meshsearch is public: the documented meshsearch::Error can reach callers.
 # OpenMP is private: neither public header needs it, and a consumer of the
@@ -244,7 +248,7 @@ if (OTSWAP_BUILD_TESTS)
   endif()
 
   foreach (test_name test_support test_distance_table test_reconstruct test_table test_mask
-                   test_detmath test_pixel test_rsd)
+                   test_detmath test_pixel test_rsd test_writers)
     add_executable(${test_name} tests/${test_name}.cpp)
     target_include_directories(${test_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(${test_name} PRIVATE otswap CFITSIO::CFITSIO otswap_healpix)

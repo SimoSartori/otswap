@@ -35,23 +35,6 @@ import numpy as np
 import otswap
 
 
-def write_table(path, columns, rows):
-    """Write rows in the ASCII layout of otswap's C++ io::write: a comment
-    line per described column, the column names, then one line per row with
-    9 significant digits, and integer columns as integers. columns is a list
-    of (name, is_integer, description)."""
-    described = [c for c in columns if c[2]]
-    width = max((len(c[0]) for c in described), default=0)
-    with open(path, "w") as f:
-        for name, _, description in described:
-            f.write(f"# {name}{' ' * (width - len(name) + 3)}{description}\n")
-        if described:
-            f.write("#\n")
-        f.write("###" + "".join(f"   {c[0]}" for c in columns) + "\n")
-        for row in rows:
-            f.write(" ".join(str(int(v)) if c[1] else "%.9g" % v for c, v in zip(columns, row)) + "\n")
-
-
 def main():
 
     # -------------------------------------------------------------
@@ -69,28 +52,15 @@ def main():
     # ------------ Read the tracer and random catalogues ------------
     # ---------------------------------------------------------------
 
-    # Arrays of shape (N, 3), x, y, z for each object; coordinates are
-    # comoving, in Mpc/h
-    tracers = np.loadtxt(data / "box_halos_real_space.dat")
-    randoms = np.loadtxt(data / "box_randoms.dat")
+    # otswap.io.read reads the listed columns of a table: for ASCII files
+    # 0-based indices, or the names of the "###" line of a file otswap
+    # wrote; for FITS files the column names. Table.values has shape (N, 3),
+    # x, y, z for each object; coordinates are comoving, in Mpc/h
+    tracers = otswap.io.read(data / "box_halos_real_space.dat", [0, 1, 2]).values
+    randoms = otswap.io.read(data / "box_randoms.dat", [0, 1, 2]).values
 
     print(f"Tracers: {len(tracers)}")
     print(f"Randoms: {len(randoms)}, {len(randoms) / len(tracers):g} per tracer")
-
-    # --------------------------------------------------------------
-    # ------------ Compute the mean particle separation ------------
-    # --------------------------------------------------------------
-
-    # In box geometry the mean particle separation (mps) is a single number
-    # given by the caller: here (V/N)^(1/3), with V the volume of the
-    # tracers' bounding box and N their number. It sets the scale of the
-    # search for swap partners, so it must describe the whole catalogue:
-    # with a strongly varying density use the lightcone geometry, which
-    # measures it as a function of redshift
-    extent = (tracers.max(axis=0) - tracers.min(axis=0)).tolist()
-    mps = (extent[0] * extent[1] * extent[2] / len(tracers)) ** (1.0 / 3.0)
-
-    print(f"Mean particle separation: {mps:g} Mpc/h")
 
     # ------------------------------------------------------------------
     # ------------ Set the parameters of the reconstruction ------------
@@ -107,18 +77,30 @@ def main():
     # default is 1e-3.
     #
     # seed: a fixed seed makes the run reproducible; 0 draws a new seed at
-    # each run. The number of threads follows OMP_NUM_THREADS, and with a
-    # fixed seed the result is the same whatever the number of threads.
+    # each run, and Result.seed records the one drawn. The number of threads
+    # follows OMP_NUM_THREADS, and with a fixed seed the result is the same
+    # whatever the number of threads.
     #
     # cell_size: the grid cell, in units of mps, affects the speed only,
-    # never the result; the default is 4
-    options = dict(n_realizations=8, convergence=1e-2, seed=12345, cell_size=4.0)
+    # never the result; the default is 4.
+    #
+    # verbosity: what the reconstruction prints; "detailed" adds to the line
+    # of the call the mean particle separation and its source
+    options = dict(n_realizations=8, convergence=1e-2, seed=12345, cell_size=4.0,
+                   verbosity="detailed")
 
     # ------------------------------------------------
     # ------------ Run the reconstruction ------------
     # ------------------------------------------------
 
-    result = otswap.reconstruct_box(tracers, randoms, mps=mps, **options)
+    # In box geometry the mean particle separation (mps) is a single number.
+    # Without one, as here, otswap takes (V/N)^(1/3), with V the volume of
+    # the tracers' bounding box and N their number, and records it in
+    # Result.mps; the keyword mps gives it instead. It sets the scale of the
+    # search for swap partners, so it must describe the whole catalogue:
+    # with a strongly varying density use the lightcone geometry, which
+    # measures it as a function of redshift
+    result = otswap.reconstruct_box(tracers, randoms, **options)
 
     # ----------------------------------------------
     # ------------ Summarize the result ------------
@@ -141,14 +123,13 @@ def main():
     # ------------------------------------------
 
     # One row per tracer, in the order of the input: its position, its mean
-    # Lagrangian position (the position plus the mean displacement), and the
-    # mean displacement
-    columns = [("tracX", False, "tracer position, in Mpc/h"), ("tracY", False, ""), ("tracZ", False, ""),
-               ("lagrX", False, "mean Lagrangian position, tracer + mean displacement, in Mpc/h"),
-               ("lagrY", False, ""), ("lagrZ", False, ""),
-               ("displX", False, "mean displacement over the valid realizations, in Mpc/h"),
-               ("displY", False, ""), ("displZ", False, "")]
-    write_table(output / "displacement_box.dat", columns, np.hstack([tracers, tracers + mean, mean]))
+    # Lagrangian position (the position plus the mean displacement), the
+    # mean displacement and the number of valid realizations, with a header
+    # giving the units and the parameters of the run. The writer is the C++
+    # library's, so the file is the C++ example's, byte for byte;
+    # otswap.io.write_displacement_field writes every realization instead,
+    # losslessly
+    otswap.io.write_displacements(output / "displacement_box.dat", result)
 
     print("Written: output/displacement_box.dat")
 

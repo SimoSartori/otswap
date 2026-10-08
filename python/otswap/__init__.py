@@ -10,53 +10,93 @@ converted to float64; the reconstruction works on its own copy of them.
 
 The number of threads follows ``OMP_NUM_THREADS``. The reconstruction
 functions release the GIL while they run.
+
+Tables are read and written by the submodule ``otswap.io``.
 """
 
-from typing import Literal
+from enum import IntEnum
+from typing import Literal, NamedTuple
+
+import numpy as np
+from numpy.typing import NDArray
 
 from ._otswap import (
+    BiasTable,
     DistanceTable,
     Error,
     ExtrapolationWarning,
     Mask,
+    MpsProfile,
     RealSpaceCatalog,
     Result,
     SelectionCounts,
-    line_of_sight_projection,
+    axis_projection,
     neighbour_average,
     real_space_box,
     real_space_lightcone,
+    recompute_means,
     reconstruct_box,
     reconstruct_lightcone,
+    radial_projection,
     reject_mask_crossings,
     rsd_factor,
     rsd_factor_box,
-    shift_along_line_of_sight,
+    shift_along_axis,
+    shift_radially,
     to_cartesian,
     to_sky,
 )
 
+from . import io
+
 AngleUnit = Literal["deg", "rad"]
+Verbosity = Literal["silent", "normal", "detailed"]
+
+
+class CorrectionStatus(IntEnum):
+    """The values of ``RealSpaceCatalog.status``."""
+
+    CORRECTED = 0
+    MOVED_BY_NEIGHBOURS = 1
+    NO_VALID_NEIGHBOUR = 2
+    LEFT_OUT = 3
+
+
+class NeighbourAverage(NamedTuple):
+    """What ``neighbour_average`` returns, shape (N,) each."""
+
+    values: NDArray[np.float64]
+    n_neighbours: NDArray[np.uint32]
+    n_realizations_averaged: NDArray[np.uint32]
+
 
 __all__ = [
     "AngleUnit",
+    "BiasTable",
+    "CorrectionStatus",
     "DistanceTable",
     "Error",
     "ExtrapolationWarning",
     "Mask",
+    "MpsProfile",
     "RealSpaceCatalog",
     "Result",
+    "NeighbourAverage",
     "SelectionCounts",
-    "line_of_sight_projection",
+    "axis_projection",
     "neighbour_average",
+    "radial_projection",
     "real_space_box",
     "real_space_lightcone",
+    "recompute_means",
     "reconstruct_box",
     "reconstruct_lightcone",
     "reject_mask_crossings",
     "rsd_factor",
     "rsd_factor_box",
-    "shift_along_line_of_sight",
+    "shift_along_axis",
+    "shift_radially",
     "to_cartesian",
     "to_sky",
+    "Verbosity",
 ]

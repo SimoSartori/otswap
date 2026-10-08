@@ -28,11 +28,13 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <limits>
 #include <locale>
+#include <memory>
 #include <numeric>
 #include <sstream>
 #include <string>
@@ -44,6 +46,11 @@
 namespace {
 
   constexpr double kPi = 3.14159265358979323846;
+
+  /// pi/180 and 180/pi as doubles: the factors numpy.deg2rad and
+  /// numpy.rad2deg multiply by.
+  constexpr double kDegToRad = kPi / 180.;
+  constexpr double kRadToDeg = 180. / kPi;
 
   // Square degrees on the whole sky, 4*pi*(180/pi)^2.
   const double kFullSkyDeg2 = 4. * kPi * (180. / kPi) * (180. / kPi);
@@ -64,14 +71,12 @@ namespace {
   const double kNaN = std::numeric_limits<double>::quiet_NaN();
 
   /// Sky coordinates and distance of a Cartesian position, the right
-  /// ascension in [0, 2 pi): normalize_ra returns 2 pi itself for a
-  /// negative angle smaller in magnitude than half its rounding step, and
-  /// -0 for -0; both are folded here to +0.
+  /// ascension folded into [0, 2 pi) by fold_ra.
   void sky_of (const double x, const double y, const double z,
                double& ra, double& dec, double& distance)
   {
     otswap::internal::to_sky(x, y, z, ra, dec, distance);
-    if (ra == 0. || ra >= 2. * kPi) ra = 0.;
+    ra = otswap::internal::fold_ra(ra);
   }
 
   void check_cut (const otswap::RedshiftCut& cut)
@@ -124,15 +129,15 @@ namespace {
 
   /// The supply left by the selections, checked with the counts they
   /// dropped, before anything else is computed.
-  void check_kept (const otswap::SelectionCounts& counts,
+  void check_kept (const otswap::SelectionCounts& counts, const otswap::RedshiftCut& redshiftCut,
                    const std::size_t keptTracers, const std::size_t keptRandoms,
                    const unsigned nRealizations)
   {
     const std::size_t nTracers = counts.tracers, nRandoms = counts.randoms;
-    const std::string cut = "the redshift cut [" + std::to_string(counts.redshiftCut.min) + ", " +
-                            std::to_string(counts.redshiftCut.max) + "]";
+    const std::string cut = "the redshift cut [" + std::to_string(redshiftCut.min) + ", " +
+                            std::to_string(redshiftCut.max) + "]";
     const std::string range = !counts.maskApplied ? cut
-                            : counts.redshiftCutApplied ? cut + " and the mask" : "the mask";
+                            : counts.redshiftCut ? cut + " and the mask" : "the mask";
     if (keptTracers < otswap::internal::min_objects())
       throw otswap::Error(range + " keeps " + std::to_string(keptTracers) + " of " +
                           std::to_string(nTracers) + " tracers (" +
@@ -150,7 +155,8 @@ namespace {
 
   /// The result of the kept tracers, expanded to one row per input tracer:
   /// a tracer left out has NaN displacement and matchedRandom rows, no valid
-  /// realization, and its flags set.
+  /// realization, and its flags set. The fields that follow from valid are
+  /// left to summarize.
   otswap::Result expand (const otswap::Result& kept, const Selection& selection,
                          const std::size_t nObjects)
   {
@@ -166,6 +172,7 @@ namespace {
     full.outsideRedshiftCut = selection.outsideCut;
     full.outsideMask = selection.outsideMask;
     full.filteredNside = kept.filteredNside;
+    full.config = kept.config;
 
     for (std::size_t k = 0; k < keep.size(); ++k) {
       const std::size_t i = keep[k];
@@ -180,7 +187,6 @@ namespace {
       }
     }
 
-    otswap::internal::summarize(full);
     return full;
   }
 
@@ -190,7 +196,7 @@ namespace {
 // ============================================================================
 
 
-otswap::internal::MpsProfile
+otswap::MpsProfile
 otswap::internal::mps_profile (const std::vector<double>& tracersSky,
                                const double skyAreaDeg2,
                                const unsigned nBins,
@@ -227,7 +233,9 @@ otswap::internal::mps_profile (const std::vector<double>& tracersSky,
   MpsProfile profile;
   profile.redshift.resize(nBins);
   profile.mps.resize(nBins);
-  profile.count.assign(nBins, 0u);
+  profile.count.assign(nBins, 0);
+  profile.redshiftMin = zMin;
+  profile.redshiftMax = zMax;
 
   for (std::size_t i = 0; i < nObjects; ++i) {
     int bin = (int)((tracersSky[3*i+2] - zMin) / step);
@@ -268,6 +276,7 @@ otswap::internal::mps_profile (const std::vector<double>& tracersSky,
     profile.mps[i] = det_pow((double)profile.count[i] / volume, -1./3.);
   }
 
+  profile.representative = representative(profile);
   return profile;
 }
 
@@ -275,14 +284,19 @@ otswap::internal::mps_profile (const std::vector<double>& tracersSky,
 // ============================================================================
 
 
-double otswap::internal::mps_at (const MpsProfile& profile, const double z)
+double otswap::MpsProfile::at (const double z) const
 {
-  const double value = profile_at(profile.redshift, profile.mps, z);
+  if (redshift.empty() || redshift.size() != mps.size())
+    throw Error("the mean particle separation profile is empty or malformed: it holds " +
+                std::to_string(redshift.size()) + " redshifts and " + std::to_string(mps.size()) +
+                " values");
+
+  const double value = internal::profile_at(redshift, mps, z);
 
   if (!(value > 0.))
     throw Error("the mean particle separation profile, extrapolated linearly from its "
-                "terminal nodes at z = " + std::to_string(profile.redshift.front()) + " and z = " +
-                std::to_string(profile.redshift.back()) + ", gives " + std::to_string(value) +
+                "terminal nodes at z = " + std::to_string(redshift.front()) + " and z = " +
+                std::to_string(redshift.back()) + ", gives " + std::to_string(value) +
                 " at z = " + std::to_string(z) + "; it must be positive. Use fewer redshift "
                 "bins, so that the terminal bins are less noisy");
 
@@ -302,7 +316,7 @@ double otswap::internal::representative (const MpsProfile& profile)
             { return profile.mps[a] < profile.mps[b]; });
 
   std::size_t total = 0;
-  for (const unsigned c : profile.count) total += c;
+  for (const std::size_t c : profile.count) total += c;
 
   const double half = 0.5 * (double)total;
   std::size_t running = 0;
@@ -383,6 +397,69 @@ std::vector<double> otswap::toSky (const std::vector<double>& cartesian,
 // ============================================================================
 
 
+void otswap::internal::sky_of_positions (const std::vector<double>& cartesian,
+                                         const DistanceTable& distances,
+                                         std::vector<double>& sky)
+{
+  sky.resize(cartesian.size());
+  std::fill(sky.begin(), sky.end(), kNaN);
+
+  for (std::size_t i = 0; 3*i < cartesian.size(); ++i) {
+    const double* p = &cartesian[3*i];
+    if (std::isnan(p[0]) || std::isnan(p[1]) || std::isnan(p[2])) continue;
+    double distance = 0.;
+    sky_of(p[0], p[1], p[2], sky[3*i], sky[3*i+1], distance);
+    try {
+      sky[3*i+2] = distances.redshiftAt(distance);
+    }
+    catch (const Error&) {}
+  }
+}
+
+
+// ============================================================================
+
+
+std::vector<double> otswap::skyToRadians (std::vector<double> skyDegrees)
+{
+  if (skyDegrees.size() % 3 != 0)
+    throw Error("the sky array holds " + std::to_string(skyDegrees.size()) +
+                " entries, which is not a multiple of three");
+
+  for (std::size_t i = 0; i < skyDegrees.size(); i += 3)
+    if (std::isfinite(skyDegrees[i+1]) && std::fabs(skyDegrees[i+1]) > 90.)
+      throw Error("the sky array holds a declination of " + std::to_string(skyDegrees[i+1]) +
+                  " degrees at object " + std::to_string(i / 3) + ", outside [-90, 90]");
+
+  for (std::size_t i = 0; i < skyDegrees.size(); i += 3) {
+    skyDegrees[i]   *= kDegToRad;
+    skyDegrees[i+1] *= kDegToRad;
+  }
+  return skyDegrees;
+}
+
+
+// ============================================================================
+
+
+std::vector<double> otswap::skyToDegrees (std::vector<double> skyRadians)
+{
+  if (skyRadians.size() % 3 != 0)
+    throw Error("the sky array holds " + std::to_string(skyRadians.size()) +
+                " entries, which is not a multiple of three");
+
+  for (std::size_t i = 0; i < skyRadians.size(); i += 3) {
+    skyRadians[i]   *= kRadToDeg;
+    skyRadians[i+1] *= kRadToDeg;
+    if (skyRadians[i] >= 360.) skyRadians[i] = 0.;
+  }
+  return skyRadians;
+}
+
+
+// ============================================================================
+
+
 namespace {
 
   /// Every lightcone overload: the Cartesian arrays are null for the sky
@@ -404,6 +481,7 @@ namespace {
   {
     using namespace otswap;
 
+    const auto start = std::chrono::steady_clock::now();
     const unsigned seed = internal::check_config(config);
 
     std::size_t nObjects = 0, nRandoms = 0;
@@ -431,8 +509,7 @@ namespace {
     const Selection randomSelection = select(randomsSky, cut, mask);
 
     SelectionCounts counts;
-    counts.redshiftCutApplied = std::isfinite(cut.min) || std::isfinite(cut.max);
-    counts.redshiftCut = cut;
+    if (std::isfinite(cut.min) || std::isfinite(cut.max)) counts.redshiftCut = cut;
     counts.maskApplied = mask != nullptr;
     counts.tracers = nObjects;
     counts.tracersOutsideRedshiftCut = tracerSelection.nOutsideCut;
@@ -448,7 +525,7 @@ namespace {
     const bool dropTracers = keepTracers.size() != nObjects;
     const bool dropRandoms = keepRandoms.size() != nRandoms;
     if (dropTracers || dropRandoms)
-      check_kept(counts, keepTracers.size(), keepRandoms.size(), config.nRealizations);
+      check_kept(counts, cut, keepTracers.size(), keepRandoms.size(), config.nRealizations);
 
     const std::vector<double> keptTracersSky = dropTracers ? rows(tracersSky, keepTracers) : std::vector<double>();
     const std::vector<double>& ts = dropTracers ? keptTracersSky : tracersSky;
@@ -456,7 +533,7 @@ namespace {
 
     internal::check_random_supply(keepRandoms.size(), nKept, config.nRealizations);
 
-    const internal::MpsProfile profile = internal::mps_profile(ts, skyAreaDeg2, nBins, distances);
+    MpsProfile profile = internal::mps_profile(ts, skyAreaDeg2, nBins, distances);
 
     std::vector<double> convertedTracers, convertedRandoms, keptTracers, keptRandoms;
     if (tracers == nullptr) {
@@ -475,41 +552,56 @@ namespace {
 
     std::vector<double> mps(nKept);
     for (std::size_t i = 0; i < nKept; ++i)
-      mps[i] = internal::mps_at(profile, ts[3*i+2]);
+      mps[i] = profile.at(ts[3*i+2]);
 
-    Result result = internal::reconstruct(t, r, mps, internal::representative(profile), config, seed);
+    Result result = internal::reconstruct(t, r, mps, profile.representative, config, seed);
     if (dropTracers) result = expand(result, tracerSelection, nObjects);
 
-    if (mask != nullptr && config.rejectCrossings) {
-      const auto valid = [&result] {
-        return (std::size_t)std::count(result.valid.begin(), result.valid.end(), 1);
-      };
-      counts.crossingsRejected = true;
-      counts.maxUnobservedPixelsCrossed = config.maxUnobservedPixelsCrossed;
-      counts.displacements = valid();
-      rejectMaskCrossings(result, *mask, config.maxUnobservedPixelsCrossed);
-      counts.displacementsCrossingMask = counts.displacements - valid();
-    }
-
-    result.lagrangianSky.assign(3 * nObjects, kNaN);
-    for (std::size_t k = 0; k < nKept; ++k) {
-      const std::size_t i = dropTracers ? keepTracers[k] : k;
-      if (result.validRealizations[i] == 0) continue;
-      double* sky = &result.lagrangianSky[3*i];
-      double distance = 0.;
-      sky_of(t[3*k] + result.meanDisplacement[3*i], t[3*k+1] + result.meanDisplacement[3*i+1],
-             t[3*k+2] + result.meanDisplacement[3*i+2], sky[0], sky[1], distance);
-      try {
-        sky[2] = distances.redshiftAt(distance);
+    if (tracers != nullptr) result.tracers = *tracers;
+    else if (!dropTracers) result.tracers = std::move(convertedTracers);
+    else {
+      result.tracers.assign(3 * nObjects, kNaN);
+      std::size_t next = 0;
+      for (std::size_t i = 0; i < nObjects; ++i) {
+        double* row = &result.tracers[3*i];
+        if (next < nKept && keepTracers[next] == i) {
+          for (std::size_t c = 0; c < 3; ++c) row[c] = convertedTracers[3*next+c];
+          ++next;
+          continue;
+        }
+        try {
+          const double distance = distances.distanceAt(tracersSky[3*i+2]);
+          internal::to_cartesian(tracersSky[3*i], tracersSky[3*i+1], distance, row[0], row[1], row[2]);
+        }
+        catch (const Error&) {}
       }
-      catch (const Error&) {}
     }
-
+    result.tracersSky = tracersSky;
+    result.geometry = Geometry::Lightcone;
+    result.mpsProfile = std::move(profile);
+    result.distances = std::make_shared<const DistanceTable>(distances);
     result.selection = counts;
+    internal::summarize(result);
 
-    if (config.verbose) {
-      const std::string message = counts.message();
-      if (!message.empty()) std::clog << message << std::flush;
+    if (mask != nullptr && config.rejectCrossings)
+      rejectMaskCrossings(result, *mask, config.maxUnobservedPixelsCrossed);
+
+    result.elapsedSeconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+
+    if (config.log != nullptr && config.verbosity != Verbosity::Silent) {
+      std::ostringstream out;
+      out.imbue(std::locale::classic());
+      out << result.selection.message();
+      if (config.verbosity == Verbosity::Detailed) {
+        const MpsProfile& p = result.mpsProfile;
+        const auto range = std::minmax_element(p.mps.begin(), p.mps.end());
+        out << "otswap: mps(z) from " << *range.first << " to " << *range.second << " Mpc/h in "
+            << p.mps.size() << (p.mps.size() == 1 ? " bin" : " bins") << " over ["
+            << p.redshiftMin << ", " << p.redshiftMax << "]\n";
+      }
+      out << internal::reconstruction_line("reconstructLightcone", result);
+      *config.log << out.str() << std::flush;
     }
 
     return result;
@@ -530,23 +622,23 @@ std::string otswap::SelectionCounts::message () const
                    const std::size_t outsideMask, const std::size_t outsideBoth) {
     out << "otswap: kept " << given - (outsideCut + outsideMask - outsideBoth) << " of " << given
         << " " << what << ": ";
-    if (redshiftCutApplied)
-      out << outsideCut << " outside the redshift cut [" << redshiftCut.min << ", "
-          << redshiftCut.max << "]";
-    if (redshiftCutApplied && maskApplied) out << ", ";
+    if (redshiftCut)
+      out << outsideCut << " outside the redshift cut [" << redshiftCut->min << ", "
+          << redshiftCut->max << "]";
+    if (redshiftCut && maskApplied) out << ", ";
     if (maskApplied) out << outsideMask << " outside the mask";
-    if (redshiftCutApplied && maskApplied) out << " (" << outsideBoth << " outside both)";
+    if (redshiftCut && maskApplied) out << " (" << outsideBoth << " outside both)";
     out << '\n';
   };
 
-  if (redshiftCutApplied || maskApplied) {
+  if (redshiftCut || maskApplied) {
     line("tracers", tracers, tracersOutsideRedshiftCut, tracersOutsideMask, tracersOutsideBoth);
     line("randoms", randoms, randomsOutsideRedshiftCut, randomsOutsideMask, randomsOutsideBoth);
   }
 
-  if (crossingsRejected)
+  if (maxUnobservedPixelsCrossed)
     out << "otswap: rejected " << displacementsCrossingMask << " of " << displacements
-        << " displacements crossing more than " << maxUnobservedPixelsCrossed
+        << " displacements crossing more than " << *maxUnobservedPixelsCrossed
         << " unobserved pixels\n";
 
   return out.str();

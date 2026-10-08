@@ -155,14 +155,21 @@ def compute():
     randoms = box_points(4 * 600, 100.0, 22)
     mps = 11.85                         # (100^3 / 600)^(1/3), written out: no libm
     for label, given in (("generated", None), ("given", randoms)):
-        box = otswap.reconstruct_box(tracers, given, mps=mps, n_realizations=3, seed=12345)
+        box = otswap.reconstruct_box(tracers, given, mps=mps, n_realizations=3, seed=12345,
+                                     verbosity="silent")
         out[f"reconstruct_box.{label}.displacement"] = digest(box.displacement)
         out[f"reconstruct_box.{label}.mean_displacement"] = digest(box.mean_displacement)
+
+    # The mps of the tracers' bounding box, computed by the library.
+    computed = otswap.reconstruct_box(tracers, randoms, n_realizations=3, seed=12345,
+                                      verbosity="silent")
+    out["reconstruct_box.computed_mps.mps"] = digest([computed.mps])
+    out["reconstruct_box.computed_mps.displacement"] = digest(computed.displacement)
 
     def lightcone():
         return otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0,
                                             n_bins=2, distances=lc_table, angle_unit="deg",
-                                            n_realizations=3, seed=6789)
+                                            n_realizations=3, seed=6789, verbosity="silent")
 
     r = lightcone()
     out["reconstruct_lightcone.displacement"] = digest(r.displacement)
@@ -188,7 +195,9 @@ def compute():
         out["mask.from_array.allows"] = allows
 
         otswap.reject_mask_crossings(r, mask, 0)
-        assert r.lagrangian_sky is None, "a filter that rejects must empty lagrangian_sky"
+        assert np.array_equal(r.lagrangian_sky, otswap.to_sky(r.lagrangian, lc_table, angle_unit="deg"),
+                              equal_nan=True), "a filter must recompute lagrangian_sky"
+        out["reject_mask_crossings.0.lagrangian_sky"] = digest(r.lagrangian_sky)
         out["reject_mask_crossings.0.valid"] = digest(r.valid)
         out["reject_mask_crossings.0.mean_displacement"] = digest(r.mean_displacement)
 
@@ -202,6 +211,14 @@ def compute():
         out["reject_mask_crossings.2.valid"] = digest(r2.valid)
         out["reject_mask_crossings.2.mean_displacement"] = digest(r2.mean_displacement)
 
+        # A result rebuilt from its arrays has the reconstruction's means.
+        rebuilt = otswap.Result.from_arrays(r2.displacement, r2.matched_random, r2.valid, r2.tracers,
+                                            tracers_sky=tracers_sky, angle_unit="deg",
+                                            distances=lc_table)
+        assert digest(rebuilt.mean_displacement) == out["reject_mask_crossings.2.mean_displacement"] \
+            and digest(rebuilt.lagrangian_sky) == digest(r2.lagrangian_sky), \
+            "from_arrays must give the reconstruction's means"
+
         # The mask given to the reconstruction: tracers and randoms on
         # unobserved pixels left out before it, crossings rejected after it;
         # alone, and with a redshift cut.
@@ -209,7 +226,7 @@ def compute():
             masked = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, n_bins=2,
                                                   distances=lc_table, angle_unit="deg",
                                                   n_realizations=3, seed=6789, redshift_cut=cut,
-                                                  verbose=False)
+                                                  verbosity="silent")
             out[f"reconstruct_lightcone.{label}.displacement"] = digest(masked.displacement)
             out[f"reconstruct_lightcone.{label}.valid"] = digest(masked.valid)
             out[f"reconstruct_lightcone.{label}.outside_mask"] = digest(masked.outside_mask)
@@ -224,51 +241,54 @@ def compute():
         warnings.simplefilter("ignore", otswap.ExtrapolationWarning)
 
         positions = otswap.to_cartesian(tracers_sky, lc_table, angle_unit="deg")
-        radial = otswap.line_of_sight_projection(r.mean_displacement, positions=positions)
-        along = otswap.line_of_sight_projection(box.mean_displacement, axis=2)
+        radial = otswap.radial_projection(r.mean_displacement, positions)
+        along = otswap.axis_projection(box.mean_displacement, 2)
         out["rsd.projection.radial"] = digest(radial)
         out["rsd.projection.axis"] = digest(along)
 
         average, n_neighbours, n_realizations = otswap.neighbour_average(
-            positions, radial, r.valid_realizations, sigma=10.0, diagnostics=True)
+            positions, radial, r.valid_realizations, sigma=10.0)
         out["rsd.neighbour_average"] = digest(average)
         out["rsd.neighbour_average.n_neighbours"] = digest(n_neighbours)
         out["rsd.neighbour_average.n_realizations"] = digest(n_realizations)
         out["rsd.neighbour_average.weighted"] = digest(otswap.neighbour_average(
-            positions, radial, r.valid_realizations, sigma=10.0, weight_by_realizations=True))
+            positions, radial, r.valid_realizations, sigma=10.0, weight_by_realizations=True).values)
 
-        factor = otswap.rsd_factor(tracers_sky[:, 2], lc_table, bias_redshift=bias_z, bias=bias)
+        bias_table = otswap.BiasTable(bias_z, bias)
+        factor = otswap.rsd_factor(tracers_sky[:, 2], lc_table, bias=bias_table)
         out["rsd.factor"] = digest(factor)
         out["rsd.factor_box"] = digest([otswap.rsd_factor_box(0.5, lc_table, bias=1.5)])
 
-        out["rsd.shift.radial"] = digest(otswap.shift_along_line_of_sight(positions, factor * average))
-        out["rsd.shift.axis"] = digest(otswap.shift_along_line_of_sight(tracers, 0.4 * along, axis=2))
+        out["rsd.shift.radial"] = digest(otswap.shift_radially(positions, factor * average))
+        out["rsd.shift.axis"] = digest(otswap.shift_along_axis(tracers, 0.4 * along, 2))
 
         for sigma, weighted in ((0.0, False), (10.0, False), (10.0, True)):
-            c = otswap.real_space_lightcone(r, tracers_sky, distances=lc_table, bias_redshift=bias_z,
-                                            bias=bias, sigma=sigma, angle_unit="deg",
-                                            weight_by_realizations=weighted)
+            c = otswap.real_space_lightcone(r, distances=lc_table, bias=bias_table, sigma=sigma,
+                                            weight_by_realizations=weighted, verbosity="silent")
             key = f"rsd.real_space_lightcone.{sigma:g}.{'weighted' if weighted else 'plain'}"
-            out[key + ".positions"] = digest(c.positions)
+            out[key + ".positions"] = digest(c.sky)
             out[key + ".n_neighbours"] = digest(c.n_neighbours)
-            out[key + ".uncorrected"] = digest(c.uncorrected)
+            out[key + ".uncorrected"] = digest(np.flatnonzero(c.status >= 2))
+            out[key + ".cartesian"] = digest(c.cartesian)
+            out[key + ".status"] = digest(c.status)
 
         cut = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0,
                                            n_bins=2, distances=lc_table, angle_unit="deg",
                                            n_realizations=3, seed=6789, redshift_cut=(0.35, 0.55),
-                                           verbose=False)
+                                           verbosity="silent")
         out["reconstruct_lightcone.cut.displacement"] = digest(cut.displacement)
         out["reconstruct_lightcone.cut.outside_redshift_cut"] = digest(cut.outside_redshift_cut)
         out["reconstruct_lightcone.cut.lagrangian_sky"] = digest(cut.lagrangian_sky)
-        c = otswap.real_space_lightcone(cut, tracers_sky, distances=lc_table, bias_redshift=bias_z,
-                                        bias=bias, sigma=10.0, angle_unit="deg")
-        out["rsd.real_space_lightcone.cut.positions"] = digest(c.positions)
+        c = otswap.real_space_lightcone(cut, distances=lc_table, bias=bias_table, sigma=10.0,
+                                        verbosity="silent")
+        out["rsd.real_space_lightcone.cut.positions"] = digest(c.sky)
 
         for sigma, weighted in ((0.0, False), (8.0, False), (8.0, True)):
-            c = otswap.real_space_box(box, tracers, axis=2, redshift=0.5, distances=lc_table,
-                                      bias=1.5, sigma=sigma, weight_by_realizations=weighted)
+            c = otswap.real_space_box(box, axis=2, redshift=0.5, distances=lc_table, bias=1.5,
+                                      sigma=sigma, weight_by_realizations=weighted,
+                                      verbosity="silent")
             key = f"rsd.real_space_box.{sigma:g}.{'weighted' if weighted else 'plain'}"
-            out[key + ".positions"] = digest(c.positions)
+            out[key + ".positions"] = digest(c.cartesian)
             out[key + ".n_neighbours"] = digest(c.n_neighbours)
 
     return out

@@ -28,7 +28,6 @@
 
 #include <cmath>
 #include <filesystem>
-#include <initializer_list>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -59,24 +58,18 @@ int main (int argc, char** argv)
     // ------------ Read the tracer and random catalogues ------------
     // ---------------------------------------------------------------
 
-    // io::read reads the listed columns of a table: 0-based indices for
-    // ASCII files, column names for FITS files (.fits, .fit, .fits.gz).
+    // io::read reads the listed columns of a table: for ASCII files
+    // 0-based indices, or the names of the "###" line of a file otswap
+    // wrote; for FITS files (.fits, .fit, .fits.gz) the column names.
     // Table::values holds the rows one after the other: right ascension,
     // declination and redshift for each object, the flat layout every
     // otswap function takes. The catalogues give the angles in degrees,
-    // and otswap takes radians: the factor below is pi/180 as a double,
-    // the one numpy.deg2rad and otswap's Python interface multiply by. The
-    // degrees as read are kept for the output
-    const std::vector<double> tracersDeg = otswap::io::read(data + "/lightcone_tracers.dat", {"0", "1", "2"}).values;
-    const std::vector<double> randomsDeg = otswap::io::read(data + "/lightcone_randoms.dat", {"0", "1", "2"}).values;
-
-    const double degToRad = 3.14159265358979323846 / 180.;
-    std::vector<double> tracersSky = tracersDeg, randomsSky = randomsDeg;
-    for (std::vector<double>* sky : {&tracersSky, &randomsSky})
-      for (std::size_t i = 0; i < sky->size(); i += 3) {
-        (*sky)[i]   *= degToRad;
-        (*sky)[i+1] *= degToRad;
-      }
+    // and otswap takes radians: skyToRadians converts them with the factor
+    // numpy.deg2rad and otswap's Python interface use
+    const std::vector<double> tracersSky =
+      otswap::skyToRadians(otswap::io::read(data + "/lightcone_tracers.dat", {"0", "1", "2"}).values);
+    const std::vector<double> randomsSky =
+      otswap::skyToRadians(otswap::io::read(data + "/lightcone_randoms.dat", {"0", "1", "2"}).values);
 
     const std::size_t nTracers = tracersSky.size() / 3;
     const std::size_t nRandoms = randomsSky.size() / 3;
@@ -127,8 +120,9 @@ int main (int argc, char** argv)
     config.convergence = 1.e-2;
 
     // A fixed seed makes the run reproducible; 0 draws a new seed at each
-    // run. The number of threads follows OMP_NUM_THREADS, and with a fixed
-    // seed the result is the same whatever the number of threads
+    // run, and Result::config.seed records the one drawn. The number of
+    // threads follows OMP_NUM_THREADS, and with a fixed seed the result is
+    // the same whatever the number of threads
     config.seed = 12345;
 
     // The grid cell, in units of the mean particle separation, affects the
@@ -143,11 +137,15 @@ int main (int argc, char** argv)
     config.rejectCrossings = true;
     config.maxUnobservedPixelsCrossed = 0;
 
-    // With verbose, the default, the reconstruction writes to std::clog
-    // how many tracers and randoms the redshift cut and the mask left out,
-    // and how many displacements the crossing filter rejected. false
-    // silences it; the counts stay in Result::selection either way
-    config.verbose = true;
+    // What the reconstruction reports: with Normal, the default, how many
+    // tracers and randoms the redshift cut and the mask left out, how many
+    // displacements the crossing filter rejected, and then the time of the
+    // call and the tracers left without a valid displacement. Detailed adds
+    // the mps(z) profile, Silent prints nothing; the counts stay in
+    // Result::selection either way. The report goes to std::clog by
+    // default; here to std::cout, in order with this program's own lines
+    config.verbosity = otswap::Verbosity::Normal;
+    config.log = &std::cout;
 
     // The mean particle separation is measured in nBins redshift bins of
     // equal width. Each bin needs at least 278 tracers: if one is refused,
@@ -166,7 +164,9 @@ int main (int argc, char** argv)
 
     // Tracers left out by the cut or the mask keep their row in the
     // result, flagged in outsideRedshiftCut or outsideMask, with NaN
-    // displacements
+    // displacements. The result also holds the tracers' Cartesian
+    // positions (tracers), their mean Lagrangian positions (lagrangian, and
+    // lagrangianSky on the sky) and the measured mps(z) (mpsProfile)
     const otswap::Result result = otswap::reconstructLightcone(tracersSky, randomsSky, mask, nBins,
                                                                distances, config, cut);
 
@@ -208,56 +208,15 @@ int main (int argc, char** argv)
     // ------------ Write the output ------------
     // ------------------------------------------
 
-    // toCartesian is the conversion the reconstruction applies, so these
-    // are the positions the displacements start from
-    const std::vector<double> tracers = otswap::toCartesian(tracersSky, distances);
-
-    // Result::lagrangianSky holds the sky coordinates of each tracer's
-    // mean Lagrangian position, in radians; they are written in degrees,
-    // with a right ascension that rounds up to 360 taken back to 0
-    const double radToDeg = 180. / 3.14159265358979323846;
-    auto degrees = [&] (const double angle, const bool rightAscension) {
-      const double d = angle * radToDeg;
-      return (rightAscension && d >= 360.) ? 0. : d;
-    };
-
-    // One row per tracer, in the order of the input. A tracer left out, or
-    // without a valid realization, has NaN Lagrangian coordinates and
-    // displacement
-    const std::vector<otswap::io::Column> columns = {
-      {"tracRA", 'D', "tracer right ascension and declination, in degrees", {}},
-      {"tracDec", 'D', "", {}},
-      {"tracRed", 'D', "tracer redshift", {}},
-      {"lagrRA", 'D', "mean Lagrangian position on the sky, in degrees, and its redshift", {}},
-      {"lagrDec", 'D', "", {}},
-      {"lagrRed", 'D', "", {}},
-      {"tracX", 'D', "tracer position, in Mpc/h", {}},
-      {"tracY", 'D', "", {}},
-      {"tracZ", 'D', "", {}},
-      {"lagrX", 'D', "mean Lagrangian position, tracer + mean displacement, in Mpc/h", {}},
-      {"lagrY", 'D', "", {}},
-      {"lagrZ", 'D', "", {}},
-      {"displX", 'D', "mean displacement over the valid realizations, in Mpc/h", {}},
-      {"displY", 'D', "", {}},
-      {"displZ", 'D', "", {}},
-      {"nValidRec", 'J', "number of valid realizations of the tracer", {}},
-      {"outsideRedshiftCut", 'J', "1 if the tracer was left out by the redshift cut", {}},
-      {"outsideMask", 'J', "1 if the tracer was left out by the mask", {}}};
-
-    otswap::io::write(output + "/displacement_lightcone.dat", columns, nTracers,
-                      [&] (const std::size_t i, std::vector<double>& row) {
-                        for (int c = 0; c < 3; ++c) {
-                          row[c]    = tracersDeg[3*i+c];
-                          row[c+3]  = c < 2 ? degrees(result.lagrangianSky[3*i+c], c == 0)
-                                            : result.lagrangianSky[3*i+c];
-                          row[c+6]  = tracers[3*i+c];
-                          row[c+9]  = tracers[3*i+c] + result.meanDisplacement[3*i+c];
-                          row[c+12] = result.meanDisplacement[3*i+c];
-                        }
-                        row[15] = result.validRealizations[i];
-                        row[16] = result.outsideRedshiftCut[i];
-                        row[17] = result.outsideMask[i];
-                      });
+    // One row per tracer, in the order of the input: its sky coordinates
+    // and those of its mean Lagrangian position, in degrees, its Cartesian
+    // position, its mean Lagrangian position and its mean displacement, in
+    // Mpc/h, its number of valid realizations and the two selection flags,
+    // with a header giving the units and the parameters of the run. A
+    // tracer left out, or without a valid realization, has NaN Lagrangian
+    // coordinates and displacement. io::writeDisplacementField writes every
+    // realization instead, losslessly, and io::writeMpsProfile the mps(z)
+    otswap::io::writeDisplacements(output + "/displacement_lightcone.dat", result);
 
     std::cout << "Written: output/displacement_lightcone.dat" << std::endl;
 

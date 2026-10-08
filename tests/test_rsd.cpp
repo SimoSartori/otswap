@@ -33,7 +33,9 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <iomanip>
 #include <limits>
+#include <memory>
 #include <random>
 #include <sstream>
 #include <string>
@@ -113,15 +115,38 @@ namespace {
   }
 
   // A Result for N tracers holding only what the correction reads: the
-  // mean displacements and the valid realizations.
-  Result result_with (const std::vector<double>& mean, const std::vector<unsigned>& valid)
+  // geometry, the tracers, the mean displacements and the valid
+  // realizations.
+  Result box_with (const std::vector<double>& mean, const std::vector<unsigned>& valid,
+                   const std::vector<double>& tracers)
   {
     Result r;
     r.nObjects = valid.size();
     r.nRealizations = 1;
     r.meanDisplacement = mean;
     r.validRealizations = valid;
+    r.tracers = tracers;
     return r;
+  }
+
+  // The same for a lightcone, the tracers at sky converted with table.
+  Result lightcone_with (const std::vector<double>& mean, const std::vector<unsigned>& valid,
+                         const std::vector<double>& sky, const DistanceTable& table)
+  {
+    Result r = box_with(mean, valid, toCartesian(sky, table));
+    r.geometry = Geometry::Lightcone;
+    r.tracersSky = sky;
+    return r;
+  }
+
+  // The tracers a correction left uncorrected, in increasing order.
+  std::vector<std::size_t> uncorrected_of (const RealSpaceCatalog& c)
+  {
+    std::vector<std::size_t> out;
+    for (std::size_t i = 0; i < c.nObjects; ++i)
+      if (c.status[i] == CorrectionStatus::NoValidNeighbour || c.status[i] == CorrectionStatus::LeftOut)
+        out.push_back(i);
+    return out;
   }
 
   // Comoving distance 3000 z Mpc/h on [0, zMax], constant growth rate f.
@@ -242,18 +267,18 @@ int main ()
   {
     const std::vector<double> p {3., 4., 0., 0., 0., -2.};
     const std::vector<double> d {1., 2., 3., kNaN, 0., 0.};
-    const std::vector<double> radial = lineOfSightProjection(p, d);
+    const std::vector<double> radial = radialProjection(d, p);
     check(radial.size() == 2 && radial[0] == (3.*1. + 4.*2. + 0.*3.) / 5., "r.d/|r| for a position");
     check(std::isnan(radial[1]), "NaN for a NaN displacement");
 
-    const std::vector<double> axis = lineOfSightProjection(d, 2);
+    const std::vector<double> axis = axisProjection(d, 2);
     check(axis[0] == 3. && axis[1] == 0., "the axis component, copied");
 
-    check_throws([&] { lineOfSightProjection({0., 0., 0.}, {1., 1., 1.}); }, "a position at the origin raises");
-    check_throws([&] { lineOfSightProjection(p, {1., 2., 3.}); }, "a size mismatch raises");
-    check_throws([&] { lineOfSightProjection(p, {1., 2., kInf, 0., 0., 0.}); }, "an infinite displacement raises");
-    check_throws([&] { lineOfSightProjection(d, 3); }, "an axis beyond 2 raises");
-    check(throws_naming([&] { lineOfSightProjection({1., 0., 0., 0., 0., 0.}, {0., 0., 0., 0., 0., 0.}); }, "object 1"),
+    check_throws([&] { radialProjection({1., 1., 1.}, {0., 0., 0.}); }, "a position at the origin raises");
+    check_throws([&] { radialProjection({1., 2., 3.}, p); }, "a size mismatch raises");
+    check_throws([&] { radialProjection({1., 2., kInf, 0., 0., 0.}, p); }, "an infinite displacement raises");
+    check_throws([&] { axisProjection(d, 3); }, "an axis beyond 2 raises");
+    check(throws_naming([&] { radialProjection({0., 0., 0., 0., 0., 0.}, {1., 0., 0., 0., 0., 0.}); }, "object 1"),
           "the message names the object at the origin");
   }
 
@@ -269,8 +294,11 @@ int main ()
   group("average: equal to the sum over every pair, weighted or not, with the same diagnostics");
   {
     for (const bool weighted : {false, true}) {
-      std::vector<unsigned> nn, nr, dn, dr;
-      const std::vector<double> got = neighbourAverage(points, values, valid, 6., weighted, nn, nr);
+      std::vector<unsigned> dn, dr;
+      const NeighbourAverage average = neighbourAverage(points, values, valid, 6., weighted);
+      const std::vector<double>& got = average.values;
+      const std::vector<unsigned>& nn = average.nNeighbours;
+      const std::vector<unsigned>& nr = average.nRealizationsAveraged;
       const std::vector<double> expected = direct_average(points, values, valid, 6., weighted, dn, dr);
       std::size_t bad = 0, nans = 0;
       for (std::size_t i = 0; i < n; ++i) {
@@ -288,8 +316,10 @@ int main ()
   {
     std::vector<double> anything = values;
     anything[0] = 123.;          // an invalid object's value is returned as given
-    std::vector<unsigned> nn, nr;
-    const std::vector<double> got = neighbourAverage(points, anything, valid, 0., false, nn, nr);
+    const NeighbourAverage average = neighbourAverage(points, anything, valid, 0., false);
+    const std::vector<double>& got = average.values;
+    const std::vector<unsigned>& nn = average.nNeighbours;
+    const std::vector<unsigned>& nr = average.nRealizationsAveraged;
     check(same_bits(got, anything), "the values come back bit for bit");
     bool diagnostics = true;
     for (std::size_t i = 0; i < n; ++i)
@@ -304,8 +334,11 @@ int main ()
     const std::vector<double> p {0., 0., 0.,  1., 0., 0.3,  0., 1., -0.2,  0.5, 0.5, 0.1,  100., 0., 5.};
     const std::vector<double> v {1., 2., 3., kNaN, kNaN};
     const std::vector<unsigned> r {1, 1, 1, 0, 0};
-    std::vector<unsigned> nn, nr, dn, dr;
-    const std::vector<double> got = neighbourAverage(p, v, r, 2., false, nn, nr);
+    std::vector<unsigned> dn, dr;
+    const NeighbourAverage average = neighbourAverage(p, v, r, 2., false);
+    const std::vector<double>& got = average.values;
+    const std::vector<unsigned>& nn = average.nNeighbours;
+    const std::vector<unsigned>& nr = average.nRealizationsAveraged;
     const std::vector<double> expected = direct_average(p, v, r, 2., false, dn, dr);
     check(close(got[3], expected[3], 1.e-14) && nn[3] == 3, "the invalid object amid valid ones is averaged");
     check(std::isnan(got[4]) && nn[4] == 0 && nr[4] == 0, "the isolated one receives NaN");
@@ -316,7 +349,7 @@ int main ()
   {
     const std::vector<double> constant(n, 0.7);
     std::vector<unsigned> all(n, 2);
-    const std::vector<double> got = neighbourAverage(points, constant, all, 8., true);
+    const std::vector<double> got = neighbourAverage(points, constant, all, 8., true).values;
     double worst = 0.;
     for (const double g : got) worst = std::max(worst, std::fabs(g - 0.7));
     check(worst < 1.e-14, "the largest deviation from the constant is " + std::to_string(worst));
@@ -346,9 +379,9 @@ int main ()
   {
     const int before = omp_get_max_threads();
     omp_set_num_threads(1);
-    const std::vector<double> one = neighbourAverage(points, values, valid, 6., true);
+    const std::vector<double> one = neighbourAverage(points, values, valid, 6., true).values;
     omp_set_num_threads(4);
-    const std::vector<double> four = neighbourAverage(points, values, valid, 6., true);
+    const std::vector<double> four = neighbourAverage(points, values, valid, 6., true).values;
     omp_set_num_threads(before);
     check(same_bits(one, four), "1 and 4 threads agree");
   }
@@ -384,7 +417,7 @@ int main ()
         refused = true;
       }
       check(refused, c.first + ": the grid refuses it with meshsearch's error, before any parallel region");
-      check(neighbourAverage(c.second, v, r, 0.) == v, c.first + ": with sigma = 0 there is no grid, and no error");
+      check(neighbourAverage(c.second, v, r, 0.).values == v, c.first + ": with sigma = 0 there is no grid, and no error");
     }
   }
 
@@ -395,33 +428,31 @@ int main ()
     const std::vector<double> z {0.75, 1., 1.5, 2.5, 0.25};
     const double bz[] = {1.25, 1.5, 2.5, 4.5, 0.75};
     std::size_t extrapolated = 99;
-    const std::vector<double> got = rsdFactor(z, table, zb, b, extrapolated);
+    const std::vector<double> got = rsdFactor(z, table, BiasTable{zb, b}, &extrapolated);
     bool ok = true;
     for (std::size_t i = 0; i < z.size(); ++i)
       ok = ok && close(got[i], 0.8 / (bz[i] + 3. * 0.8 / 5.), 1.e-14);
     check(ok, "the factor at nodes, between them and beyond both ends");
     check(extrapolated == 2, "the two redshifts beyond the table are counted");
 
-    const std::string once = captured_clog([&] { rsdFactor(z, table, zb, b); });
-    check(lines(once) == 1 && once.find("2 of 5") != std::string::npos,
-          "one line on std::clog per call that extrapolates, with the count");
-    const std::string none = captured_clog([&] { rsdFactor({0.6, 1.9}, table, zb, b); });
-    check(none.empty(), "and nothing when every redshift is inside the table");
-    check(captured_clog([&] { rsdFactor(z, table, zb, b, extrapolated); }).empty(),
-          "the counting overload writes nothing");
+    check(captured_clog([&] { rsdFactor(z, table, BiasTable{zb, b}); }).empty(),
+          "nothing is written, extrapolation or not");
+    std::size_t inside = 99;
+    rsdFactor({0.6, 1.9}, table, BiasTable{zb, b}, &inside);
+    check(inside == 0, "and the count is 0 when every redshift is inside the table");
 
-    check(throws_naming([&] { rsdFactor({1.5, 0.1}, table, {1., 2.}, {0.2, 1.2}); }, "object 1"),
+    check(throws_naming([&] { rsdFactor({1.5, 0.1}, table, BiasTable{{1., 2.}, {0.2, 1.2}}); }, "object 1"),
           "an extrapolated bias that is not positive raises, naming the object");
-    check_throws([&] { rsdFactor(z, table, {1.}, {1.}); }, "a single node raises");
-    check_throws([&] { rsdFactor(z, table, {1., 2.}, {1.}); }, "unequal lengths raise");
-    check_throws([&] { rsdFactor(z, table, {1., 1.}, {1., 2.}); }, "redshifts that do not increase raise");
-    check_throws([&] { rsdFactor(z, table, {1., 2.}, {1., 0.}); }, "a bias of 0 raises");
-    check_throws([&] { rsdFactor(z, table, {1., kNaN}, {1., 2.}); }, "a NaN node raises");
-    check(throws_naming([&] { rsdFactor({1., 3.5}, table, zb, b); }, "object 1"),
+    check_throws([&] { rsdFactor(z, table, BiasTable{{1.}, {1.}}); }, "a single node raises");
+    check_throws([&] { rsdFactor(z, table, BiasTable{{1., 2.}, {1.}}); }, "unequal lengths raise");
+    check_throws([&] { rsdFactor(z, table, BiasTable{{1., 1.}, {1., 2.}}); }, "redshifts that do not increase raise");
+    check_throws([&] { rsdFactor(z, table, BiasTable{{1., 2.}, {1., 0.}}); }, "a bias of 0 raises");
+    check_throws([&] { rsdFactor(z, table, BiasTable{{1., kNaN}, {1., 2.}}); }, "a NaN node raises");
+    check(throws_naming([&] { rsdFactor({1., 3.5}, table, BiasTable{zb, b}); }, "object 1"),
           "a redshift outside the distance table raises, naming the object");
-    check_throws([&] { rsdFactor({kNaN}, table, zb, b); }, "a NaN redshift raises");
+    check_throws([&] { rsdFactor({kNaN}, table, BiasTable{zb, b}); }, "a NaN redshift raises");
     const DistanceTable noGrowth({0., 1.}, {0., 3000.});
-    check_throws([&] { rsdFactor({0.5}, noGrowth, zb, b); }, "a table without growth rate raises");
+    check_throws([&] { rsdFactor({0.5}, noGrowth, BiasTable{zb, b}); }, "a table without growth rate raises");
 
     check(close(rsdFactorBox(1., table, 2.), 0.8 / (2. + 0.48), 1.e-15), "the box factor");
     check_throws([&] { rsdFactorBox(1., table, 0.); }, "a box bias of 0 raises");
@@ -432,36 +463,40 @@ int main ()
   group("shift: radial moves the distance by the shift, the axis moves one coordinate; NaN carried");
   {
     const std::vector<double> p {3., 4., 12.,  1., 1., 1.};
-    const std::vector<double> radial = shiftAlongLineOfSight(p, {2., kNaN});
+    const std::vector<double> radial = shiftRadially(p, {2., kNaN});
     const double r = std::sqrt(radial[0]*radial[0] + radial[1]*radial[1] + radial[2]*radial[2]);
     check(close(r, 15., 1.e-15) && close(radial[0] / radial[2], 3. / 12., 1.e-15),
           "a positive shift moves outwards, along the line of sight");
     check(std::isnan(radial[3]) && std::isnan(radial[4]) && std::isnan(radial[5]), "a NaN shift gives a NaN row");
 
-    const std::vector<double> axis = shiftAlongLineOfSight(p, {2., -1.}, 1);
+    const std::vector<double> axis = shiftAlongAxis(p, {2., -1.}, 1);
     check(axis[0] == 3. && axis[1] == 6. && axis[2] == 12. && axis[4] == 0., "the axis coordinate alone moves");
-    check_throws([&] { shiftAlongLineOfSight(p, {kInf, 0.}); }, "an infinite shift raises");
-    check_throws([&] { shiftAlongLineOfSight(p, {1.}); }, "a size mismatch raises");
-    check_throws([&] { shiftAlongLineOfSight({0., 0., 0.}, {1.}); }, "a position at the origin raises");
+    check_throws([&] { shiftRadially(p, {kInf, 0.}); }, "an infinite shift raises");
+    check_throws([&] { shiftRadially(p, {1.}); }, "a size mismatch raises");
+    check_throws([&] { shiftRadially({0., 0., 0.}, {1.}); }, "a position at the origin raises");
   }
 
   group("sign: a tracer whose displacement points away from the observer moves away");
   {
     const DistanceTable table = linear_table(1.5, 0.8);
     const std::vector<double> sky {0.3, 0.2, 0.5};
-    const Result outward = result_with({0., 0., 0.}, {1});
-    Result r = outward;
     double x, y, z;
     internal::to_cartesian(0.3, 0.2, 1., x, y, z);
-    r.meanDisplacement = {5. * x, 5. * y, 5. * z};
-    const RealSpaceCatalog c = realSpaceLightcone(r, sky, table, {0., 1.5}, {1.5, 1.5}, 0.);
-    check(c.positions[2] > 0.5, "the lightcone redshift grows");
-    check(close(c.positions[2], 0.5 + 5. * 0.8 / (1.5 + 0.48) / 3000., 1.e-12),
+    const Result r = lightcone_with({5. * x, 5. * y, 5. * z}, {1}, sky, table);
+    const RealSpaceCatalog c = realSpaceLightcone(r, table, BiasTable{{0., 1.5}, {1.5, 1.5}}, 0.);
+    check(c.sky[2] > 0.5, "the lightcone redshift grows");
+    check(close(c.sky[2], 0.5 + 5. * 0.8 / (1.5 + 0.48) / 3000., 1.e-12),
           "by the factor times the displacement, in distance");
+    const double moved = std::sqrt(c.cartesian[0]*c.cartesian[0] + c.cartesian[1]*c.cartesian[1] +
+                                   c.cartesian[2]*c.cartesian[2]);
+    check(close(moved, 1500. + c.shift[0], 1.e-14) && close(c.shift[0], 5. * 0.8 / (1.5 + 0.48), 1.e-12) &&
+          c.status[0] == CorrectionStatus::Corrected,
+          "the Cartesian position moves by the shift along the line of sight");
 
-    const Result box = result_with({0., 0., -2.}, {1});
-    const RealSpaceCatalog cb = realSpaceBox(box, {10., 10., 10.}, 2, 0.5, table, 1.5, 0.);
-    check(cb.positions[2] < 10. && cb.positions[0] == 10., "the box coordinate follows the displacement's sign");
+    const Result box = box_with({0., 0., -2.}, {1}, {10., 10., 10.});
+    const RealSpaceCatalog cb = realSpaceBox(box, 2, 0.5, table, 1.5, 0.);
+    check(cb.cartesian[2] < 10. && cb.cartesian[0] == 10. && cb.sky.empty(),
+          "the box coordinate follows the displacement's sign; no sky in a box");
   }
 
   group("box and lightcone agree on an equivalent setup: a small patch far along the x axis");
@@ -478,13 +513,15 @@ int main ()
       internal::to_cartesian(ra, dec, table.distanceAt(d / 3000.), cart[3*i], cart[3*i+1], cart[3*i+2]);
       for (int k = 0; k < 3; ++k) mean[3*i+k] = internal::uniform_real(rng, -2., 2.);
     }
-    const Result r = result_with(mean, std::vector<unsigned>(m, 1));
-    const RealSpaceCatalog light = realSpaceLightcone(r, sky, table, {0., 1.5}, {1.5, 1.5}, 8.);
-    const RealSpaceCatalog box = realSpaceBox(r, cart, 0, 0.7, table, 1.5, 8.);
+    const Result rl = lightcone_with(mean, std::vector<unsigned>(m, 1), sky, table);
+    const Result rb = box_with(mean, std::vector<unsigned>(m, 1), cart);
+    check(same_bits(rl.tracers, cart), "the two setups have the same tracers");
+    const RealSpaceCatalog light = realSpaceLightcone(rl, table, BiasTable{{0., 1.5}, {1.5, 1.5}}, 8.);
+    const RealSpaceCatalog box = realSpaceBox(rb, 0, 0.7, table, 1.5, 8.);
     double worst = 0.;
     for (std::size_t i = 0; i < m; ++i) {
-      const double radial = table.distanceAt(light.positions[3*i+2]) - table.distanceAt(sky[3*i+2]);
-      const double along = box.positions[3*i] - cart[3*i];
+      const double radial = table.distanceAt(light.sky[3*i+2]) - table.distanceAt(sky[3*i+2]);
+      const double along = box.cartesian[3*i] - cart[3*i];
       worst = std::max(worst, std::fabs(radial - along));
     }
     check(worst < 0.03, "the radial and the x shifts differ by at most " + std::to_string(worst) +
@@ -492,30 +529,52 @@ int main ()
     check(light.nNeighbours == box.nNeighbours, "with the same neighbours");
   }
 
-  group("the whole chain: right ascension and declination copied, uncorrected only without valid neighbours");
+  group("the whole chain: right ascension folded and declination kept, uncorrected only without valid "
+        "neighbours, the status of each tracer");
   {
     const DistanceTable table = linear_table(1.5, 0.8);
-    std::vector<double> sky {0.1, 0.1, 0.5,  0.1001, 0.1, 0.5,  0.1, 0.1001, 0.5,  1.0, -0.3, 0.6};
-    const Result r = result_with({1., 1., 1.,  kNaN, kNaN, kNaN,  2., 0., 0.,  kNaN, kNaN, kNaN}, {2, 0, 1, 0});
-    const RealSpaceCatalog c = realSpaceLightcone(r, sky, table, {0., 1.5}, {1.5, 1.5}, 10.);
-    check(c.nObjects == 4 && c.positions[0] == 0.1 && c.positions[1] == 0.1 && c.positions[4] == 0.1,
-          "the angles are the input ones");
-    check(!std::isnan(c.positions[5]) && c.nNeighbours[1] == 2 && c.nRealizationsAveraged[1] == 3,
+    const double twoPi = 2. * 3.14159265358979323846;
+    std::vector<double> sky {0.1, 0.1, 0.5,  0.1001, 0.1, 0.5,  0.1 + twoPi, 0.1001, 0.5,  1.0, -0.3, 0.6};
+    const BiasTable flat {{0., 1.5}, {1.5, 1.5}};
+    const Result r = lightcone_with({1., 1., 1.,  kNaN, kNaN, kNaN,  2., 0., 0.,  kNaN, kNaN, kNaN},
+                                    {2, 0, 1, 0}, sky, table);
+    const RealSpaceCatalog c = realSpaceLightcone(r, table, flat, 10.);
+    check(c.nObjects == 4 && c.sky[0] == 0.1 && c.sky[1] == 0.1 && c.sky[4] == 0.1 &&
+          c.sky[6] == internal::normalize_ra(0.1 + twoPi) && c.sky[6] < twoPi,
+          "the angles are the input ones, the right ascension folded into [0, 2 pi)");
+    check(!std::isnan(c.sky[5]) && c.nNeighbours[1] == 2 && c.nRealizationsAveraged[1] == 3,
           "the invalid tracer amid valid ones is corrected with their average");
-    check(c.uncorrected == std::vector<std::size_t>{3} && std::isnan(c.positions[9]) &&
-          std::isnan(c.positions[11]), "the isolated invalid tracer alone is uncorrected, a NaN row");
+    check(uncorrected_of(c) == std::vector<std::size_t>{3} && std::isnan(c.sky[9]) &&
+          std::isnan(c.sky[11]) && std::isnan(c.cartesian[9]) && std::isnan(c.shift[3]),
+          "the isolated invalid tracer alone is uncorrected, NaN rows");
+    check((c.status == std::vector<CorrectionStatus>{CorrectionStatus::Corrected,
+                                                     CorrectionStatus::MovedByNeighbours,
+                                                     CorrectionStatus::Corrected,
+                                                     CorrectionStatus::NoValidNeighbour}),
+          "the status of each tracer");
 
-    const RealSpaceCatalog zero = realSpaceLightcone(r, sky, table, {0., 1.5}, {1.5, 1.5}, 0.);
-    check((zero.uncorrected == std::vector<std::size_t>{1, 3}), "with sigma = 0 every invalid tracer is uncorrected");
+    const RealSpaceCatalog zero = realSpaceLightcone(r, table, flat, 0.);
+    check((uncorrected_of(zero) == std::vector<std::size_t>{1, 3}),
+          "with sigma = 0 every invalid tracer is uncorrected");
 
-    check_throws([&] { realSpaceLightcone(r, {0.1, 0.1, 0.5}, table, {0., 1.5}, {1.5, 1.5}, 1.); },
-                 "a result for another number of tracers raises");
+    Result noSky = r;
+    noSky.tracersSky.clear();
+    check(throws_naming([&] { realSpaceLightcone(noSky, table, flat, 1.); }, "does not carry its tracers"),
+          "a lightcone result without tracersSky raises");
+    Result noTracers = r;
+    noTracers.tracers.clear();
+    check(throws_naming([&] { realSpaceLightcone(noTracers, table, flat, 1.); }, "does not carry its tracers"),
+          "and one without tracers");
     Result bad = r;
     bad.meanDisplacement.pop_back();
-    check_throws([&] { realSpaceLightcone(bad, sky, table, {0., 1.5}, {1.5, 1.5}, 1.); },
-                 "a malformed result raises");
-    check_throws([&] { realSpaceBox(r, {1., 1., 1., 2., 2., 2., 3., 3., 3., 4., 4., 4.}, 3, 0.5, table, 1.5, 1.); },
-                 "a box axis beyond 2 raises");
+    check_throws([&] { realSpaceLightcone(bad, table, flat, 1.); }, "a malformed result raises");
+    const Result box = box_with({0., 0., 0.,  1., 1., 1.,  2., 2., 2.,  3., 3., 3.}, {1, 1, 1, 1},
+                                {1., 1., 1.,  2., 2., 3.,  3., 3., 2.,  4., 5., 4.});
+    check(throws_naming([&] { realSpaceLightcone(box, table, flat, 1.); }, "corrects a lightcone result"),
+          "realSpaceLightcone refuses a box result");
+    check(throws_naming([&] { realSpaceBox(r, 2, 0.5, table, 1.5, 1.); }, "corrects a box result"),
+          "and realSpaceBox a lightcone one");
+    check_throws([&] { realSpaceBox(box, 3, 0.5, table, 1.5, 1.); }, "a box axis beyond 2 raises");
   }
 
   group("a corrected distance outside the table raises, naming the object and suggesting a wider table");
@@ -523,11 +582,11 @@ int main ()
     const DistanceTable table = linear_table(0.5, 0.8);
     double x, y, z;
     internal::to_cartesian(0.2, 0.1, 1., x, y, z);
-    const Result r = result_with({0., 0., 0.,  400. * x, 400. * y, 400. * z}, {1, 1});
     const std::vector<double> sky {0.5, 0.1, 0.3,  0.2, 0.1, 0.49};
+    const Result r = lightcone_with({0., 0., 0.,  400. * x, 400. * y, 400. * z}, {1, 1}, sky, table);
     bool named = false, suggests = false;
     try {
-      realSpaceLightcone(r, sky, table, {0., 0.5}, {1.5, 1.5}, 0.);
+      realSpaceLightcone(r, table, BiasTable{{0., 0.5}, {1.5, 1.5}}, 0.);
     }
     catch (const Error& e) {
       named = std::string(e.what()).find("object 1") != std::string::npos;
@@ -535,8 +594,9 @@ int main ()
     }
     check(named && suggests, "beyond the table's end");
 
-    const Result inward = result_with({0., 0., 0.,  -5000. * x, -5000. * y, -5000. * z}, {1, 1});
-    check(throws_naming([&] { realSpaceLightcone(inward, sky, table, {0., 0.5}, {1.5, 1.5}, 0.); }, "not positive"),
+    const Result inward = lightcone_with({0., 0., 0.,  -5000. * x, -5000. * y, -5000. * z}, {1, 1}, sky, table);
+    check(throws_naming([&] { realSpaceLightcone(inward, table, BiasTable{{0., 0.5}, {1.5, 1.5}}, 0.); },
+                        "not positive"),
           "and below zero distance");
   }
 
@@ -581,24 +641,24 @@ int main ()
   {
     const std::string ascii = temporary("bias.txt");
     write_text(ascii, "# z b\n0.1 1.2\n\n0.5 1.6   # trailing comment ignored by strtod\n1.0 2.0\n");
-    const io::BiasTable a = io::readBiasTable(ascii);
+    const BiasTable a = io::readBiasTable(ascii);
     check(a.redshift == std::vector<double>({0.1, 0.5, 1.0}) && a.bias == std::vector<double>({1.2, 1.6, 2.0}),
           "ASCII: columns 0 and 1, comments and blank lines skipped");
 
     const std::string fits = temporary("bias.fits");
-    io::write(fits, {{"REDSHIFT", 'D', "", {0.2, 0.4}}, {"BIAS", 'D', "", {1.1, 1.3}}});
-    const io::BiasTable f = io::readBiasTable(fits);
+    io::write(fits, {{"REDSHIFT", 'D', "", "", {0.2, 0.4}, {}}, {"BIAS", 'D', "", "", {1.1, 1.3}, {}}});
+    const BiasTable f = io::readBiasTable(fits);
     check(f.redshift == std::vector<double>({0.2, 0.4}) && f.bias == std::vector<double>({1.1, 1.3}),
           "FITS: the REDSHIFT and BIAS columns");
 
     check_throws([] { io::readBiasTable("/nonexistent/otswap/bias.txt"); }, "a missing file raises");
 
     const std::string wrong = temporary("wrong.fits");
-    io::write(wrong, {{"REDSHIFT", 'D', "", {0.2, 0.4}}, {"B", 'D', "", {1.1, 1.3}}});
+    io::write(wrong, {{"REDSHIFT", 'D', "", "", {0.2, 0.4}, {}}, {"B", 'D', "", "", {1.1, 1.3}, {}}});
     check_throws([&] { io::readBiasTable(wrong); }, "FITS without a BIAS column raises");
 
     const std::string nonFinite = temporary("nan.fits");
-    io::write(nonFinite, {{"REDSHIFT", 'D', "", {0.2, kNaN}}, {"BIAS", 'D', "", {1.1, 1.3}}});
+    io::write(nonFinite, {{"REDSHIFT", 'D', "", "", {0.2, kNaN}, {}}, {"BIAS", 'D', "", "", {1.1, 1.3}, {}}});
     check_throws([&] { io::readBiasTable(nonFinite); }, "FITS with a NaN raises");
 
     const std::pair<const char*, const char*> cases[] = {
@@ -630,7 +690,7 @@ int main ()
     Config config;
     config.nRealizations = 2;
     config.seed = 11;
-    config.verbose = false;
+    config.verbosity = Verbosity::Silent;
     const RedshiftCut cut {0.3, 0.6};
 
     const Result withCut = reconstructLightcone(sky, randomsSky, 800., 1, table, config, cut);
@@ -763,26 +823,26 @@ int main ()
 
     group("the correction leaves cut tracers out: uncorrected, diagnostics 0, never a neighbour");
     const std::vector<double> zb {0.2, 0.8}, b {1.2, 1.8};
-    const RealSpaceCatalog all = realSpaceLightcone(withCut, sky, table, zb, b, 10.);
-    const RealSpaceCatalog sub = realSpaceLightcone(kept, rows(sky, keep), table, zb, b, 10.);
+    const RealSpaceCatalog all = realSpaceLightcone(withCut, table, BiasTable{zb, b}, 10.);
+    const RealSpaceCatalog sub = realSpaceLightcone(kept, table, BiasTable{zb, b}, 10.);
     bool same = true;
     k = 0;
     for (std::size_t i = 0; i < n; ++i) {
       if (k < m && keep[k] == i) {
-        for (int c = 0; c < 3; ++c) same = same && same_double(all.positions[3*i+c], sub.positions[3*k+c]);
+        for (int c = 0; c < 3; ++c) same = same && same_double(all.sky[3*i+c], sub.sky[3*k+c]);
         same = same && all.nNeighbours[i] == sub.nNeighbours[k] &&
                all.nRealizationsAveraged[i] == sub.nRealizationsAveraged[k];
         ++k;
       }
       else {
-        same = same && std::isnan(all.positions[3*i+2]) && all.nNeighbours[i] == 0 &&
-               std::binary_search(all.uncorrected.begin(), all.uncorrected.end(), i);
+        same = same && std::isnan(all.sky[3*i+2]) && all.nNeighbours[i] == 0 &&
+               (all.status[i] == CorrectionStatus::LeftOut);
       }
     }
     check(same, "the kept tracers are corrected exactly as the catalogue cut beforehand; the cut ones are listed");
-    check(all.uncorrected.size() == (n - m) + sub.uncorrected.size(), "and nothing else is uncorrected");
-    const RealSpaceCatalog beyond = realSpaceLightcone(farCut, far, table, zb, b, 10.);
-    check(std::isnan(beyond.positions[3*5+2]), "a cut tracer beyond the distance table is not converted");
+    check(uncorrected_of(all).size() == (n - m) + uncorrected_of(sub).size(), "and nothing else is uncorrected");
+    const RealSpaceCatalog beyond = realSpaceLightcone(farCut, table, BiasTable{zb, b}, 10.);
+    check(std::isnan(beyond.sky[3*5+2]), "a cut tracer beyond the distance table is not converted");
   }
 
   group("the selection report: one line per array listing the selections applied, one for the "
@@ -792,14 +852,13 @@ int main ()
     check(c.message().empty(), "no selection, no report");
     c.tracers = 100;
     c.randoms = 400;
-    c.redshiftCutApplied = true;
     c.redshiftCut = RedshiftCut{0.9, 1.08};
     c.tracersOutsideRedshiftCut = 7;
     c.randomsOutsideRedshiftCut = 30;
     check(c.message() == "otswap: kept 93 of 100 tracers: 7 outside the redshift cut [0.9, 1.08]\n"
                          "otswap: kept 370 of 400 randoms: 30 outside the redshift cut [0.9, 1.08]\n",
           "the cut alone: " + c.message());
-    c.redshiftCutApplied = false;
+    c.redshiftCut.reset();
     c.tracersOutsideRedshiftCut = c.randomsOutsideRedshiftCut = 0;
     c.maskApplied = true;
     c.tracersOutsideMask = 5;
@@ -810,10 +869,8 @@ int main ()
     c.tracersOutsideRedshiftCut = 7;
     c.randomsOutsideRedshiftCut = 30;
     c.tracersOutsideBoth = 2;
-    c.redshiftCutApplied = true;
     c.redshiftCut = RedshiftCut{-kInf, 1e-5};
-    c.crossingsRejected = true;
-    c.maxUnobservedPixelsCrossed = 2;
+    c.maxUnobservedPixelsCrossed = 2u;
     c.displacements = 180;
     c.displacementsCrossingMask = 11;
     check(c.message() == "otswap: kept 90 of 100 tracers: 7 outside the redshift cut [-inf, 1e-05], "
@@ -831,7 +888,7 @@ int main ()
     Config config;
     config.nRealizations = 2;
     config.seed = 11;
-    config.verbose = false;
+    config.verbosity = Verbosity::Silent;
     const RedshiftCut cut {0.3, 0.6};
 
     // NSIDE 64, RING, one pixel in nine unobserved, with values of every
@@ -919,7 +976,7 @@ int main ()
     const SelectionCounts& s = masked.selection;
     const std::size_t validBefore = (std::size_t)std::count(plain.valid.begin(), plain.valid.end(), 1);
     const std::size_t validAfter = (std::size_t)std::count(masked.valid.begin(), masked.valid.end(), 1);
-    check(s.redshiftCutApplied && s.redshiftCut.min == 0.3 && s.redshiftCut.max == 0.6 && s.maskApplied,
+    check(s.redshiftCut && s.redshiftCut->min == 0.3 && s.redshiftCut->max == 0.6 && s.maskApplied,
           "the selections applied");
     check(s.tracers == n &&
           s.tracersOutsideRedshiftCut == (std::size_t)std::count(expectCut.begin(), expectCut.end(), 1) &&
@@ -931,11 +988,28 @@ int main ()
           s.randoms - (s.randomsOutsideRedshiftCut + s.randomsOutsideMask - s.randomsOutsideBoth) ==
             keepRandoms.size(),
           "the random counts");
-    check(s.crossingsRejected && s.maxUnobservedPixelsCrossed == 0 && s.displacements == 2 * m &&
+    check(s.maxUnobservedPixelsCrossed == 0u && s.displacements == 2 * m &&
           validBefore == 2 * m && s.displacementsCrossingMask == validBefore - validAfter,
           "the crossing counts");
-    check(!plain.selection.crossingsRejected && plain.selection.displacements == 0,
+    check(!plain.selection.maxUnobservedPixelsCrossed && plain.selection.displacements == 0,
           "no crossing count without the filter");
+
+    group("a later rejectMaskCrossings updates Result::selection: the latest threshold, the "
+          "displacements before the first filter, the rejections of every filter");
+    Result later = plain;
+    rejectMaskCrossings(later, mask, 2);
+    const std::size_t afterTwo = (std::size_t)std::count(later.valid.begin(), later.valid.end(), 1);
+    check(later.selection.maxUnobservedPixelsCrossed == 2u && later.selection.displacements == validBefore &&
+          later.selection.displacementsCrossingMask == validBefore - afterTwo,
+          "the first filter, threshold 2");
+    rejectMaskCrossings(later, mask, 0);
+    check(later.valid == masked.valid && later.selection.maxUnobservedPixelsCrossed == 0u &&
+          later.selection.displacements == validBefore &&
+          later.selection.displacementsCrossingMask == validBefore - validAfter,
+          "a second one, threshold 0: the counts are cumulative and match the filter applied once");
+    check(later.selection.message() == masked.selection.message(), "and the report is the same");
+    check(later.selection.tracers == n && later.selection.redshiftCut && later.selection.maskApplied,
+          "the selection counts are kept");
 
     group("the Cartesian mask overload drops the same rows and gives the same result");
     const Result cartesian = reconstructLightcone(toCartesian(sky, table), toCartesian(randomsSky, table),
@@ -946,28 +1020,72 @@ int main ()
           cartesian.selection.message() == masked.selection.message(),
           "bit for bit, flags and counts included");
 
-    group("Config::verbose writes Result::selection.message() to std::clog, and nothing without a "
-          "selection");
+    group("the report: Normal writes the selection report, then the line of the call, to Config::log; "
+          "Detailed adds mps(z); Silent and a null log write nothing");
     Config loud = config;
-    loud.verbose = true;
+    loud.verbosity = Verbosity::Normal;
     Result reported;
     const std::string text = captured_clog([&] {
       reported = reconstructLightcone(sky, randomsSky, mask, 1, table, loud, cut);
     });
-    check(text == reported.selection.message() && lines(text) == 3, "three lines: " + text);
+    std::size_t without = 0;
+    for (const unsigned v : reported.validRealizations) without += v == 0;
+    std::ostringstream time;
+    time << std::fixed << std::setprecision(2) << reported.elapsedSeconds;
+    const std::string callLine = "otswap: reconstructLightcone: 2 realizations of 900 tracers in " +
+                                 time.str() + " s; " + std::to_string(without) +
+                                 " without a valid displacement\n";
+    check(text == reported.selection.message() + callLine && lines(text) == 4,
+          "the selection report, then the call: " + text);
+    check(without > n - m, "the line counts the tracers left out and those the filter emptied");
+    std::ostringstream own;
+    Config toOwn = loud;
+    toOwn.log = &own;
+    check(captured_clog([&] { reconstructLightcone(sky, randomsSky, mask, 1, table, toOwn, cut); }).empty() &&
+          lines(own.str()) == 4, "the log given receives it, std::clog nothing");
+    Config detailed = toOwn;
+    detailed.verbosity = Verbosity::Detailed;
+    own.str("");
+    const Result explained = reconstructLightcone(sky, randomsSky, mask, 1, table, detailed, cut);
+    std::ostringstream mpsLine;
+    mpsLine << "otswap: mps(z) from " << explained.mpsProfile.mps[0] << " to " << explained.mpsProfile.mps[0]
+            << " Mpc/h in 1 bin over [" << explained.mpsProfile.redshiftMin << ", "
+            << explained.mpsProfile.redshiftMax << "]\n";
+    check(lines(own.str()) == 5 && own.str().find(explained.selection.message() + mpsLine.str()) == 0,
+          "Detailed: the mps(z) line before the call's: " + own.str());
     check(captured_clog([&] { reconstructLightcone(sky, randomsSky, mask, 1, table, config, cut); }).empty(),
-          "verbose false writes nothing");
-    check(captured_clog([&] { reconstructLightcone(sky, randomsSky, 800., 1, table, loud); }).empty(),
-          "the area overload without a cut writes nothing");
+          "Silent writes nothing");
+    Config nowhere = loud;
+    nowhere.log = nullptr;
+    check(captured_clog([&] { reconstructLightcone(sky, randomsSky, mask, 1, table, nowhere, cut); }).empty(),
+          "a null log writes nothing");
+    const std::string areaText = captured_clog([&] { reconstructLightcone(sky, randomsSky, 800., 1, table, loud); });
+    check(lines(areaText) == 1 && areaText.find("otswap: reconstructLightcone: 2 realizations of 900 tracers in ") == 0,
+          "the area overload without a cut: the line of the call alone: " + areaText);
     const std::string cutText = captured_clog([&] {
       reconstructLightcone(sky, randomsSky, 800., 1, table, loud, cut);
     });
-    check(lines(cutText) == 2 && cutText.find("outside the redshift cut [0.3, 0.6]") != std::string::npos &&
+    check(lines(cutText) == 3 && cutText.find("outside the redshift cut [0.3, 0.6]") != std::string::npos &&
           cutText.find("mask") == std::string::npos,
-          "the cut alone reports in two lines: " + cutText);
+          "the cut alone reports in two lines, then the call: " + cutText);
+    const std::vector<double> boxTracers = toCartesian(sky, table);
+    const std::string boxText = captured_clog([&] { reconstructBox(boxTracers, {}, 20., loud); });
+    check(lines(boxText) == 1 && boxText.find("otswap: reconstructBox: 2 realizations of 900 tracers in ") == 0 &&
+          boxText.find(" s; 0 without a valid displacement\n") != std::string::npos, "a box: " + boxText);
+    Config boxDetailed = loud;
+    boxDetailed.verbosity = Verbosity::Detailed;
+    const std::string given = captured_clog([&] { reconstructBox(boxTracers, {}, 20., boxDetailed); });
+    check(given.find("otswap: mean particle separation 20 Mpc/h (given)\notswap: reconstructBox: ") == 0,
+          "Detailed box, mps given: " + given);
+    Result computedBox;
+    const std::string computedText = captured_clog([&] { computedBox = reconstructBox(boxTracers, {}, boxDetailed); });
+    std::ostringstream computedMps;
+    computedMps << "otswap: mean particle separation " << computedBox.mps
+                << " Mpc/h (from the tracers' bounding box)\n";
+    check(computedText.find(computedMps.str()) == 0, "Detailed box, mps computed: " + computedText);
     const Result unmasked = reconstructLightcone(sky, randomsSky, 800., 1, table, config);
     check(unmasked.outsideMask == std::vector<std::uint8_t>(n, 0) && !unmasked.selection.maskApplied &&
-          !unmasked.selection.redshiftCutApplied && unmasked.selection.message().empty(),
+          !unmasked.selection.redshiftCut && unmasked.selection.message().empty(),
           "the area overload flags nothing outside the mask, and applies nothing");
     const Result box = reconstructBox(toCartesian(sky, table), {}, 20., config);
     check(box.outsideMask == std::vector<std::uint8_t>(n, 0) && box.selection.tracers == 0 &&
@@ -1001,30 +1119,30 @@ int main ()
 
     group("the correction leaves masked tracers out: uncorrected, diagnostics 0, never a neighbour");
     const std::vector<double> zb {0.2, 0.8}, b {1.2, 1.8};
-    const RealSpaceCatalog all = realSpaceLightcone(plain, sky, table, zb, b, 10.);
-    const RealSpaceCatalog sub = realSpaceLightcone(kept, rows(sky, keep), table, zb, b, 10.);
+    const RealSpaceCatalog all = realSpaceLightcone(plain, table, BiasTable{zb, b}, 10.);
+    const RealSpaceCatalog sub = realSpaceLightcone(kept, table, BiasTable{zb, b}, 10.);
     bool same = true;
     k = 0;
     for (std::size_t i = 0; i < n; ++i) {
       if (k < m && keep[k] == i) {
-        for (int c = 0; c < 3; ++c) same = same && same_double(all.positions[3*i+c], sub.positions[3*k+c]);
+        for (int c = 0; c < 3; ++c) same = same && same_double(all.sky[3*i+c], sub.sky[3*k+c]);
         same = same && all.nNeighbours[i] == sub.nNeighbours[k];
         ++k;
       }
       else {
-        same = same && std::isnan(all.positions[3*i+2]) && all.nNeighbours[i] == 0 &&
-               std::binary_search(all.uncorrected.begin(), all.uncorrected.end(), i);
+        same = same && std::isnan(all.sky[3*i+2]) && all.nNeighbours[i] == 0 &&
+               (all.status[i] == CorrectionStatus::LeftOut);
       }
     }
     check(same, "the kept tracers are corrected exactly as the selected catalogue; the others are listed");
     Result maskedHasValid = plain;
     maskedHasValid.validRealizations[aMasked] = 1;
-    check(throws_naming([&] { realSpaceLightcone(maskedHasValid, sky, table, zb, b, 10.); },
+    check(throws_naming([&] { realSpaceLightcone(maskedHasValid, table, BiasTable{zb, b}, 10.); },
                         "outside the redshift cut or the mask"),
           "a masked tracer with valid realizations is malformed");
 
     group("lagrangianSky: toSky of the tracer plus meanDisplacement, NaN rows for the flagged and those "
-          "without a valid realization; emptied by a filter that rejects");
+          "without a valid realization; recomputed by a filter");
     const double kPi = 3.14159265358979323846;
     const std::vector<double> tracerCart = toCartesian(sky, table);
     const auto lagrangian = [&] (const Result& r) {
@@ -1054,7 +1172,14 @@ int main ()
     check(box.lagrangianSky.empty(), "a box result has none");
     Result refiltered = plain;
     rejectMaskCrossings(refiltered, mask, 0);
-    check(refiltered.lagrangianSky.empty(), "a filter that rejects a displacement empties it");
+    check(same_bits(refiltered.lagrangianSky, lagrangian(refiltered)) &&
+          same_bits(refiltered.lagrangianSky, masked.lagrangianSky),
+          "a filter that rejects a displacement recomputes it, as the filter inside the reconstruction");
+    bool lagrangianRight = refiltered.lagrangian.size() == 3 * n;
+    for (std::size_t k3 = 0; lagrangianRight && k3 < 3 * n; ++k3)
+      lagrangianRight = same_double(refiltered.lagrangian[k3],
+                                    refiltered.tracers[k3] + refiltered.meanDisplacement[k3]);
+    check(lagrangianRight, "and lagrangian, tracers + meanDisplacement");
     Result unchanged = masked;
     rejectMaskCrossings(unchanged, mask, 0);
     check(same_bits(unchanged.lagrangianSky, masked.lagrangianSky), "one that rejects nothing keeps it");
@@ -1062,13 +1187,189 @@ int main ()
     badSky.lagrangianSky.pop_back();
     check(throws_naming([&] { rejectMaskCrossings(badSky, mask); }, "lagrangianSky holds"),
           "a lagrangianSky of the wrong size is malformed for the filter");
-    check(throws_naming([&] { realSpaceLightcone(badSky, sky, table, zb, b, 10.); }, "lagrangianSky holds"),
+    check(throws_naming([&] { realSpaceLightcone(badSky, table, BiasTable{zb, b}, 10.); }, "lagrangianSky holds"),
           "and for the correction");
     Result noSky = masked;
     noSky.lagrangianSky.clear();
-    check(same_bits(realSpaceLightcone(noSky, sky, table, zb, b, 10.).positions,
-                    realSpaceLightcone(masked, sky, table, zb, b, 10.).positions),
+    check(same_bits(realSpaceLightcone(noSky, table, BiasTable{zb, b}, 10.).sky,
+                    realSpaceLightcone(masked, table, BiasTable{zb, b}, 10.).sky),
           "an empty one is accepted, and the correction does not read it");
+
+    group("the lightcone Result: geometry, the configuration and its seed, the tracers, the profile, "
+          "the distance table, the time");
+    const std::vector<double> converted = toCartesian(sky, table);
+    check(masked.geometry == Geometry::Lightcone && box.geometry == Geometry::Box, "the geometry");
+    check(masked.config.seed == 11 && masked.config.nRealizations == 2 &&
+          masked.config.rejectCrossings && plain.config.rejectCrossings == false,
+          "the configuration of the call");
+    check(masked.tracersSky == sky && box.tracersSky.empty(), "tracersSky as given; none in a box");
+    check(same_bits(masked.tracers, converted) && same_bits(plain.tracers, converted),
+          "tracers: toCartesian of the sky array, the rows left out included");
+    check(same_bits(cartesian.tracers, converted), "the Cartesian overload keeps the array given");
+    double zLo = kInf, zHi = -kInf;
+    for (const std::size_t i : keep) {
+      zLo = std::min(zLo, sky[3*i+2]);
+      zHi = std::max(zHi, sky[3*i+2]);
+    }
+    const MpsProfile& profile = masked.mpsProfile;
+    check(profile.redshift.size() == 1 && profile.count.size() == 1 && profile.count[0] == m &&
+          profile.redshiftMin == zLo && profile.redshiftMax == zHi &&
+          profile.representative == profile.mps[0] && profile.at(0.45) == profile.mps[0],
+          "the profile of the kept tracers: one bin, its range, its representative value");
+    check(box.mpsProfile.redshift.empty() && std::isnan(masked.mps) && box.mps == 20.,
+          "a box has no profile, a lightcone no single mps");
+    check(masked.distances && masked.distances->distanceAt(0.5) == table.distanceAt(0.5) &&
+          !box.distances, "the distance table, in a lightcone result only");
+    check(masked.elapsedSeconds > 0. && masked.elapsedSeconds < 600., "the elapsed time");
+    check_throws([] { MpsProfile().at(0.5); }, "an empty profile raises");
+
+    group("recomputeMeans gives the reconstruction's bits, from displacement and valid alone");
+    Result rebuilt;
+    rebuilt.nObjects = masked.nObjects;
+    rebuilt.nRealizations = masked.nRealizations;
+    rebuilt.geometry = Geometry::Lightcone;
+    rebuilt.displacement = masked.displacement;
+    rebuilt.valid = masked.valid;
+    rebuilt.tracers = masked.tracers;
+    rebuilt.outsideMask = masked.outsideMask;
+    rebuilt.outsideRedshiftCut = masked.outsideRedshiftCut;
+    rebuilt.distances = std::make_shared<const DistanceTable>(table);
+    recomputeMeans(rebuilt);
+    check(same_bits(rebuilt.meanDisplacement, masked.meanDisplacement) &&
+          rebuilt.validRealizations == masked.validRealizations &&
+          same_bits(rebuilt.lagrangian, masked.lagrangian) &&
+          same_bits(rebuilt.lagrangianSky, masked.lagrangianSky),
+          "meanDisplacement, validRealizations, lagrangian and lagrangianSky");
+    rebuilt.distances.reset();
+    recomputeMeans(rebuilt);
+    check(rebuilt.lagrangianSky.empty() && !rebuilt.lagrangian.empty(), "no table, no lagrangianSky");
+    rebuilt.tracers.clear();
+    recomputeMeans(rebuilt);
+    check(rebuilt.lagrangian.empty() && same_bits(rebuilt.meanDisplacement, masked.meanDisplacement),
+          "no tracers, no lagrangian");
+    Result wrong = rebuilt;
+    wrong.valid[3] = 2;
+    check(throws_naming([&] { recomputeMeans(wrong); }, "every entry must be 0 or 1"), "a valid of 2");
+    wrong = rebuilt;
+    wrong.displacement.pop_back();
+    check(throws_naming([&] { recomputeMeans(wrong); }, "displacement and valid hold"), "a short displacement");
+    wrong = rebuilt;
+    wrong.tracers.assign(3, 0.);
+    check(throws_naming([&] { recomputeMeans(wrong); }, "tracers holds 3 entries"), "a short tracers");
+
+    group("the lightcone catalogue: shift, factor, valid realizations, geometry, time");
+    {
+      const RealSpaceCatalog c = realSpaceLightcone(plain, table, BiasTable{zb, b}, 10.);
+      std::vector<double> keptZ;
+      for (const std::size_t i : keep) keptZ.push_back(sky[3*i+2]);
+      std::size_t extrapolated = 0;
+      const std::vector<double> factor = rsdFactor(keptZ, table, BiasTable{zb, b}, &extrapolated);
+      bool factorRight = true, shiftRight = true, someShift = false;
+      std::size_t kk = 0;
+      for (std::size_t i = 0; i < n; ++i) {
+        const bool isKept = kk < m && keep[kk] == i;
+        factorRight = factorRight && (isKept ? same_double(c.factor[i], factor[kk]) : std::isnan(c.factor[i]));
+        if (isKept) ++kk;
+        if (std::isnan(c.sky[3*i+2])) {
+          shiftRight = shiftRight && std::isnan(c.shift[i]);
+          continue;
+        }
+        someShift = true;
+        const double moved = table.distanceAt(c.sky[3*i+2]) - table.distanceAt(sky[3*i+2]);
+        shiftRight = shiftRight && std::fabs(moved - c.shift[i]) < 1.e-6;
+      }
+      check(factorRight, "factor: rsdFactor at the redshift of each tracer kept, NaN for the others");
+      check(shiftRight && someShift, "shift: the comoving distance moved, NaN where nothing moved");
+      check(c.validRealizations == plain.validRealizations && c.geometry == Geometry::Lightcone &&
+            c.elapsedSeconds > 0., "validRealizations copied, the geometry, the time");
+      check(c.shift.size() == n && c.factor.size() == n, "one entry per tracer");
+      std::vector<double> shifts = c.shift;
+      for (double& v : shifts) if (std::isnan(v)) v = 0.;
+      const std::vector<double> moved = shiftRadially(plain.tracers, shifts);
+      bool cartesianRight = true;
+      for (std::size_t i = 0; i < n; ++i)
+        for (int k = 0; k < 3; ++k)
+          cartesianRight = cartesianRight && (std::isnan(c.shift[i]) ? std::isnan(c.cartesian[3*i+k])
+                                                                     : same_double(c.cartesian[3*i+k], moved[3*i+k]));
+      check(cartesianRight, "cartesian: shiftRadially of the tracer by its shift, bit for bit; NaN rows elsewhere");
+    }
+
+    group("the correction's report: b(z) extrapolated, then the line of the call; Detailed adds the "
+          "breakdown; Silent nothing");
+    {
+      const std::vector<double> narrowZ {0.35, 0.55}, narrowB {1.2, 1.6};
+      std::ostringstream normal, detailedText;
+      CorrectionConfig c;
+      c.log = &normal;
+      const RealSpaceCatalog cat = realSpaceLightcone(masked, table, BiasTable{narrowZ, narrowB}, 10., c);
+      std::size_t keptOutside = 0;
+      for (const std::size_t i : keep) keptOutside += sky[3*i+2] < 0.35 || sky[3*i+2] > 0.55;
+      std::ostringstream time;
+      time << std::fixed << std::setprecision(2) << cat.elapsedSeconds;
+      const std::size_t u = uncorrected_of(cat).size();
+      const std::string expected =
+        "otswap: b(z) extrapolated at " + std::to_string(keptOutside) + " of " + std::to_string(m) +
+        " redshifts, outside the bias table's range [0.35, 0.55]\n"
+        "otswap: realSpaceLightcone: corrected " + std::to_string(n - u) + " of " + std::to_string(n) +
+        " tracers in " + time.str() + " s; " + std::to_string(u) + " left uncorrected\n";
+      check(normal.str() == expected && cat.nExtrapolated == keptOutside && keptOutside > 0,
+            "Normal: " + normal.str());
+      c.log = &detailedText;
+      c.verbosity = Verbosity::Detailed;
+      const RealSpaceCatalog cat2 = realSpaceLightcone(masked, table, BiasTable{narrowZ, narrowB}, 10., c);
+      std::size_t moved = 0;
+      for (std::size_t i = 0; i < n; ++i)
+        moved += !std::isnan(cat2.sky[3*i+2]) && masked.validRealizations[i] == 0;
+      const std::string breakdown =
+        "otswap: corrected " + std::to_string(n - u) + " tracers, " + std::to_string(moved) +
+        " of them moved with the average of their neighbours (no valid realization)\n"
+        "otswap: left " + std::to_string(u) + " uncorrected: " + std::to_string(n - m) +
+        " left out of the reconstruction, " + std::to_string(u - (n - m)) +
+        " with no valid tracer within 3 sigma\n";
+      check(detailedText.str().find(breakdown) != std::string::npos && lines(detailedText.str()) == 4 &&
+            moved > 0, "Detailed: " + detailedText.str());
+      c.verbosity = Verbosity::Silent;
+      check(captured_clog([&] { realSpaceLightcone(masked, table, BiasTable{narrowZ, narrowB}, 10., c); }).empty(),
+            "Silent writes nothing, the count is still kept");
+      CorrectionConfig boxConfig;
+      std::ostringstream boxText;
+      boxConfig.log = &boxText;
+      const Result boxResult = reconstructBox(converted, {}, 20., config);
+      const RealSpaceCatalog bc = realSpaceBox(boxResult, 2, 0.5, table, 1.5, 10., boxConfig);
+      check(lines(boxText.str()) == 1 && boxText.str().find("otswap: realSpaceBox: corrected ") == 0 &&
+            bc.nExtrapolated == 0, "a box: one line: " + boxText.str());
+      CorrectionConfig weighted;
+      weighted.weightByRealizations = true;
+      weighted.verbosity = Verbosity::Silent;
+      check(!same_bits(realSpaceLightcone(masked, table, BiasTable{zb, b}, 10., weighted).sky,
+                       realSpaceLightcone(masked, table, BiasTable{zb, b}, 10., c).sky),
+            "weightByRealizations is read from the configuration");
+    }
+
+    group("tracers left out of a lightcone: converted when their redshift lies in the table, NaN "
+          "otherwise");
+    {
+      const DistanceTable shortTable(0.3, 0.7, -1., 0., 0., 0.65, 4000);
+      Config quiet = config;
+      const Result r = reconstructLightcone(sky, randomsSky, 800., 1, shortTable, quiet, RedshiftCut{0.2, 0.6});
+      bool right = true;
+      std::size_t beyond = 0, convertible = 0;
+      for (std::size_t i = 0; i < n; ++i) {
+        const double z = sky[3*i+2];
+        const double* t = &r.tracers[3*i];
+        if (z > 0.65) {
+          ++beyond;
+          right = right && std::isnan(t[0]) && std::isnan(t[1]) && std::isnan(t[2]);
+        }
+        else {
+          if (z > 0.6) ++convertible;
+          const std::vector<double> one = toCartesian({sky[3*i], sky[3*i+1], z}, shortTable);
+          right = right && same_double(t[0], one[0]) && same_double(t[1], one[1]) && same_double(t[2], one[2]);
+        }
+      }
+      check(right && beyond > 0 && convertible > 0,
+            "rows beyond the table NaN, the others toCartesian's, cut or not");
+    }
 
     group("a declination outside [-pi/2, pi/2] is refused, with or without a mask; pi/2 is accepted");
     const double above = std::nextafter(kPi / 2., 2.);
@@ -1090,8 +1391,6 @@ int main ()
     check(throws_naming([&] { reconstructLightcone(cart, cartRandoms, sky, badRandoms, mask, 1, table, config); },
                         "the random sky array holds a declination"), "the Cartesian mask overload");
     check(throws_naming([&] { toCartesian(bad, table); }, "the sky array holds a declination"), "toCartesian");
-    check(throws_naming([&] { realSpaceLightcone(plain, bad, table, zb, b, 10.); },
-                        "the tracer sky array holds a declination"), "realSpaceLightcone");
     const std::vector<double> poles {1., kPi / 2., 0.5, 2., -kPi / 2., 0.5};
     bool accepted = true;
     try {
@@ -1115,7 +1414,7 @@ int main ()
     Config config;
     config.nRealizations = 4;
     config.seed = 5;
-    config.verbose = false;
+    config.verbosity = Verbosity::Silent;
     const Result r = reconstructLightcone(sky, randomsSky, 800., 1, shell, config);
     const std::vector<double> cart = toCartesian(sky, shell);
     std::size_t below = 0;

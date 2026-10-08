@@ -38,23 +38,6 @@ import numpy as np
 import otswap
 
 
-def write_table(path, columns, rows):
-    """Write rows in the ASCII layout of otswap's C++ io::write: a comment
-    line per described column, the column names, then one line per row with
-    9 significant digits, and integer columns as integers. columns is a list
-    of (name, is_integer, description)."""
-    described = [c for c in columns if c[2]]
-    width = max((len(c[0]) for c in described), default=0)
-    with open(path, "w") as f:
-        for name, _, description in described:
-            f.write(f"# {name}{' ' * (width - len(name) + 3)}{description}\n")
-        if described:
-            f.write("#\n")
-        f.write("###" + "".join(f"   {c[0]}" for c in columns) + "\n")
-        for row in rows:
-            f.write(" ".join(str(int(v)) if c[1] else "%.9g" % v for c, v in zip(columns, row)) + "\n")
-
-
 def main():
 
     # -------------------------------------------------------------
@@ -75,33 +58,21 @@ def main():
     # Comoving Cartesian coordinates in Mpc/h, shape (N, 3). The tracers are
     # in redshift space, with the line of sight along y; the randoms are
     # uniform in the volume
-    tracers = np.loadtxt(data / "box_halos_redshift_space.dat")
-    randoms = np.loadtxt(data / "box_randoms.dat")
+    tracers = otswap.io.read(data / "box_halos_redshift_space.dat", [0, 1, 2]).values
+    randoms = otswap.io.read(data / "box_randoms.dat", [0, 1, 2]).values
 
     print(f"Tracers: {len(tracers)}")
     print(f"Randoms: {len(randoms)}, {len(randoms) / len(tracers):g} per tracer")
-
-    # --------------------------------------------------------------
-    # ------------ Compute the mean particle separation ------------
-    # --------------------------------------------------------------
-
-    # (V/N)^(1/3), with V the volume of the tracers' bounding box, as in the
-    # box example
-    extent = (tracers.max(axis=0) - tracers.min(axis=0)).tolist()
-    mps = (extent[0] * extent[1] * extent[2] / len(tracers)) ** (1.0 / 3.0)
-
-    print(f"Mean particle separation: {mps:g} Mpc/h")
 
     # ------------------------------------------------
     # ------------ Run the reconstruction ------------
     # ------------------------------------------------
 
-    # As in the box example: 8 realizations, a convergence threshold of 1e-2
-    # and a fixed seed
-    result = otswap.reconstruct_box(tracers, randoms, mps=mps, n_realizations=8, convergence=1e-2,
-                                    seed=12345)
-
-    print(f"Realizations: {result.n_realizations}")
+    # As in the box example: 8 realizations, a convergence threshold of
+    # 1e-2, a fixed seed, and the mean particle separation of the tracers'
+    # bounding box, computed by otswap and printed with "detailed"
+    result = otswap.reconstruct_box(tracers, randoms, n_realizations=8, convergence=1e-2,
+                                    seed=12345, verbosity="detailed")
 
     # ----------------------------------------------------
     # ------------ Set the cosmological model ------------
@@ -125,44 +96,34 @@ def main():
     # weight_by_realizations=True, each neighbour would be weighted by its
     # number of valid realizations.
     #
-    # Pass the positions the reconstruction was run on, in the same order. A
-    # tracer with no valid neighbour within 3 sigma, which in a box happens
-    # only for an isolated one, is left uncorrected, with NaN coordinates,
-    # and listed in uncorrected
-    catalogue = otswap.real_space_box(result, tracers, axis=axis, redshift=redshift,
-                                      distances=distances, bias=bias, sigma=10.0,
-                                      weight_by_realizations=False)
+    # The correction reads the tracers from the result. A tracer with no
+    # valid neighbour within 3 sigma, which in a box happens only for an
+    # isolated one, is left uncorrected, with NaN coordinates;
+    # catalogue.status says which
+    catalogue = otswap.real_space_box(result, axis=axis, redshift=redshift, distances=distances,
+                                      bias=bias, sigma=10.0, weight_by_realizations=False)
 
     # ----------------------------------------------
     # ------------ Summarize the result ------------
     # ----------------------------------------------
 
-    print(f"RSD factor f/(b + 3f/5): {otswap.rsd_factor_box(redshift, distances, bias=bias):g}")
-
-    positions = catalogue.positions
-    corrected = ~np.isnan(positions[:, axis])
-    shift = positions[corrected, axis] - tracers[corrected, axis]
-    print(f"Tracers corrected: {np.count_nonzero(corrected)}")
-    print(f"Tracers left uncorrected: {len(catalogue.uncorrected)}")
-    print(f"Shift along the line of sight: mean {shift.mean():g}, rms {np.sqrt(np.mean(shift ** 2)):g} Mpc/h")
+    # The single factor f/(b + 3f/5) of the box, and the shift applied along
+    # the line of sight to each corrected tracer, both kept in the catalogue
+    print(f"RSD factor f/(b + 3f/5): {catalogue.factor[0]:g}")
+    shift = catalogue.shift[~np.isnan(catalogue.shift)]
+    print(f"Shift along the line of sight over the {len(shift)} corrected tracers: mean {shift.mean():g}, "
+          f"rms {np.sqrt(np.mean(shift ** 2)):g} Mpc/h")
 
     # ------------------------------------------
     # ------------ Write the output ------------
     # ------------------------------------------
 
     # One row per tracer, in the order of the input: the corrected position,
-    # NaN for an uncorrected tracer, then the number of valid realizations
-    # and the two diagnostics of the average
-    columns = [("X", False, "corrected position, in Mpc/h"),
-               ("Y", False, "corrected position, in Mpc/h"),
-               ("Z", False, "corrected position, in Mpc/h"),
-               ("nValidRec", True, "number of valid OT realizations of the tracer"),
-               ("nNeighbours", True, "number of tracers with a valid OT realization averaged within "
-                                     "3 sigma, the tracer included if valid"),
-               ("nRealizationsAveraged", True, "sum of nValidRec over those tracers")]
-    rows = np.column_stack([positions, result.valid_realizations, catalogue.n_neighbours,
-                            catalogue.n_realizations_averaged])
-    write_table(output / "reconstructed_catalogue_box.dat", columns, rows)
+    # NaN for an uncorrected tracer, then the number of valid realizations,
+    # the two diagnostics of the average and the status of the tracer. The
+    # writer is the C++ library's, so the file is the C++ example's, byte
+    # for byte
+    otswap.io.write_real_space_catalog(output / "reconstructed_catalogue_box.dat", catalogue)
 
     print("Written: output/reconstructed_catalogue_box.dat")
 

@@ -103,8 +103,9 @@ namespace otswap {
                            bool allowEmpty = false);
 
     /// Checks that each flag array of @p result, outsideRedshiftCut and
-    /// outsideMask, is empty or holds nObjects entries, and that
-    /// lagrangianSky is empty or holds 3 * nObjects.
+    /// outsideMask, is empty or holds nObjects entries, and that tracers,
+    /// tracersSky, lagrangian and lagrangianSky are each empty or hold
+    /// 3 * nObjects.
     void check_flags (const Result& result);
 
     /// True when tracer @p i of @p result took no part in the
@@ -148,12 +149,33 @@ namespace otswap {
                         unsigned seed,
                         std::vector<std::vector<double>>* sweepCosts = nullptr);
 
-    /// Set validRealizations and meanDisplacement from displacement and
-    /// valid: the count of valid realizations per object, and the mean
-    /// over them, summed in realization order; NaN where there are none.
-    /// When the two arrays already have their sizes they are overwritten in
-    /// place, so their data pointers do not change.
+    /// Set the fields that follow from valid: validRealizations and
+    /// meanDisplacement (the count of valid realizations per object, and
+    /// the mean over them, summed in realization order; NaN where there are
+    /// none), lagrangian = tracers + meanDisplacement when tracers holds
+    /// 3 * nObjects entries (empty otherwise), and lagrangianSky from
+    /// lagrangian with result.distances in a lightcone result (empty
+    /// otherwise). An array that already has its size is overwritten in
+    /// place, so its data pointer does not change.
     void summarize (Result& result);
+
+    /// The line a reconstruction ends its report with, '\n' included:
+    /// "otswap: <name>: <R> realizations of <N> tracers in <T> s; <K>
+    /// without a valid displacement".
+    std::string reconstruction_line (const std::string& name, const Result& result);
+
+    /// Sky coordinates of Cartesian positions, as toSky gives them, except
+    /// that a distance outside the table gives a NaN redshift, the right
+    /// ascension and declination kept, rather than an error. Written into
+    /// @p sky, resized to the size of @p cartesian.
+    void sky_of_positions (const std::vector<double>& cartesian,
+                           const DistanceTable& distances,
+                           std::vector<double>& sky);
+
+    /// (V / N)^(1/3) of positions (3*N, finite, N > 0), V the volume of their
+    /// bounding box: the mean separation of N objects filling it. 0 when the
+    /// positions span no volume.
+    double bounding_box_separation (const std::vector<double>& positions);
 
     /// Sky to Cartesian: x = distance cos(dec) cos(ra),
     /// y = distance cos(dec) sin(ra), z = distance sin(dec).
@@ -164,19 +186,15 @@ namespace otswap {
     void to_sky (double x, double y, double z,
                  double& ra, double& dec, double& distance);
 
-    /// Right ascension folded into [0, 2*pi).
+    /// Right ascension folded into [0, 2*pi): normalize_ra may return 2 pi
+    /// itself for a negative angle smaller in magnitude than half its
+    /// rounding step, and -0 for -0, and fold_ra folds both to +0.
     double normalize_ra (double ra);
+    double fold_ra (double ra);
 
-    /// Nodes of the mean particle separation profile, measured from the
-    /// tracers' redshifts in uniform bins over the observed range.
-    struct MpsProfile {
-      std::vector<double>   redshift;   ///< bin centres
-      std::vector<double>   mps;        ///< mps at each bin centre
-      std::vector<unsigned> count;      ///< tracers in each bin
-    };
-
-    /// Build the profile. Throws when a bin is too thinly populated for
-    /// its density to be meaningful.
+    /// Build the profile of the tracers' redshifts, in uniform bins over the
+    /// observed range, with its representative value. Throws when a bin is
+    /// too thinly populated for its density to be meaningful.
     MpsProfile mps_profile (const std::vector<double>& tracersSky,
                             double skyAreaDeg2, unsigned nBins,
                             const DistanceTable& distances);
@@ -187,19 +205,13 @@ namespace otswap {
     double profile_at (const std::vector<double>& x,
                        const std::vector<double>& y, double at);
 
-    /// Evaluate the profile at @p z: linear between nodes, extrapolated
-    /// linearly beyond the terminal ones along the terminal segment, and
-    /// constant when there is a single node. Throws when the value is not
-    /// positive, which only an extrapolation can produce.
-    double mps_at (const MpsProfile& profile, double z);
-
     /// Count-weighted median of the profile nodes, used to size the grids.
     double representative (const MpsProfile& profile);
 
     /// Cell side of the grid neighbourAverage searches, for these positions
-    /// (3*N, finite, N > 0): 4 (V/N)^(1/3), V the volume of their bounding
-    /// box. A pure function of the positions. It is 0 when the positions
-    /// span no volume, and the grid then refuses it.
+    /// (3*N, finite, N > 0): 4 bounding_box_separation(positions). A pure
+    /// function of the positions. It is 0 when the positions span no
+    /// volume, and the grid then refuses it.
     double neighbour_cell (const std::vector<double>& positions);
 
     /// neighbourAverage with the grid's cell side given; the public

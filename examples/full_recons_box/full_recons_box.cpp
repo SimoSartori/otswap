@@ -32,7 +32,6 @@
   to the folder output/ next to this file, created if missing.
 */
 
-#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -78,40 +77,22 @@ int main (int argc, char** argv)
     std::cout << "Randoms: " << nRandoms << ", " << (double)nRandoms / (double)nTracers << " per tracer" << std::endl;
 
 
-    // --------------------------------------------------------------
-    // ------------ Compute the mean particle separation ------------
-    // --------------------------------------------------------------
-
-    // (V/N)^(1/3), with V the volume of the tracers' bounding box, as in
-    // the box example
-    double volume = 1.;
-    for (int c = 0; c < 3; ++c) {
-      double lo = tracers[c], hi = tracers[c];
-      for (std::size_t i = 0; i < nTracers; ++i) {
-        lo = std::min(lo, tracers[3*i+c]);
-        hi = std::max(hi, tracers[3*i+c]);
-      }
-      volume *= hi - lo;
-    }
-    const double mps = std::pow(volume / (double)nTracers, 1. / 3.);
-
-    std::cout << "Mean particle separation: " << mps << " Mpc/h" << std::endl;
-
-
     // ------------------------------------------------
     // ------------ Run the reconstruction ------------
     // ------------------------------------------------
 
     // As in the box example: 8 realizations, a convergence threshold of
-    // 1e-2 and a fixed seed
+    // 1e-2, a fixed seed, and the mean particle separation of the tracers'
+    // bounding box, computed by otswap and reported with Detailed. The
+    // report goes to std::cout, in order with this program's lines
     otswap::Config config;
     config.nRealizations = 8;
     config.convergence = 1.e-2;
     config.seed = 12345;
+    config.verbosity = otswap::Verbosity::Detailed;
+    config.log = &std::cout;
 
-    const otswap::Result result = otswap::reconstructBox(tracers, randoms, mps, config);
-
-    std::cout << "Realizations: " << result.nRealizations << std::endl;
+    const otswap::Result result = otswap::reconstructBox(tracers, randoms, config);
 
 
     // ----------------------------------------------------
@@ -139,34 +120,37 @@ int main (int argc, char** argv)
     // weightByRealizations, each neighbour would be weighted by its number
     // of valid realizations.
     //
-    // Pass the positions the reconstruction was run on, in the same order.
-    // A tracer with no valid neighbour within 3 sigma, which in a box
-    // happens only for an isolated one, is left uncorrected, with NaN
-    // coordinates, and listed in uncorrected
+    // The correction reads the tracers from the result. A tracer with no
+    // valid neighbour within 3 sigma, which in a box happens only for an
+    // isolated one, is left uncorrected, with NaN coordinates;
+    // RealSpaceCatalog::status says which
     const double sigma = 10.;
-    const otswap::RealSpaceCatalog catalogue = otswap::realSpaceBox(result, tracers, axis, redshift, distances,
-                                                                    bias, sigma, false);
+    otswap::CorrectionConfig correction;
+    correction.weightByRealizations = false;
+    correction.log = &std::cout;
+    const otswap::RealSpaceCatalog catalogue = otswap::realSpaceBox(result, axis, redshift, distances, bias,
+                                                                    sigma, correction);
 
 
     // ----------------------------------------------
     // ------------ Summarize the result ------------
     // ----------------------------------------------
 
-    std::cout << "RSD factor f/(b + 3f/5): " << otswap::rsdFactorBox(redshift, distances, bias) << std::endl;
+    // The single factor f/(b + 3f/5) of the box, and the shift applied
+    // along the line of sight to each corrected tracer, both kept in the
+    // catalogue
+    std::cout << "RSD factor f/(b + 3f/5): " << catalogue.factor[0] << std::endl;
 
     std::size_t corrected = 0;
     double sum = 0., squares = 0.;
     for (std::size_t i = 0; i < nTracers; ++i) {
-      if (std::isnan(catalogue.positions[3*i+axis])) continue;
+      if (std::isnan(catalogue.shift[i])) continue;
       ++corrected;
-      const double shift = catalogue.positions[3*i+axis] - tracers[3*i+axis];
-      sum += shift;
-      squares += shift * shift;
+      sum += catalogue.shift[i];
+      squares += catalogue.shift[i] * catalogue.shift[i];
     }
-    std::cout << "Tracers corrected: " << corrected << std::endl;
-    std::cout << "Tracers left uncorrected: " << catalogue.uncorrected.size() << std::endl;
-    std::cout << "Shift along the line of sight: mean " << sum / (double)corrected << ", rms "
-              << std::sqrt(squares / (double)corrected) << " Mpc/h" << std::endl;
+    std::cout << "Shift along the line of sight over the " << corrected << " corrected tracers: mean "
+              << sum / (double)corrected << ", rms " << std::sqrt(squares / (double)corrected) << " Mpc/h" << std::endl;
 
 
     // ------------------------------------------
@@ -175,22 +159,9 @@ int main (int argc, char** argv)
 
     // One row per tracer, in the order of the input: the corrected
     // position, NaN for an uncorrected tracer, then the number of valid
-    // realizations and the two diagnostics of the average
-    const std::vector<otswap::io::Column> columns = {
-      {"X", 'D', "corrected position, in Mpc/h", {}},
-      {"Y", 'D', "corrected position, in Mpc/h", {}},
-      {"Z", 'D', "corrected position, in Mpc/h", {}},
-      {"nValidRec", 'J', "number of valid OT realizations of the tracer", {}},
-      {"nNeighbours", 'J', "number of tracers with a valid OT realization averaged within 3 sigma, the tracer included if valid", {}},
-      {"nRealizationsAveraged", 'J', "sum of nValidRec over those tracers", {}}};
-
-    otswap::io::write(output + "/reconstructed_catalogue_box.dat", columns, nTracers,
-                      [&] (const std::size_t i, std::vector<double>& row) {
-                        for (int c = 0; c < 3; ++c) row[c] = catalogue.positions[3*i+c];
-                        row[3] = result.validRealizations[i];
-                        row[4] = catalogue.nNeighbours[i];
-                        row[5] = catalogue.nRealizationsAveraged[i];
-                      });
+    // realizations, the two diagnostics of the average and the status of
+    // the tracer
+    otswap::io::writeRealSpaceCatalog(output + "/reconstructed_catalogue_box.dat", catalogue);
 
     std::cout << "Written: output/reconstructed_catalogue_box.dat" << std::endl;
 

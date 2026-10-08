@@ -32,9 +32,10 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
+#include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -90,17 +91,58 @@ namespace otswap {
   // ==========================================================================
   //
   // Every coordinate array is flat and row-major, one object after the
-  // other. Cartesian arrays hold 3 * nObjects entries, ordered x, y, z.
-  // Sky arrays hold 3 * nObjects entries, ordered right ascension,
-  // declination, redshift; angles are in radians.
+  // other. Cartesian arrays hold 3 * nObjects entries, ordered x, y, z, in
+  // Mpc/h, the distance table's unit. Sky arrays hold 3 * nObjects entries,
+  // ordered right ascension, declination, redshift; angles are in radians.
   //
   // Nothing is copied into a nested container at any point: the layout is
   // the one the algorithm walks, and the one a numpy array maps onto
-  // without a copy.
+  // without a copy. The arrays of a Result and of a RealSpaceCatalog:
+  //
+  //   [realization][object][3]  Result::displacement, Result::matchedRandom
+  //   [realization][object]     Result::valid (uint8, 0 or 1)
+  //   [object][3]               Result::tracers, tracersSky, meanDisplacement,
+  //                             lagrangian, lagrangianSky;
+  //                             RealSpaceCatalog::sky, cartesian
+  //   [object]                  Result::validRealizations, outsideRedshiftCut,
+  //                             outsideMask (uint8);
+  //                             RealSpaceCatalog::shift, factor, status,
+  //                             validRealizations, nNeighbours,
+  //                             nRealizationsAveraged
+  //
+  // Flags are uint8, 0 or 1; counts are unsigned; indices of objects are
+  // their rows.
 
   // ==========================================================================
   // Configuration
   // ==========================================================================
+
+  /**
+   *  @brief What a reconstruction or a redshift-space correction reports.
+   *
+   *  Each line starts with "otswap: " and ends in '\n'; the counts behind
+   *  every line are in the object returned, so nothing printed is
+   *  unavailable to a program.
+   */
+  enum class Verbosity {
+    /// Nothing.
+    Silent,
+
+    /// The selection report of a lightcone, when a selection applied
+    /// (SelectionCounts::message), and the extrapolation of b(z), when it
+    /// happened; then one line per call with its time and what was lost:
+    ///
+    ///     otswap: reconstructLightcone: 8 realizations of 29579 tracers in 0.84 s; 62 without a valid displacement
+    ///     otswap: realSpaceLightcone: corrected 29517 of 29579 tracers in 0.12 s; 62 left uncorrected
+    Normal,
+
+    /// As Normal, with the lines that explain it: the mean particle
+    /// separation of a box and its source, the mps(z) profile of a
+    /// lightcone, and the breakdown of the corrected (moved by their
+    /// neighbours) and of the uncorrected (left out of the reconstruction,
+    /// or with no valid neighbour).
+    Detailed
+  };
 
   /**
    *  @brief Free parameters of the reconstruction.
@@ -134,11 +176,11 @@ namespace otswap {
     /// mask overloads of reconstructLightcone only.
     unsigned maxUnobservedPixelsCrossed = 0;
 
-    /// Write Result::selection.message() to std::clog when
-    /// reconstructLightcone applied a selection: a redshift cut with a
-    /// finite bound, or a mask. Nothing is written otherwise, and never by
-    /// reconstructBox.
-    bool verbose = true;
+    /// What the call reports; see Verbosity.
+    Verbosity verbosity = Verbosity::Normal;
+
+    /// Where the report is written; null writes nothing, as Silent.
+    std::ostream* log = &std::clog;
   };
 
   // ==========================================================================
@@ -164,9 +206,8 @@ namespace otswap {
    */
   struct SelectionCounts {
 
-    bool redshiftCutApplied = false;  ///< a bound of the cut was finite
-    RedshiftCut redshiftCut;          ///< the cut, as given
-    bool maskApplied = false;         ///< a Mask was given
+    std::optional<RedshiftCut> redshiftCut;  ///< the cut, when a bound was finite
+    bool maskApplied = false;                ///< a Mask was given
 
     std::size_t tracers = 0;                    ///< tracers given
     std::size_t tracersOutsideRedshiftCut = 0;  ///< of them, outside the cut
@@ -178,16 +219,17 @@ namespace otswap {
     std::size_t randomsOutsideMask = 0;         ///< of them, on an unobserved pixel
     std::size_t randomsOutsideBoth = 0;         ///< counted in both of the above
 
-    bool crossingsRejected = false;             ///< rejectMaskCrossings was applied
-    unsigned maxUnobservedPixelsCrossed = 0;    ///< with this threshold
-    std::size_t displacements = 0;              ///< valid displacements before it
-    std::size_t displacementsCrossingMask = 0;  ///< of them, rejected by it
+    /// The threshold of the latest rejectMaskCrossings applied to the
+    /// result, by reconstructLightcone or afterwards; empty when none was.
+    std::optional<unsigned> maxUnobservedPixelsCrossed;
+    std::size_t displacements = 0;              ///< valid displacements before the first filter
+    std::size_t displacementsCrossingMask = 0;  ///< of them, rejected by every filter so far
 
     /**
-     *  @brief The report Config::verbose writes to std::clog.
+     *  @brief The selection report of a reconstruction.
      *
      *  One line for the tracers and one for the randoms, each listing the
-     *  selections applied, then one for the rejected crossings when the
+     *  selections applied, then one for the rejected crossings when a
      *  filter was applied; each line ends in '\n'. A line is written even
      *  when nothing was removed. For example:
      *
@@ -201,6 +243,50 @@ namespace otswap {
     std::string message () const;
   };
 
+  class DistanceTable;
+
+  /// The geometry a Result was reconstructed in.
+  enum class Geometry {
+    Box,       ///< reconstructBox
+    Lightcone  ///< reconstructLightcone
+  };
+
+  /**
+   *  @brief The mean particle separation of a lightcone as a function of
+   *  redshift, measured by reconstructLightcone.
+   *
+   *  The tracers kept are binned in nBins uniform redshift bins over
+   *  [redshiftMin, redshiftMax], and mps = (N / V)^(-1/3) in each, V the
+   *  shell volume implied by the sky area. The bin values are the nodes of
+   *  a piecewise linear profile, extrapolated linearly beyond the terminal
+   *  ones; at() evaluates it. Empty in a box result.
+   */
+  struct MpsProfile {
+    std::vector<double>      redshift;   ///< bin centres
+    std::vector<double>      mps;        ///< Mpc/h at each centre
+    std::vector<std::size_t> count;      ///< tracers in each bin
+
+    /// The binned range: the smallest and largest redshift of the tracers
+    /// kept.
+    double redshiftMin = std::numeric_limits<double>::quiet_NaN();
+    double redshiftMax = std::numeric_limits<double>::quiet_NaN();
+
+    /// The count-weighted median of the nodes, which sizes the grids of the
+    /// reconstruction.
+    double representative = std::numeric_limits<double>::quiet_NaN();
+
+    /**
+     *  @brief The mps at redshift z, in Mpc/h: linear between the nodes,
+     *  extrapolated linearly beyond the terminal ones along the terminal
+     *  segment, constant with a single node. This is the value the
+     *  reconstruction used at each tracer.
+     *
+     *  @exception Error if the profile is empty, or if the value is not
+     *  positive, which only an extrapolation can give.
+     */
+    double at (double z) const;
+  };
+
   /**
    *  @brief Displacement field produced by a reconstruction.
    *
@@ -212,6 +298,28 @@ namespace otswap {
 
     std::size_t nObjects = 0;
     unsigned    nRealizations = 0;
+
+    /// The geometry of the reconstruction, which the writers and the
+    /// redshift-space correction follow.
+    Geometry geometry = Geometry::Box;
+
+    /// The configuration the reconstruction ran with. seed is the one used:
+    /// the drawn one when 0 was given, so that the result can be
+    /// reproduced.
+    Config config;
+
+    /// Cartesian position of each tracer, the start of its displacements:
+    /// the array given to reconstructBox or to a Cartesian overload of
+    /// reconstructLightcone, or toCartesian of the sky array. A tracer left
+    /// out by the redshift cut or the mask has its conversion when its
+    /// redshift lies in the distance table, NaN otherwise. Flat,
+    /// [object][xyz]; size 3 * nObjects.
+    std::vector<double> tracers;
+
+    /// Sky coordinates of each tracer, as given to reconstructLightcone:
+    /// right ascension, declination, redshift; radians. Flat, [object][3];
+    /// size 3 * nObjects in a lightcone result, empty in a box result.
+    std::vector<double> tracersSky;
 
     /// Displacements. Flat, [realization][object][xyz].
     /// Size 3 * nRealizations * nObjects.
@@ -228,9 +336,9 @@ namespace otswap {
     std::vector<std::uint8_t> valid;
 
     /// Mean displacement per object, over its valid realizations only,
-    /// summed in realization order. NaN in all three components for an
-    /// object with no valid realization. Flat, [object][xyz]. Size
-    /// 3 * nObjects.
+    /// summed in realization order, then divided by their count. NaN in all
+    /// three components for an object with no valid realization. Flat,
+    /// [object][xyz]. Size 3 * nObjects.
     std::vector<double> meanDisplacement;
 
     /// Valid realizations per object: the count of 1 entries of valid for
@@ -264,25 +372,45 @@ namespace otswap {
     /// the flag. An empty field is read as all 0.
     std::vector<std::uint8_t> outsideMask;
 
-    /// What reconstructLightcone left out, and why.
+    /// What reconstructLightcone left out, and why, and what the mask
+    /// filters rejected; updated by every rejectMaskCrossings.
     SelectionCounts selection;
 
-    /// Sky coordinates of each tracer's mean Lagrangian position, the
-    /// tracer's Cartesian position plus meanDisplacement, as toSky computes
-    /// them with the reconstruction's distance table: right ascension in
-    /// [0, 2 pi), declination, redshift; radians. Flat, [object][3]. Size
-    /// 3 * nObjects, filled by reconstructLightcone; empty in a box result.
+    /// Mean Lagrangian position of each tracer, tracers + meanDisplacement.
+    /// NaN rows where meanDisplacement is NaN. Flat, [object][xyz]; size
+    /// 3 * nObjects. Recomputed with meanDisplacement by rejectMaskCrossings
+    /// and recomputeMeans.
+    std::vector<double> lagrangian;
+
+    /// Sky coordinates of each tracer's mean Lagrangian position, as toSky
+    /// computes them from lagrangian with the reconstruction's distance
+    /// table: right ascension in [0, 2 pi), declination, redshift; radians.
+    /// Flat, [object][3]; size 3 * nObjects in a lightcone result, empty in a
+    /// box result. Recomputed with lagrangian.
     ///
-    /// NaN rows for the tracers flagged in outsideRedshiftCut or outsideMask
-    /// and for those with no valid realization. A position whose distance
-    /// falls outside the table, which a table that does not start at
-    /// distance 0 allows, has a NaN redshift and keeps its right ascension
-    /// and declination. rejectMaskCrossings empties the field when it
-    /// rejects any displacement, since it has no distance table to
-    /// recompute it with; toSky does. An empty field, or one of size
-    /// 3 * nObjects, is accepted by every function that takes a Result, and
-    /// none reads it.
+    /// NaN rows where lagrangian is NaN: the tracers flagged in
+    /// outsideRedshiftCut or outsideMask and those with no valid
+    /// realization. A position whose distance falls outside the table,
+    /// which a table that does not start at distance 0 allows, has a NaN
+    /// redshift and keeps its right ascension and declination.
     std::vector<double> lagrangianSky;
+
+    /// Box: the mean particle separation used, given or computed, Mpc/h.
+    /// NaN in a lightcone result, whose separation is mpsProfile.
+    double mps = std::numeric_limits<double>::quiet_NaN();
+
+    /// Lightcone: the mean particle separation profile measured on the
+    /// tracers kept. Empty in a box result.
+    MpsProfile mpsProfile;
+
+    /// Lightcone: the distance table of the reconstruction, shared by the
+    /// copies of this result, with which rejectMaskCrossings and
+    /// recomputeMeans recompute lagrangianSky. Null in a box result.
+    std::shared_ptr<const DistanceTable> distances;
+
+    /// Wall time of the call that made the result, in seconds. Two runs
+    /// with the same seed give the same result but for this field.
+    double elapsedSeconds = 0.;
   };
 
   // ==========================================================================
@@ -501,7 +629,8 @@ namespace otswap {
    *
    *  @return the displacement field; every entry of valid is 1,
    *  validRealizations is uniformly config.nRealizations, and
-   *  meanDisplacement is the mean over all realizations.
+   *  meanDisplacement is the mean over all realizations. Result::mps is
+   *  mps.
    *
    *  @note The box is not periodic: nothing flows through its faces, so
    *  modes on the scale of the box itself cannot be reconstructed.
@@ -515,6 +644,19 @@ namespace otswap {
   Result reconstructBox (const std::vector<double>& tracers,
                          const std::vector<double>& randoms,
                          double mps,
+                         const Config& config);
+
+  /**
+   *  @brief Reconstruct in box geometry, with the mean particle separation
+   *  of the tracers: mps = (V / N)^(1/3), V the volume of their bounding
+   *  box, the box that drawn randoms fill, and N their number. The value
+   *  used is Result::mps.
+   *
+   *  @exception Error as above, and if the tracers span no volume (all of
+   *  them in one plane, on one line or at one point).
+   */
+  Result reconstructBox (const std::vector<double>& tracers,
+                         const std::vector<double>& randoms,
                          const Config& config);
 
   /**
@@ -566,6 +708,32 @@ namespace otswap {
                              const DistanceTable& distances);
 
   /**
+   *  @brief Right ascension and declination of a sky array from degrees to
+   *  radians, multiplied by pi/180; redshifts unchanged.
+   *
+   *  The factor is the double numpy.deg2rad multiplies by, so an array
+   *  converted here and one converted by the Python package are the same.
+   *
+   *  @param skyDegrees 3 * nObjects entries, ordered right ascension,
+   *  declination, redshift; angles in degrees. May be empty.
+   *
+   *  @exception Error if the size is not a multiple of three, or a finite
+   *  declination lies outside [-90, 90] degrees; the message names the
+   *  object.
+   */
+  std::vector<double> skyToRadians (std::vector<double> skyDegrees);
+
+  /**
+   *  @brief Right ascension and declination of a sky array from radians to
+   *  degrees, multiplied by 180/pi; redshifts unchanged. A right ascension
+   *  that rounds to 360 is folded to 0, so that one in [0, 2 pi) stays in
+   *  [0, 360). NaN stays NaN.
+   *
+   *  @exception Error if the size is not a multiple of three.
+   */
+  std::vector<double> skyToDegrees (std::vector<double> skyRadians);
+
+  /**
    *  @brief Reconstruct in lightcone geometry, from sky coordinates.
    *
    *  The mean particle separation is measured from the tracers
@@ -603,7 +771,7 @@ namespace otswap {
    *  table. The default cuts nothing.
    *
    *  The counts are recorded in Result::selection and, with a cut that
-   *  has a finite bound and config.verbose, written to std::clog.
+   *  has a finite bound, reported as config.verbosity says.
    *
    *  @exception Error if a bin holds too few tracers for its density to
    *  be meaningful; the message reports how many bins the catalog
@@ -671,8 +839,8 @@ namespace otswap {
    *
    *  The mask and the redshift cut are both evaluated on every object, so a
    *  tracer may be flagged by both; the objects kept are those that pass
-   *  both. The counts are recorded in Result::selection and, with
-   *  config.verbose, written to std::clog.
+   *  both. The counts are recorded in Result::selection and reported as
+   *  config.verbosity says.
    *
    *  To filter with another threshold afterwards, set
    *  config.maxUnobservedPixelsCrossed instead: a second rejectMaskCrossings
@@ -744,10 +912,14 @@ namespace otswap {
    *  A rejected displacement has its entry of valid cleared; entries
    *  already cleared stay cleared, so the filter composes with any other
    *  and applying it twice with the same mask and threshold changes
-   *  nothing. validRealizations and meanDisplacement are then recomputed
-   *  from valid. When any displacement is rejected, lagrangianSky is
-   *  emptied: a result filtered after the reconstruction no longer carries
-   *  the Lagrangian sky coordinates; recompute them with toSky.
+   *  nothing. The fields that follow from valid are then recomputed, as
+   *  recomputeMeans does: validRealizations, meanDisplacement, lagrangian
+   *  and lagrangianSky.
+   *
+   *  Result::selection records the filter: maxUnobservedPixelsCrossed the
+   *  threshold of this call, displacements the valid displacements before
+   *  the first filter applied to the result, and displacementsCrossingMask
+   *  those rejected by every filter so far.
    *
    *  @param maxUnobservedPixelsCrossed distinct unobserved pixels tolerated
    *  along the arc, the endpoint pixels excluded.
@@ -762,9 +934,9 @@ namespace otswap {
    *  finite.
    *
    *  @exception Error if the result is malformed (including a NaN outside
-   *  the flagged tracers' rows, a flagged tracer with a valid entry, a
-   *  flag array whose size is neither 0 nor nObjects, or a lagrangianSky
-   *  whose size is neither 0 nor 3 * nObjects), if an entry of valid is
+   *  the flagged tracers' rows, a flagged tracer with a valid entry, or a
+   *  flag, tracers, tracersSky, lagrangian or lagrangianSky array whose
+   *  size is neither 0 nor the one of its layout), if an entry of valid is
    *  neither 0 nor 1, or if the result was already filtered against a
    *  mask of a different NSIDE.
    */
@@ -772,71 +944,29 @@ namespace otswap {
                             const Mask& mask,
                             unsigned maxUnobservedPixelsCrossed = 0);
 
-  // ==========================================================================
-  // Tables
-  // ==========================================================================
-
-  namespace io {
-
-    /// One column of an output table.
-    struct Column {
-      std::string name;
-      char        type = 'D';        ///< 'D' double, 'J' integer
-      std::string description;       ///< written as a header comment
-      std::vector<double> data;
-    };
-
-    /// A table read from file.
-    struct Table {
-      std::size_t nRows = 0;
-      std::size_t nColumns = 0;
-      std::vector<double> values;    ///< flat, row-major [row][column]
-    };
-
-    /**
-     *  @brief Read selected columns of a table.
-     *
-     *  The format follows the extension: .fits, .fit and .fits.gz are
-     *  read as FITS, anything else as ASCII. In FITS the columns are
-     *  named, case insensitively; in ASCII they are 0-based indices
-     *  given as strings. Vector-valued FITS columns are rejected.
-     *
-     *  @exception Error if the file is missing, a column is absent, a
-     *  requested index is not an integer, a row is too short, or an
-     *  undefined value is met.
-     */
-    Table read (const std::string& file,
-                const std::vector<std::string>& columns,
-                char delimiter = ' ', char comment = '#');
-
-    /**
-     *  @brief Write a table. An existing file is overwritten.
-     *
-     *  The format follows the extension, as in read. In ASCII each value is
-     *  written with 9 significant digits, and a NaN as nan whatever its
-     *  sign.
-     *
-     *  @exception Error if the columns differ in length, or the file
-     *  cannot be written.
-     */
-    void write (const std::string& file, const std::vector<Column>& columns);
-
-    /**
-     *  @brief Write a table whose rows are produced on demand.
-     *
-     *  The data member of each column is ignored; fillRow is called once
-     *  per row with a buffer of one entry per column. Nothing is held in
-     *  memory, so this is the variant for catalog-sized output.
-     */
-    void write (const std::string& file, const std::vector<Column>& columns,
-                std::size_t nRows,
-                const std::function<void(std::size_t, std::vector<double>&)>& fillRow);
-
-  }
+  /**
+   *  @brief Recompute every field of a result that follows from valid:
+   *  validRealizations and meanDisplacement, then lagrangian and
+   *  lagrangianSky.
+   *
+   *  meanDisplacement is summed over the valid realizations in realization
+   *  order and divided by their count, as the reconstruction does, so a
+   *  result whose displacement and valid were read back from a file gives
+   *  the reconstruction's bits. lagrangian is tracers + meanDisplacement,
+   *  left empty when tracers is; lagrangianSky is computed with
+   *  result.distances, and left empty without a distance table.
+   *
+   *  @exception Error if displacement or valid has the wrong size, an entry
+   *  of valid is neither 0 nor 1, or a flag, tracers or tracersSky array has
+   *  a size that is neither 0 nor the one of its layout.
+   */
+  void recomputeMeans (Result& result);
 
 }
 
-// The redshift-space correction, declared over the types above.
+// The redshift-space correction and the tables, declared over the types
+// above.
 #include "otswap/RSD.h"
+#include "otswap/io.h"
 
 #endif

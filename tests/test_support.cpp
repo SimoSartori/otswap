@@ -219,24 +219,24 @@ int main ()
 
   group("mps(z) is extrapolated linearly, and a non-positive value raises");
   {
-    internal::MpsProfile profile;
+    MpsProfile profile;
     profile.redshift = {0.5, 0.6, 0.7};
     profile.mps = {10., 12., 20.};
     profile.count = {300, 300, 300};
 
-    check_close(internal::mps_at(profile, 0.45), 9., 1.e-9, "below the first bin centre");
-    check_close(internal::mps_at(profile, 0.75), 24., 1.e-9, "above the last bin centre");
-    check_close(internal::mps_at(profile, 0.65), 16., 1.e-9, "between bin centres");
+    check_close(profile.at(0.45), 9., 1.e-9, "below the first bin centre");
+    check_close(profile.at(0.75), 24., 1.e-9, "above the last bin centre");
+    check_close(profile.at(0.65), 16., 1.e-9, "between bin centres");
 
     // Along the first segment mps falls by 2 per 0.1 in z, so it reaches
     // zero at z = 0 and is negative below.
-    check_throws([&] { internal::mps_at(profile, -0.01); },
+    check_throws([&] { profile.at(-0.01); },
                  "an extrapolation to a negative mps raises");
-    check_throws([&] { internal::mps_at(profile, 0.); },
+    check_throws([&] { profile.at(0.); },
                  "an extrapolation to exactly zero raises");
 
     try {
-      internal::mps_at(profile, -0.05);
+      profile.at(-0.05);
     }
     catch (const Error& e) {
       const std::string message = e.what();

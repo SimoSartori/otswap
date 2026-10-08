@@ -493,8 +493,12 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
   }
   if (failure) std::rethrow_exception(failure);
 
-  if (std::count(result.valid.begin(), result.valid.end(), 1) != nValidBefore)
-    result.lagrangianSky.clear();
+  const std::ptrdiff_t nValidAfter = std::count(result.valid.begin(), result.valid.end(), 1);
+  SelectionCounts& counts = result.selection;
+  if (!counts.maxUnobservedPixelsCrossed) counts.displacements = (std::size_t)nValidBefore;
+  counts.maxUnobservedPixelsCrossed = maxUnobservedPixelsCrossed;
+  counts.displacementsCrossingMask += (std::size_t)(nValidBefore - nValidAfter);
+
   internal::summarize(result);
   result.filteredNside = mask.nside();
 }

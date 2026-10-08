@@ -33,6 +33,7 @@
 #include <numeric>
 #include <random>
 #include <set>
+#include <string>
 #include <vector>
 
 #ifdef _OPENMP
@@ -64,6 +65,18 @@ namespace {
         }
 
     return out;
+  }
+
+  template <typename F>
+  bool message_contains (F&& f, const std::string& text)
+  {
+    try {
+      f();
+    }
+    catch (const Error& e) {
+      return std::string(e.what()).find(text) != std::string::npos;
+    }
+    return false;
   }
 
   double total_cost (const Result& r, const std::vector<double>& tracers,
@@ -447,7 +460,7 @@ int main ()
     sky[2] = zLo;
     sky[sky.size()-1] = zHi;
 
-    const internal::MpsProfile profile =
+    const MpsProfile profile =
       internal::mps_profile(sky, skyAreaDeg2, nBins, distances);
 
     const double expected = std::pow(density, -1./3.);
@@ -457,6 +470,7 @@ int main ()
                   "the recovered separation matches the density it was built from");
 
     const double rep = internal::representative(profile);
+    check(rep == profile.representative, "the profile carries its representative value");
     check_close(rep, expected, 0.02 * expected,
                 "the representative separation is that same value");
   }
@@ -595,6 +609,84 @@ int main ()
     check_throws([&] {
       reconstructLightcone(sky, randomSky, skyAreaDeg2, nBins, narrow, c);
     }, "redshifts outside the distance table raise");
+  }
+
+  group("the box Result: geometry, configuration with the seed used, tracers, lagrangian, mps, time");
+  {
+    Config c;
+    c.nRealizations = 2;
+    c.seed = 77;
+    const Result r = reconstructBox(tracers, {}, spacing, c);
+    check(r.geometry == Geometry::Box && r.config.seed == 77 && r.config.nRealizations == 2,
+          "the geometry and the configuration");
+    check(r.tracers == tracers && r.tracersSky.empty() && r.mps == spacing && !r.distances &&
+          r.lagrangianSky.empty() && r.mpsProfile.redshift.empty(),
+          "the tracers as given, the mps given, nothing of a lightcone");
+    bool lagrangian = r.lagrangian.size() == 3 * nObjects;
+    for (std::size_t k = 0; lagrangian && k < 3 * nObjects; ++k)
+      lagrangian = r.lagrangian[k] == tracers[k] + r.meanDisplacement[k];
+    check(lagrangian, "lagrangian is tracers + meanDisplacement, bit for bit");
+    check(r.elapsedSeconds > 0., "the elapsed time");
+
+    Config drawn = c;
+    drawn.seed = 0;
+    const Result d = reconstructBox(tracers, {}, spacing, drawn);
+    check(d.config.seed != 0, "seed 0: the drawn seed is recorded");
+    Config again = c;
+    again.seed = d.config.seed;
+    check(reconstructBox(tracers, {}, spacing, again).displacement == d.displacement,
+          "and reproduces the result");
+  }
+
+  group("the box mps computed from the tracers' bounding box, when not given");
+  {
+    Config c;
+    c.nRealizations = 2;
+    c.seed = 5;
+    const double computed = internal::bounding_box_separation(tracers);
+    double lo[3], hi[3];
+    for (int k = 0; k < 3; ++k) {
+      lo[k] = hi[k] = tracers[(std::size_t)k];
+      for (std::size_t i = 0; i < nObjects; ++i) {
+        lo[k] = std::min(lo[k], tracers[3*i+k]);
+        hi[k] = std::max(hi[k], tracers[3*i+k]);
+      }
+    }
+    const double volume = (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]);
+    check_close(computed, std::cbrt(volume / (double)nObjects), 1.e-12 * computed,
+                "(V / N)^(1/3) of the bounding box");
+    const Result r = reconstructBox(tracers, {}, c);
+    check(r.mps == computed && r.displacement == reconstructBox(tracers, {}, computed, c).displacement,
+          "the same result as with that mps given, bit for bit; Result::mps holds it");
+    std::vector<double> flat = tracers;
+    for (std::size_t i = 0; i < nObjects; ++i) flat[3*i+2] = 1.;
+    check(message_contains([&] { reconstructBox(flat, {}, c); }, "span no volume"),
+          "tracers in one plane are refused");
+  }
+
+  group("recomputeMeans after an edit of valid: the means of the valid realizations, in order");
+  {
+    Config c;
+    c.nRealizations = 3;
+    c.seed = 9;
+    Result r = reconstructBox(tracers, {}, spacing, c);
+    const double* mean = r.meanDisplacement.data();
+    r.valid[5] = 0;
+    r.valid[nObjects + 5] = 0;
+    r.valid[2 * nObjects + 6] = 0;
+    r.valid[6] = 0;
+    r.valid[nObjects + 6] = 0;
+    recomputeMeans(r);
+    check(r.validRealizations[5] == 1 && r.validRealizations[6] == 0 && r.validRealizations[7] == 3,
+          "the counts");
+    check(r.meanDisplacement[3*5+1] == r.displacement[3*(2*nObjects + 5)+1] &&
+          std::isnan(r.meanDisplacement[3*6]) && std::isnan(r.lagrangian[3*6+2]),
+          "one valid realization gives its displacement, none gives NaN, in lagrangian too");
+    const double expected = ((r.displacement[3*7] + r.displacement[3*(nObjects+7)]) +
+                             r.displacement[3*(2*nObjects+7)]) / 3.;
+    check(r.meanDisplacement[3*7] == expected && r.lagrangian[3*7] == tracers[3*7] + expected,
+          "the sum in realization order, then the division");
+    check(r.meanDisplacement.data() == mean, "the arrays are overwritten in place");
   }
 
   return report("test_reconstruct");

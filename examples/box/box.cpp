@@ -28,7 +28,6 @@
   folder output/ next to this file, created if missing.
 */
 
-#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -61,8 +60,9 @@ int main (int argc, char** argv)
     // ------------ Read the tracer and random catalogues ------------
     // ---------------------------------------------------------------
 
-    // io::read reads the listed columns of a table: 0-based indices for
-    // ASCII files, column names for FITS files (.fits, .fit, .fits.gz).
+    // io::read reads the listed columns of a table: for ASCII files
+    // 0-based indices, or the names of the "###" line of a file otswap
+    // wrote; for FITS files (.fits, .fit, .fits.gz) the column names.
     // Table::values holds the rows one after the other, x, y, z for each
     // object: the flat layout every otswap function takes. Coordinates
     // are comoving, in Mpc/h
@@ -74,30 +74,6 @@ int main (int argc, char** argv)
 
     std::cout << "Tracers: " << nTracers << std::endl;
     std::cout << "Randoms: " << nRandoms << ", " << (double)nRandoms / (double)nTracers << " per tracer" << std::endl;
-
-
-    // --------------------------------------------------------------
-    // ------------ Compute the mean particle separation ------------
-    // --------------------------------------------------------------
-
-    // In box geometry the mean particle separation (mps) is a single
-    // number given by the caller: here (V/N)^(1/3), with V the volume of
-    // the tracers' bounding box and N their number. It sets the scale of
-    // the search for swap partners, so it must describe the whole
-    // catalogue: with a strongly varying density use the lightcone
-    // geometry, which measures it as a function of redshift
-    double volume = 1.;
-    for (int c = 0; c < 3; ++c) {
-      double lo = tracers[c], hi = tracers[c];
-      for (std::size_t i = 0; i < nTracers; ++i) {
-        lo = std::min(lo, tracers[3*i+c]);
-        hi = std::max(hi, tracers[3*i+c]);
-      }
-      volume *= hi - lo;
-    }
-    const double mps = std::pow(volume / (double)nTracers, 1. / 3.);
-
-    std::cout << "Mean particle separation: " << mps << " Mpc/h" << std::endl;
 
 
     // ------------------------------------------------------------------
@@ -119,20 +95,35 @@ int main (int argc, char** argv)
     config.convergence = 1.e-2;
 
     // A fixed seed makes the run reproducible; 0 draws a new seed at each
-    // run. The number of threads follows OMP_NUM_THREADS, and with a fixed
-    // seed the result is the same whatever the number of threads
+    // run, and Result::config.seed records the one drawn. The number of
+    // threads follows OMP_NUM_THREADS, and with a fixed seed the result is
+    // the same whatever the number of threads
     config.seed = 12345;
 
     // The grid cell, in units of mps, affects the speed only, never the
     // result; the default is 4
     config.cellSize = 4.;
 
+    // What the reconstruction reports, and where: Detailed adds to the
+    // line of the call the mean particle separation and its source. The
+    // report goes to std::clog by default; here to std::cout, in order
+    // with this program's own lines
+    config.verbosity = otswap::Verbosity::Detailed;
+    config.log = &std::cout;
+
 
     // ------------------------------------------------
     // ------------ Run the reconstruction ------------
     // ------------------------------------------------
 
-    const otswap::Result result = otswap::reconstructBox(tracers, randoms, mps, config);
+    // In box geometry the mean particle separation (mps) is a single
+    // number. Without one, as here, otswap takes (V/N)^(1/3), with V the
+    // volume of the tracers' bounding box and N their number, and records
+    // it in Result::mps; an overload takes it from the caller. It sets the
+    // scale of the search for swap partners, so it must describe the whole
+    // catalogue: with a strongly varying density use the lightcone
+    // geometry, which measures it as a function of redshift
+    const otswap::Result result = otswap::reconstructBox(tracers, randoms, config);
 
 
     // ----------------------------------------------
@@ -167,28 +158,11 @@ int main (int argc, char** argv)
 
     // One row per tracer, in the order of the input: its position, its
     // mean Lagrangian position (the position plus the mean displacement),
-    // and the mean displacement. io::write generates the rows on demand,
-    // so nothing the size of the catalogue is held twice; the format
-    // follows the extension, ASCII here
-    const std::vector<otswap::io::Column> columns = {
-      {"tracX", 'D', "tracer position, in Mpc/h", {}},
-      {"tracY", 'D', "", {}},
-      {"tracZ", 'D', "", {}},
-      {"lagrX", 'D', "mean Lagrangian position, tracer + mean displacement, in Mpc/h", {}},
-      {"lagrY", 'D', "", {}},
-      {"lagrZ", 'D', "", {}},
-      {"displX", 'D', "mean displacement over the valid realizations, in Mpc/h", {}},
-      {"displY", 'D', "", {}},
-      {"displZ", 'D', "", {}}};
-
-    otswap::io::write(output + "/displacement_box.dat", columns, nTracers,
-                      [&] (const std::size_t i, std::vector<double>& row) {
-                        for (int c = 0; c < 3; ++c) {
-                          row[c]   = tracers[3*i+c];
-                          row[c+3] = tracers[3*i+c] + result.meanDisplacement[3*i+c];
-                          row[c+6] = result.meanDisplacement[3*i+c];
-                        }
-                      });
+    // the mean displacement and the number of valid realizations, with a
+    // header giving the units and the parameters of the run. The format
+    // follows the extension, ASCII here; io::writeDisplacementField writes
+    // every realization instead, losslessly
+    otswap::io::writeDisplacements(output + "/displacement_box.dat", result);
 
     std::cout << "Written: output/displacement_box.dat" << std::endl;
 

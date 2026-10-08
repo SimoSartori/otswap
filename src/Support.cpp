@@ -157,10 +157,38 @@ void otswap::internal::check_flags (const Result& result)
   };
   check(result.outsideRedshiftCut, "outsideRedshiftCut");
   check(result.outsideMask, "outsideMask");
-  if (!result.lagrangianSky.empty() && result.lagrangianSky.size() != 3 * result.nObjects)
-    throw Error("the result is malformed: lagrangianSky holds " +
-                std::to_string(result.lagrangianSky.size()) + " entries for " +
-                std::to_string(result.nObjects) + " objects");
+
+  auto check3 = [&result] (const std::vector<double>& rows, const std::string& name) {
+    if (!rows.empty() && rows.size() != 3 * result.nObjects)
+      throw Error("the result is malformed: " + name + " holds " + std::to_string(rows.size()) +
+                  " entries for " + std::to_string(result.nObjects) + " objects");
+  };
+  check3(result.tracers, "tracers");
+  check3(result.tracersSky, "tracersSky");
+  check3(result.lagrangian, "lagrangian");
+  check3(result.lagrangianSky, "lagrangianSky");
+}
+
+
+// ============================================================================
+
+
+double otswap::internal::bounding_box_separation (const std::vector<double>& positions)
+{
+  const std::size_t n = positions.size() / 3;
+
+  double side[3];
+  for (int k = 0; k < 3; ++k) {
+    double lo = positions[(std::size_t)k], hi = lo;
+    for (std::size_t i = 1; i < n; ++i) {
+      lo = std::min(lo, positions[3*i+k]);
+      hi = std::max(hi, positions[3*i+k]);
+    }
+    side[k] = hi - lo;
+  }
+
+  const double volume = side[0] * side[1] * side[2];
+  return det_pow(volume / (double)n, 1./3.);
 }
 
 
@@ -247,6 +275,17 @@ double otswap::internal::normalize_ra (const double ra)
   double normalized = std::fmod(ra, twopi);
   if (normalized < 0.) normalized += twopi;
   return normalized;
+}
+
+
+// ============================================================================
+
+
+double otswap::internal::fold_ra (const double ra)
+{
+  constexpr double twopi = 2. * 3.14159265358979323846;
+  const double normalized = normalize_ra(ra);
+  return (normalized == 0. || normalized >= twopi) ? 0. : normalized;
 }
 
 

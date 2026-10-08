@@ -106,8 +106,8 @@ jobs:
       - name: The installed files
         working-directory: ${{ runner.temp }}/moved
         run: |
-          headers=$(find include -type f | sort | tr '\n' ' ')
-          expected="include/meshsearch/MeshGrid.h include/otswap/OT.h include/otswap/RSD.h "
+          headers=$(find include -type f | LC_ALL=C sort | tr '\n' ' ')
+          expected="include/meshsearch/MeshGrid.h include/otswap/OT.h include/otswap/RSD.h include/otswap/io.h "
           if [ "$headers" != "$expected" ]; then
             echo "installed headers: $headers"
             exit 1

@@ -27,10 +27,14 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <exception>
 #include <iostream>
+#include <iomanip>
 #include <limits>
+#include <locale>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -95,14 +99,25 @@ namespace {
         throw otswap::Error("the shift of object " + std::to_string(i) + " is infinite");
   }
 
-  // The fields of a Result the correction reads, checked against the
-  // number of tracers given.
-  void check_result (const otswap::Result& result, const std::size_t n)
+  /// The fields of a Result the correction reads: its geometry, its
+  /// tracers (and their sky coordinates in a lightcone), the mean
+  /// displacements and the counts of valid realizations.
+  void check_result (const otswap::Result& result, const otswap::Geometry geometry,
+                     const std::string& function)
   {
-    if (result.nObjects != n)
-      throw otswap::Error("the result describes " + std::to_string(result.nObjects) +
-                          " objects and the tracer array " + std::to_string(n) +
-                          "; pass the tracers the reconstruction was run on");
+    const std::size_t n = result.nObjects;
+    const bool lightcone = geometry == otswap::Geometry::Lightcone;
+    if (result.geometry != geometry)
+      throw otswap::Error(function + " corrects a " + (lightcone ? "lightcone" : "box") +
+                          " result, and this one was reconstructed in " +
+                          (lightcone ? "box" : "lightcone") + " geometry");
+    if (result.tracers.size() != 3 * n || (lightcone && result.tracersSky.size() != 3 * n))
+      throw otswap::Error("the result does not carry its tracers: tracers" +
+                          std::string(lightcone ? " and tracersSky hold " : " holds ") +
+                          std::to_string(result.tracers.size()) +
+                          (lightcone ? " and " + std::to_string(result.tracersSky.size()) : "") +
+                          " entries for " + std::to_string(n) + " objects; a result returned by " +
+                          (lightcone ? "reconstructLightcone" : "reconstructBox") + " carries them");
     if (result.meanDisplacement.size() != 3 * n || result.validRealizations.size() != n)
       throw otswap::Error("the result is malformed: meanDisplacement and validRealizations hold " +
                           std::to_string(result.meanDisplacement.size()) + " and " +
@@ -197,13 +212,62 @@ namespace {
     return f / (bz + 3. * f / 5.);
   }
 
-  // An empty catalogue with n rows, every position NaN.
-  otswap::RealSpaceCatalog empty_catalog (const std::size_t n)
+  /// A catalogue of the objects of result, nothing moved: every position,
+  /// shift and factor NaN, every diagnostic 0, the status LeftOut for the
+  /// tracers left out of the reconstruction and NoValidNeighbour for the
+  /// others.
+  otswap::RealSpaceCatalog empty_catalog (const otswap::Result& result)
   {
+    const std::size_t n = result.nObjects;
     otswap::RealSpaceCatalog catalog;
     catalog.nObjects = n;
-    catalog.positions.assign(3 * n, kNaN);
+    catalog.geometry = result.geometry;
+    if (result.geometry == otswap::Geometry::Lightcone) catalog.sky.assign(3 * n, kNaN);
+    catalog.cartesian.assign(3 * n, kNaN);
+    catalog.shift.assign(n, kNaN);
+    catalog.factor.assign(n, kNaN);
+    catalog.status.assign(n, otswap::CorrectionStatus::NoValidNeighbour);
+    for (std::size_t i = 0; i < n; ++i)
+      if (otswap::internal::excluded(result, i)) catalog.status[i] = otswap::CorrectionStatus::LeftOut;
+    catalog.validRealizations = result.validRealizations;
+    catalog.nNeighbours.assign(n, 0u);
+    catalog.nRealizationsAveraged.assign(n, 0u);
     return catalog;
+  }
+
+  /// Write the report of a correction to config.log: first, under Normal,
+  /// the lines given (the extrapolation of b(z)); under Detailed the
+  /// breakdown of the corrected and of the uncorrected; then the line of
+  /// the call.
+  void report (const std::string& name, const otswap::RealSpaceCatalog& catalog,
+               const std::string& first, const otswap::CorrectionConfig& config)
+  {
+    using otswap::CorrectionStatus;
+    using otswap::Verbosity;
+    if (config.log == nullptr || config.verbosity == Verbosity::Silent) return;
+
+    std::size_t count[4] = {0, 0, 0, 0};
+    for (const CorrectionStatus s : catalog.status) ++count[(std::size_t)s];
+    const std::size_t corrected = count[(std::size_t)CorrectionStatus::Corrected] +
+                                  count[(std::size_t)CorrectionStatus::MovedByNeighbours];
+    const std::size_t uncorrected = catalog.nObjects - corrected;
+
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << first;
+    if (config.verbosity == Verbosity::Detailed) {
+      out << "otswap: corrected " << corrected << " tracers, "
+          << count[(std::size_t)CorrectionStatus::MovedByNeighbours]
+          << " of them moved with the average of their neighbours (no valid realization)\n";
+      out << "otswap: left " << uncorrected << " uncorrected: "
+          << count[(std::size_t)CorrectionStatus::LeftOut] << " left out of the reconstruction, "
+          << count[(std::size_t)CorrectionStatus::NoValidNeighbour]
+          << " with no valid tracer within 3 sigma\n";
+    }
+    out << "otswap: " << name << ": corrected " << corrected << " of " << catalog.nObjects
+        << " tracers in " << std::fixed << std::setprecision(2) << catalog.elapsedSeconds << " s; "
+        << uncorrected << " left uncorrected\n";
+    *config.log << out.str() << std::flush;
   }
 
 }
@@ -212,8 +276,8 @@ namespace {
 // ============================================================================
 
 
-std::vector<double> otswap::lineOfSightProjection (const std::vector<double>& positions,
-                                                   const std::vector<double>& displacement)
+std::vector<double> otswap::radialProjection (const std::vector<double>& displacement,
+                                              const std::vector<double>& positions)
 {
   const std::size_t n = check_radial_positions(positions);
   if (check_nan_allowed(displacement, "the displacement array") != n || displacement.size() != positions.size())
@@ -233,8 +297,8 @@ std::vector<double> otswap::lineOfSightProjection (const std::vector<double>& po
 // ============================================================================
 
 
-std::vector<double> otswap::lineOfSightProjection (const std::vector<double>& displacement,
-                                                   const unsigned axis)
+std::vector<double> otswap::axisProjection (const std::vector<double>& displacement,
+                                            const unsigned axis)
 {
   check_axis(axis);
   const std::size_t n = check_nan_allowed(displacement, "the displacement array");
@@ -250,20 +314,7 @@ std::vector<double> otswap::lineOfSightProjection (const std::vector<double>& di
 
 double otswap::internal::neighbour_cell (const std::vector<double>& positions)
 {
-  const std::size_t n = positions.size() / 3;
-
-  double side[3];
-  for (int k = 0; k < 3; ++k) {
-    double lo = positions[(std::size_t)k], hi = lo;
-    for (std::size_t i = 1; i < n; ++i) {
-      lo = std::min(lo, positions[3*i+k]);
-      hi = std::max(hi, positions[3*i+k]);
-    }
-    side[k] = hi - lo;
-  }
-
-  const double volume = side[0] * side[1] * side[2];
-  return kCellInSeparations * det_pow(volume / (double)n, 1./3.);
+  return kCellInSeparations * bounding_box_separation(positions);
 }
 
 
@@ -380,33 +431,18 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
 // ============================================================================
 
 
-std::vector<double> otswap::neighbourAverage (const std::vector<double>& positions,
-                                              const std::vector<double>& values,
-                                              const std::vector<unsigned>& validRealizations,
-                                              const double sigma,
-                                              const bool weightByRealizations,
-                                              std::vector<unsigned>& nNeighbours,
-                                              std::vector<unsigned>& nRealizations)
+otswap::NeighbourAverage otswap::neighbourAverage (const std::vector<double>& positions,
+                                                   const std::vector<double>& values,
+                                                   const std::vector<unsigned>& validRealizations,
+                                                   const double sigma,
+                                                   const bool weightByRealizations)
 {
   internal::check_coordinates(positions, "the position array");
-  return internal::neighbour_average(positions, values, validRealizations, sigma,
-                                     weightByRealizations, internal::neighbour_cell(positions),
-                                     nNeighbours, nRealizations);
-}
-
-
-// ============================================================================
-
-
-std::vector<double> otswap::neighbourAverage (const std::vector<double>& positions,
-                                              const std::vector<double>& values,
-                                              const std::vector<unsigned>& validRealizations,
-                                              const double sigma,
-                                              const bool weightByRealizations)
-{
-  std::vector<unsigned> nNeighbours, nRealizations;
-  return neighbourAverage(positions, values, validRealizations, sigma, weightByRealizations,
-                          nNeighbours, nRealizations);
+  NeighbourAverage average;
+  average.values = internal::neighbour_average(positions, values, validRealizations, sigma,
+                                               weightByRealizations, internal::neighbour_cell(positions),
+                                               average.nNeighbours, average.nRealizationsAveraged);
+  return average;
 }
 
 
@@ -447,41 +483,21 @@ void otswap::internal::check_bias_table (const std::vector<double>& redshift,
 
 std::vector<double> otswap::rsdFactor (const std::vector<double>& redshift,
                                        const DistanceTable& distances,
-                                       const std::vector<double>& biasRedshift,
-                                       const std::vector<double>& bias,
-                                       std::size_t& nExtrapolated)
+                                       const BiasTable& bias,
+                                       std::size_t* nExtrapolated)
 {
-  internal::check_bias_table(biasRedshift, bias, "the bias table");
+  internal::check_bias_table(bias.redshift, bias.bias, "the bias table");
   if (!distances.hasGrowthRate())
     throw Error("the distance table carries no growth rate, which the correction needs");
 
-  nExtrapolated = 0;
+  std::size_t extrapolated = 0;
   std::vector<double> factor(redshift.size());
 
   for (std::size_t i = 0; i < redshift.size(); ++i)
-    factor[i] = factor_at(biasRedshift, bias, redshift[i], distances,
-                          "object " + std::to_string(i), nExtrapolated);
+    factor[i] = factor_at(bias.redshift, bias.bias, redshift[i], distances,
+                          "object " + std::to_string(i), extrapolated);
 
-  return factor;
-}
-
-
-// ============================================================================
-
-
-std::vector<double> otswap::rsdFactor (const std::vector<double>& redshift,
-                                       const DistanceTable& distances,
-                                       const std::vector<double>& biasRedshift,
-                                       const std::vector<double>& bias)
-{
-  std::size_t nExtrapolated = 0;
-  std::vector<double> factor = rsdFactor(redshift, distances, biasRedshift, bias, nExtrapolated);
-
-  if (nExtrapolated > 0)
-    std::clog << "otswap: b(z) extrapolated at " << nExtrapolated << " of " << redshift.size()
-              << " redshifts, outside the bias table's range [" << biasRedshift.front() << ", "
-              << biasRedshift.back() << "]" << std::endl;
-
+  if (nExtrapolated != nullptr) *nExtrapolated = extrapolated;
   return factor;
 }
 
@@ -507,8 +523,8 @@ double otswap::rsdFactorBox (const double redshift, const DistanceTable& distanc
 // ============================================================================
 
 
-std::vector<double> otswap::shiftAlongLineOfSight (const std::vector<double>& positions,
-                                                   const std::vector<double>& shift)
+std::vector<double> otswap::shiftRadially (const std::vector<double>& positions,
+                                           const std::vector<double>& shift)
 {
   const std::size_t n = check_radial_positions(positions);
   check_shift(shift, n);
@@ -528,9 +544,9 @@ std::vector<double> otswap::shiftAlongLineOfSight (const std::vector<double>& po
 // ============================================================================
 
 
-std::vector<double> otswap::shiftAlongLineOfSight (const std::vector<double>& positions,
-                                                   const std::vector<double>& shift,
-                                                   const unsigned axis)
+std::vector<double> otswap::shiftAlongAxis (const std::vector<double>& positions,
+                                            const std::vector<double>& shift,
+                                            const unsigned axis)
 {
   check_axis(axis);
   const std::size_t n = internal::check_coordinates(positions, "the position array");
@@ -546,79 +562,72 @@ std::vector<double> otswap::shiftAlongLineOfSight (const std::vector<double>& po
 
 
 otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
-                                                     const std::vector<double>& tracersSky,
                                                      const DistanceTable& distances,
-                                                     const std::vector<double>& biasRedshift,
-                                                     const std::vector<double>& bias,
+                                                     const BiasTable& bias,
                                                      const double sigma,
-                                                     const bool weightByRealizations,
-                                                     std::size_t& nExtrapolated)
+                                                     const CorrectionConfig& config)
 {
-  const std::size_t n = internal::check_sky(tracersSky, "the tracer sky array");
-  check_result(result, n);
-  internal::check_bias_table(biasRedshift, bias, "the bias table");
+  const auto start = std::chrono::steady_clock::now();
+  check_result(result, Geometry::Lightcone, "realSpaceLightcone");
+  internal::check_bias_table(bias.redshift, bias.bias, "the bias table");
   if (!distances.hasGrowthRate())
     throw Error("the distance table carries no growth rate, which the correction needs");
   if (!std::isfinite(sigma) || sigma < 0.)
     throw Error("sigma is " + std::to_string(sigma) + "; it must be finite and non-negative");
 
+  const std::size_t n = result.nObjects;
   const std::vector<std::size_t> keep = kept_tracers(result, n);
   const std::size_t m = keep.size();
 
-  RealSpaceCatalog catalog = empty_catalog(n);
-  catalog.nNeighbours.assign(n, 0u);
-  catalog.nRealizationsAveraged.assign(n, 0u);
-  nExtrapolated = 0;
+  RealSpaceCatalog catalog = empty_catalog(result);
+  catalog.sigma = sigma;
+  catalog.weightByRealizations = config.weightByRealizations;
+  std::size_t nExtrapolated = 0;
   if (m == 0) {
-    for (std::size_t i = 0; i < n; ++i) catalog.uncorrected.push_back(i);
+    catalog.elapsedSeconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    report("realSpaceLightcone", catalog, "", config);
     return catalog;
   }
 
-  std::vector<double> positions(3 * m), redshift(m), distance(m), factor(m);
+  const std::vector<double>& sky = result.tracersSky;
+  internal::check_sky(rows_of(sky, keep), "the tracer sky array of the result");
+
+  const std::vector<double> positions = rows_of(result.tracers, keep);
+  std::vector<double> distance(m), factor(m);
   for (std::size_t k = 0; k < m; ++k) {
     const std::size_t i = keep[k];
     const std::string who = "object " + std::to_string(i);
-    redshift[k] = tracersSky[3*i+2];
     try {
-      distance[k] = distances.distanceAt(redshift[k]);
+      distance[k] = distances.distanceAt(sky[3*i+2]);
     }
     catch (const Error& e) {
-      throw Error(who + " of the tracer sky array: " + e.what());
+      throw Error(who + " of the tracer sky array of the result: " + e.what());
     }
     if (!(distance[k] > 0.))
       throw Error(who + " is at zero distance; its line of sight is undefined");
-    internal::to_cartesian(tracersSky[3*i], tracersSky[3*i+1], distance[k],
-                           positions[3*k], positions[3*k+1], positions[3*k+2]);
-    factor[k] = factor_at(biasRedshift, bias, redshift[k], distances, who, nExtrapolated);
+    factor[k] = factor_at(bias.redshift, bias.bias, sky[3*i+2], distances, who, nExtrapolated);
   }
 
   const std::vector<double> projection =
-    lineOfSightProjection(positions, rows_of(result.meanDisplacement, keep));
+    radialProjection(rows_of(result.meanDisplacement, keep), positions);
 
-  std::vector<unsigned> valid(m), nNeighbours, nRealizations;
+  std::vector<unsigned> valid(m);
   for (std::size_t k = 0; k < m; ++k) valid[k] = result.validRealizations[keep[k]];
-  const std::vector<double> averaged =
-    neighbourAverage(positions, projection, valid, sigma, weightByRealizations,
-                     nNeighbours, nRealizations);
+  const NeighbourAverage averaged =
+    neighbourAverage(positions, projection, valid, sigma, config.weightByRealizations);
 
   const double dMin = distances.distanceAt(distances.minRedshift());
   const double dMax = distances.distanceAt(distances.maxRedshift());
 
-  std::size_t next = 0;
-  for (std::size_t i = 0; i < n; ++i) {
-    if (next == m || keep[next] != i) {
-      catalog.uncorrected.push_back(i);
-      continue;
-    }
-    const std::size_t k = next++;
-    catalog.nNeighbours[i] = nNeighbours[k];
-    catalog.nRealizationsAveraged[i] = nRealizations[k];
+  for (std::size_t k = 0; k < m; ++k) {
+    const std::size_t i = keep[k];
+    catalog.nNeighbours[i] = averaged.nNeighbours[k];
+    catalog.nRealizationsAveraged[i] = averaged.nRealizationsAveraged[k];
+    catalog.factor[i] = factor[k];
 
-    const double shift = factor[k] * averaged[k];
-    if (!std::isfinite(shift)) {
-      catalog.uncorrected.push_back(i);
-      continue;
-    }
+    const double shift = factor[k] * averaged.values[k];
+    if (!std::isfinite(shift)) continue;
 
     const double corrected = distance[k] + shift;
     double z = 0.;
@@ -640,35 +649,30 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
                   "range than the catalogue's, [" + std::to_string(distances.minRedshift()) +
                   ", " + std::to_string(distances.maxRedshift()) + "] here");
 
-    catalog.positions[3*i]   = tracersSky[3*i];
-    catalog.positions[3*i+1] = tracersSky[3*i+1];
-    catalog.positions[3*i+2] = z;
+    catalog.shift[i] = shift;
+    catalog.status[i] = valid[k] > 0 ? CorrectionStatus::Corrected : CorrectionStatus::MovedByNeighbours;
+    catalog.sky[3*i]   = internal::fold_ra(sky[3*i]);
+    catalog.sky[3*i+1] = sky[3*i+1];
+    catalog.sky[3*i+2] = z;
+
+    const double x = positions[3*k], y = positions[3*k+1], w = positions[3*k+2];
+    const double scale = shift / std::sqrt(x*x + y*y + w*w);
+    catalog.cartesian[3*i]   = x + scale * x;
+    catalog.cartesian[3*i+1] = y + scale * y;
+    catalog.cartesian[3*i+2] = w + scale * w;
   }
 
-  return catalog;
-}
+  catalog.nExtrapolated = nExtrapolated;
+  catalog.elapsedSeconds =
+    std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 
-
-// ============================================================================
-
-
-otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
-                                                     const std::vector<double>& tracersSky,
-                                                     const DistanceTable& distances,
-                                                     const std::vector<double>& biasRedshift,
-                                                     const std::vector<double>& bias,
-                                                     const double sigma,
-                                                     const bool weightByRealizations)
-{
-  std::size_t nExtrapolated = 0;
-  RealSpaceCatalog catalog = realSpaceLightcone(result, tracersSky, distances, biasRedshift, bias,
-                                                sigma, weightByRealizations, nExtrapolated);
-
+  std::ostringstream extrapolation;
+  extrapolation.imbue(std::locale::classic());
   if (nExtrapolated > 0)
-    std::clog << "otswap: b(z) extrapolated at " << nExtrapolated << " of "
-              << kept_tracers(result, catalog.nObjects).size()
-              << " redshifts, outside the bias table's range [" << biasRedshift.front() << ", "
-              << biasRedshift.back() << "]" << std::endl;
+    extrapolation << "otswap: b(z) extrapolated at " << nExtrapolated << " of " << m
+                  << " redshifts, outside the bias table's range [" << bias.redshift.front() << ", "
+                  << bias.redshift.back() << "]\n";
+  report("realSpaceLightcone", catalog, extrapolation.str(), config);
 
   return catalog;
 }
@@ -678,55 +682,54 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
 
 
 otswap::RealSpaceCatalog otswap::realSpaceBox (const Result& result,
-                                               const std::vector<double>& tracers,
                                                const unsigned axis,
                                                const double redshift,
                                                const DistanceTable& distances,
                                                const double bias,
                                                const double sigma,
-                                               const bool weightByRealizations)
+                                               const CorrectionConfig& config)
 {
-  const std::size_t n = internal::check_coordinates(tracers, "the tracer array");
+  const auto start = std::chrono::steady_clock::now();
   check_axis(axis);
-  check_result(result, n);
+  check_result(result, Geometry::Box, "realSpaceBox");
   const double factor = rsdFactorBox(redshift, distances, bias);
 
+  const std::size_t n = result.nObjects;
   const std::vector<std::size_t> keep = kept_tracers(result, n);
   const std::size_t m = keep.size();
 
-  RealSpaceCatalog catalog = empty_catalog(n);
-  catalog.nNeighbours.assign(n, 0u);
-  catalog.nRealizationsAveraged.assign(n, 0u);
+  RealSpaceCatalog catalog = empty_catalog(result);
+  catalog.sigma = sigma;
+  catalog.weightByRealizations = config.weightByRealizations;
+  catalog.axis = axis;
+  catalog.boxRedshift = redshift;
+  catalog.boxBias = bias;
 
-  std::vector<double> averaged;
-  std::vector<unsigned> nNeighbours, nRealizations;
   if (m > 0) {
+    const std::vector<double> positions = rows_of(result.tracers, keep);
     std::vector<unsigned> valid(m);
     for (std::size_t k = 0; k < m; ++k) valid[k] = result.validRealizations[keep[k]];
-    const std::vector<double> projection =
-      lineOfSightProjection(rows_of(result.meanDisplacement, keep), axis);
-    averaged = neighbourAverage(rows_of(tracers, keep), projection, valid, sigma,
-                                weightByRealizations, nNeighbours, nRealizations);
+    const std::vector<double> projection = axisProjection(rows_of(result.meanDisplacement, keep), axis);
+    const NeighbourAverage averaged =
+      neighbourAverage(positions, projection, valid, sigma, config.weightByRealizations);
+
+    for (std::size_t k = 0; k < m; ++k) {
+      const std::size_t i = keep[k];
+      catalog.nNeighbours[i] = averaged.nNeighbours[k];
+      catalog.nRealizationsAveraged[i] = averaged.nRealizationsAveraged[k];
+      catalog.factor[i] = factor;
+
+      const double shift = factor * averaged.values[k];
+      if (!std::isfinite(shift)) continue;
+      catalog.shift[i] = shift;
+      catalog.status[i] = valid[k] > 0 ? CorrectionStatus::Corrected : CorrectionStatus::MovedByNeighbours;
+      for (unsigned c = 0; c < 3; ++c) catalog.cartesian[3*i+c] = positions[3*k+c];
+      catalog.cartesian[3*i+axis] += shift;
+    }
   }
 
-  std::size_t next = 0;
-  for (std::size_t i = 0; i < n; ++i) {
-    if (next == m || keep[next] != i) {
-      catalog.uncorrected.push_back(i);
-      continue;
-    }
-    const std::size_t k = next++;
-    catalog.nNeighbours[i] = nNeighbours[k];
-    catalog.nRealizationsAveraged[i] = nRealizations[k];
-
-    const double shift = factor * averaged[k];
-    if (!std::isfinite(shift)) {
-      catalog.uncorrected.push_back(i);
-      continue;
-    }
-    for (unsigned c = 0; c < 3; ++c) catalog.positions[3*i+c] = tracers[3*i+c];
-    catalog.positions[3*i+axis] += shift;
-  }
-
+  catalog.elapsedSeconds =
+    std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+  report("realSpaceBox", catalog, "", config);
   return catalog;
 }

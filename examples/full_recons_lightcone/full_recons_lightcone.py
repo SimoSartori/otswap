@@ -34,23 +34,6 @@ import numpy as np
 import otswap
 
 
-def write_table(path, columns, rows):
-    """Write rows in the ASCII layout of otswap's C++ io::write: a comment
-    line per described column, the column names, then one line per row with
-    9 significant digits, and integer columns as integers. columns is a list
-    of (name, is_integer, description)."""
-    described = [c for c in columns if c[2]]
-    width = max((len(c[0]) for c in described), default=0)
-    with open(path, "w") as f:
-        for name, _, description in described:
-            f.write(f"# {name}{' ' * (width - len(name) + 3)}{description}\n")
-        if described:
-            f.write("#\n")
-        f.write("###" + "".join(f"   {c[0]}" for c in columns) + "\n")
-        for row in rows:
-            f.write(" ".join(str(int(v)) if c[1] else "%.9g" % v for c, v in zip(columns, row)) + "\n")
-
-
 def main():
 
     # -------------------------------------------------------------
@@ -70,8 +53,8 @@ def main():
 
     # Right ascension and declination in degrees, and redshift; passed as
     # they are, with angle_unit="deg"
-    tracers_sky = np.loadtxt(data / "lightcone_tracers.dat")
-    randoms_sky = np.loadtxt(data / "lightcone_randoms.dat")
+    tracers_sky = otswap.io.read(data / "lightcone_tracers.dat", [0, 1, 2]).values
+    randoms_sky = otswap.io.read(data / "lightcone_randoms.dat", [0, 1, 2]).values
 
     print(f"Tracers read: {len(tracers_sky)}")
     print(f"Randoms read: {len(randoms_sky)}, {len(randoms_sky) / len(tracers_sky):g} per tracer")
@@ -106,7 +89,7 @@ def main():
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, n_bins=30,
                                           distances=distances, angle_unit="deg", n_realizations=8,
                                           convergence=1e-2, seed=12345, reject_crossings=True,
-                                          max_unobserved_pixels_crossed=0, verbose=True)
+                                          max_unobserved_pixels_crossed=0, verbosity="normal")
 
     # ---------------------------------------------
     # ------------ Read the bias table ------------
@@ -116,8 +99,7 @@ def main():
     # linearly between them, and extrapolated linearly beyond the first and
     # last, with an otswap.ExtrapolationWarning saying for how many tracers.
     # This table covers the whole catalogue
-    bias_table = np.loadtxt(data / "lightcone_bias.dat")
-    bias_redshift, bias = bias_table[:, 0], bias_table[:, 1]
+    bias = otswap.io.read_bias_table(data / "lightcone_bias.dat")
 
     # ----------------------------------------------------------------
     # ------------ Correct the redshift-space distortions ------------
@@ -127,38 +109,29 @@ def main():
     # reasonable starting value, but the best value depends on the sample
     # and should be checked in each analysis. With
     # weight_by_realizations=True, each neighbour would be weighted by its
-    # number of valid realizations.
+    # number of valid realizations. "detailed" prints, besides the line of
+    # the call, how many tracers moved with their neighbours' average and
+    # why the others were left uncorrected.
     #
-    # Pass the sky coordinates the reconstruction was run on, in the same
-    # order. A tracer without a valid realization still receives the average
-    # of its neighbours; one with no valid neighbour within 3 sigma, or left
-    # out of the reconstruction by the mask, is left uncorrected, with NaN
-    # coordinates, and listed in uncorrected
-    catalogue = otswap.real_space_lightcone(result, tracers_sky, distances=distances,
-                                            bias_redshift=bias_redshift, bias=bias, sigma=10.0,
-                                            angle_unit="deg", weight_by_realizations=False)
+    # The correction reads the tracers from the result. A tracer without a
+    # valid realization still receives the average of its neighbours; one
+    # with no valid neighbour within 3 sigma, or left out of the
+    # reconstruction by the mask, is left uncorrected, with NaN coordinates;
+    # catalogue.status says which
+    catalogue = otswap.real_space_lightcone(result, distances=distances, bias=bias, sigma=10.0,
+                                            weight_by_realizations=False, verbosity="detailed")
 
     # ----------------------------------------------
     # ------------ Summarize the result ------------
     # ----------------------------------------------
 
     # The factor f/(b + 3f/5) at the redshifts of the tracers that took part
-    # in the reconstruction
-    factor = otswap.rsd_factor(tracers_sky[~result.outside_mask, 2], distances,
-                               bias_redshift=bias_redshift, bias=bias)
+    # in the reconstruction, and the shift applied along the line of sight
+    # to each corrected tracer, both kept in the catalogue
+    factor = catalogue.factor[~np.isnan(catalogue.factor)]
     print(f"RSD factor f/(b + 3f/5): from {factor.min():g} to {factor.max():g}")
-
-    positions = catalogue.positions
-    corrected = ~np.isnan(positions[:, 2])
-    masked = int(np.count_nonzero(result.outside_mask))
-    n_uncorrected = len(catalogue.uncorrected)
-    print(f"Tracers corrected: {np.count_nonzero(corrected)}")
-    print("  of which moved with the average of their neighbours (no valid realization): "
-          f"{np.count_nonzero(corrected & (result.valid_realizations == 0))}")
-    print(f"Tracers left uncorrected: {n_uncorrected} (left out by the mask: {masked}, "
-          f"no valid tracer within 3 sigma: {n_uncorrected - masked})")
-    shift = distances.distance_at(positions[corrected, 2]) - distances.distance_at(tracers_sky[corrected, 2])
-    print(f"Shift along the line of sight, d(z') - d(z): mean {shift.mean():g}, "
+    shift = catalogue.shift[~np.isnan(catalogue.shift)]
+    print(f"Shift along the line of sight over the {len(shift)} corrected tracers: mean {shift.mean():g}, "
           f"rms {np.sqrt(np.mean(shift ** 2)):g} Mpc/h")
 
     # ------------------------------------------
@@ -166,19 +139,12 @@ def main():
     # ------------------------------------------
 
     # One row per tracer, in the order of the input: the right ascension and
-    # declination, unchanged, and the corrected redshift; NaN for an
-    # uncorrected tracer. Then the number of valid realizations and the two
-    # diagnostics of the average
-    columns = [("RA", False, "corrected position, in degrees"),
-               ("Dec", False, "corrected position, in degrees"),
-               ("z", False, "corrected redshift"),
-               ("nValidRec", True, "number of valid OT realizations of the tracer"),
-               ("nNeighbours", True, "number of tracers with a valid OT realization averaged within "
-                                     "3 sigma, the tracer included if valid"),
-               ("nRealizationsAveraged", True, "sum of nValidRec over those tracers")]
-    rows = np.column_stack([positions, result.valid_realizations, catalogue.n_neighbours,
-                            catalogue.n_realizations_averaged])
-    write_table(output / "reconstructed_catalogue_lightcone.dat", columns, rows)
+    # declination, unchanged, and the corrected redshift; the corrected
+    # Cartesian position; the number of valid realizations, the two
+    # diagnostics of the average and the status of the tracer; NaN positions
+    # for an uncorrected tracer. The writer is the C++ library's, so the file
+    # is the C++ example's, byte for byte
+    otswap.io.write_real_space_catalog(output / "reconstructed_catalogue_lightcone.dat", catalogue)
 
     print("Written: output/reconstructed_catalogue_lightcone.dat")
 

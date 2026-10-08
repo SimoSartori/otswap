@@ -403,5 +403,29 @@ int main ()
     }
   }
 
+  group("skyToRadians and skyToDegrees: numpy's factors, the declination check, the 360 fold");
+  {
+    const double pi = 3.14159265358979323846;
+    const std::vector<double> degrees {10., -20., 0.5, 359.99999999999994, 90., 1.2, -400., -90., 0.};
+    const std::vector<double> radians = skyToRadians(degrees);
+    bool factors = radians.size() == degrees.size();
+    for (std::size_t i = 0; factors && i < degrees.size(); ++i)
+      factors = i % 3 == 2 ? radians[i] == degrees[i] : radians[i] == degrees[i] * (pi / 180.);
+    check(factors, "angles times pi/180, redshifts unchanged, any right ascension accepted");
+    check(radians[4] == pi / 2., "90 degrees is the double pi/2");
+    const std::vector<double> back = skyToDegrees({2. * pi * (1. - 1.e-17), 0.3, 0.5,
+                                                   std::nextafter(2. * pi, 0.), -0.3, 0.5,
+                                                   std::nan(""), 0., 0.5});
+    check(back[0] == 0. && back[1] == 0.3 * (180. / pi), "a right ascension that rounds to 360 is 0");
+    check(back[3] < 360. && back[3] == std::nextafter(2. * pi, 0.) * (180. / pi),
+          "the largest one below 2 pi stays below 360");
+    check(std::isnan(back[6]), "NaN stays NaN");
+    check_throws([] { skyToRadians({1., 90.000001, 0.5}); }, "a declination above 90 degrees");
+    check_throws([] { skyToRadians({1., 2.}); }, "a size that is not a multiple of three");
+    check_throws([] { skyToDegrees({1.}); }, "the same for skyToDegrees");
+    check(skyToRadians({1., std::nan(""), 0.5}).size() == 3, "a NaN declination is not checked here");
+    check(skyToRadians({}).empty() && skyToDegrees({}).empty(), "empty arrays");
+  }
+
   return report("test_distance_table");
 }

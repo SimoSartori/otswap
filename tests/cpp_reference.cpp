@@ -36,6 +36,9 @@
  *                      n_samples=N n_realizations=N convergence=X seed=N
  *                      cell_size=X out=P [mask=FITS max_unobserved_pixels_crossed=N]
  *
+ *  With write=1, a reconstruction also writes P.displacements.dat,
+ *  P.field.fits and, for a lightcone, P.mps.dat with the io writers.
+ *
  *  A lightcone with sky_area_deg2 is filtered with rejectMaskCrossings
  *  afterwards when a mask is given; without it, the mask overload is called,
  *  which applies the mask and the filter itself.
@@ -43,6 +46,12 @@
  *    cpp_reference cartesian sky=F omega_m=X h=X z_min=X z_max=X n_samples=N out=P
  *
  *    cpp_reference sky cartesian=F omega_m=X h=X z_min=X z_max=X n_samples=N out=P
+ *
+ *    cpp_reference table x=F n=F id=F precision=N out=FILE
+ *
+ *  table writes FILE with io::write: x as a 'D' column with a description
+ *  and a unit, n (float64) as 'J', id (native int64) as 'K', and the
+ *  keywords PRODUCT and SEED.
  *
  *  Input files hold native float64 values, flat and row-major; sky angles
  *  are in radians. A reconstruction writes P.displacement, P.matched_random
@@ -53,6 +62,7 @@
  *  n_samples).
  */
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -92,6 +102,17 @@ namespace {
     return values;
   }
 
+  std::vector<std::int64_t> read_int64 (const std::string& key)
+  {
+    std::ifstream in(arg(key), std::ios::binary | std::ios::ate);
+    if (!in) throw otswap::Error("cannot open " + arg(key));
+    std::vector<std::int64_t> values((std::size_t)in.tellg() / sizeof(std::int64_t));
+    in.seekg(0);
+    in.read(reinterpret_cast<char*>(values.data()),
+            (std::streamsize)(values.size() * sizeof(std::int64_t)));
+    return values;
+  }
+
   template <typename T>
   void write (const std::string& suffix, const std::vector<T>& values)
   {
@@ -109,7 +130,7 @@ namespace {
     c.cellSize = real("cell_size");
     if (has("max_unobserved_pixels_crossed"))
       c.maxUnobservedPixelsCrossed = integer("max_unobserved_pixels_crossed");
-    c.verbose = false;
+    c.verbosity = otswap::Verbosity::Silent;
     return c;
   }
 
@@ -131,6 +152,12 @@ namespace {
     write("outside_mask", result.outsideMask);
     write("valid_realizations", result.validRealizations);
     if (!result.lagrangianSky.empty()) write("lagrangian_sky", result.lagrangianSky);
+    if (has("write")) {
+      otswap::io::writeDisplacements(arg("out") + ".displacements.dat", result);
+      otswap::io::writeDisplacementField(arg("out") + ".field.fits", result);
+      if (!result.mpsProfile.redshift.empty())
+        otswap::io::writeMpsProfile(arg("out") + ".mps.dat", result.mpsProfile);
+    }
   }
 
 }
@@ -138,7 +165,7 @@ namespace {
 int main (int argc, char** argv)
 {
   if (argc < 2) {
-    std::fprintf(stderr, "usage: cpp_reference box|lightcone|cartesian|sky key=value...\n");
+    std::fprintf(stderr, "usage: cpp_reference box|lightcone|cartesian|sky|table key=value...\n");
     return 2;
   }
   for (int i = 2; i < argc; ++i) {
@@ -186,6 +213,15 @@ int main (int argc, char** argv)
     }
     else if (mode == "sky") {
       write("sky", otswap::toSky(read("cartesian"), table()));
+    }
+    else if (mode == "table") {
+      otswap::io::WriteOptions options;
+      options.precision = (int)integer("precision");
+      options.keywords = {{"PRODUCT", "test table", "written by cpp_reference"}, {"SEED", "12345", ""}};
+      otswap::io::write(arg("out"),
+                        {{"x", 'D', "a value", "Mpc/h", read("x"), {}},
+                         {"n", 'J', "a count", "", read("n"), {}},
+                         {"id", 'K', "", "", {}, read_int64("id")}}, options);
     }
     else {
       std::fprintf(stderr, "cpp_reference: unknown mode %s\n", mode.c_str());

@@ -33,23 +33,6 @@ import numpy as np
 import otswap
 
 
-def write_table(path, columns, rows):
-    """Write rows in the ASCII layout of otswap's C++ io::write: a comment
-    line per described column, the column names, then one line per row with
-    9 significant digits, and integer columns as integers. columns is a list
-    of (name, is_integer, description)."""
-    described = [c for c in columns if c[2]]
-    width = max((len(c[0]) for c in described), default=0)
-    with open(path, "w") as f:
-        for name, _, description in described:
-            f.write(f"# {name}{' ' * (width - len(name) + 3)}{description}\n")
-        if described:
-            f.write("#\n")
-        f.write("###" + "".join(f"   {c[0]}" for c in columns) + "\n")
-        for row in rows:
-            f.write(" ".join(str(int(v)) if c[1] else "%.9g" % v for c, v in zip(columns, row)) + "\n")
-
-
 def main():
 
     # -------------------------------------------------------------
@@ -67,10 +50,13 @@ def main():
     # ------------ Read the tracer and random catalogues ------------
     # ---------------------------------------------------------------
 
-    # Arrays of shape (N, 3): right ascension and declination in degrees,
-    # and redshift. They are passed as they are, with angle_unit="deg"
-    tracers_sky = np.loadtxt(data / "lightcone_tracers.dat")
-    randoms_sky = np.loadtxt(data / "lightcone_randoms.dat")
+    # otswap.io.read reads the listed columns of a table: for ASCII files
+    # 0-based indices, or the names of the "###" line of a file otswap
+    # wrote; for FITS files the column names. Table.values has shape (N, 3):
+    # right ascension and declination in degrees, and redshift. They are
+    # passed as they are, with angle_unit="deg"
+    tracers_sky = otswap.io.read(data / "lightcone_tracers.dat", [0, 1, 2]).values
+    randoms_sky = otswap.io.read(data / "lightcone_randoms.dat", [0, 1, 2]).values
 
     print(f"Tracers read: {len(tracers_sky)}")
     print(f"Randoms read: {len(randoms_sky)}, {len(randoms_sky) / len(tracers_sky):g} per tracer")
@@ -112,8 +98,9 @@ def main():
     # default is 1e-3.
     #
     # seed: a fixed seed makes the run reproducible; 0 draws a new seed at
-    # each run. The number of threads follows OMP_NUM_THREADS, and with a
-    # fixed seed the result is the same whatever the number of threads.
+    # each run, and result.seed records the one drawn. The number of threads
+    # follows OMP_NUM_THREADS, and with a fixed seed the result is the same
+    # whatever the number of threads.
     #
     # cell_size: the grid cell, in units of the mean particle separation,
     # affects the speed only, never the result; the default is 4.
@@ -125,10 +112,12 @@ def main():
     # pixels, so the same threshold means a different angle at a different
     # NSIDE. These are the defaults.
     #
-    # verbose: with True, the default, the reconstruction prints how many
-    # tracers and randoms the redshift cut and the mask left out, and how
-    # many displacements the crossing filter rejected. False silences it;
-    # the counts stay in result.selection either way.
+    # verbosity: what the reconstruction prints. With "normal", the
+    # default, how many tracers and randoms the redshift cut and the mask
+    # left out, how many displacements the crossing filter rejected, and
+    # then the time of the call and the tracers left without a valid
+    # displacement. "detailed" adds the mps(z) profile, "silent" prints
+    # nothing; the counts stay in result.selection either way.
     #
     # n_bins: the mean particle separation is measured in n_bins redshift
     # bins of equal width. Each bin needs at least 278 tracers: if one is
@@ -138,7 +127,7 @@ def main():
     # out of the reconstruction. The range here spans the whole catalogue:
     # narrow it to reconstruct a slice. The default, None, cuts nothing
     options = dict(n_realizations=8, convergence=1e-2, seed=12345, cell_size=4.0,
-                   reject_crossings=True, max_unobserved_pixels_crossed=0, verbose=True,
+                   reject_crossings=True, max_unobserved_pixels_crossed=0, verbosity="normal",
                    n_bins=30, redshift_cut=(0.885, 1.10))
 
     # ------------------------------------------------
@@ -147,7 +136,10 @@ def main():
 
     # Tracers left out by the cut or the mask keep their row in the result,
     # flagged in outside_redshift_cut or outside_mask, with NaN
-    # displacements
+    # displacements. The result also holds the tracers' Cartesian positions
+    # (tracers), their mean Lagrangian positions (lagrangian, and
+    # lagrangian_sky on the sky, in the angle unit of the call) and the
+    # measured mps(z) (mps_profile)
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, distances=distances,
                                           angle_unit="deg", **options)
 
@@ -176,31 +168,17 @@ def main():
     # ------------ Write the output ------------
     # ------------------------------------------
 
-    # to_cartesian is the conversion the reconstruction applies, so these
-    # are the positions the displacements start from
-    tracers = otswap.to_cartesian(tracers_sky, distances, angle_unit="deg")
-
-    # result.lagrangian_sky holds the sky coordinates of each tracer's mean
-    # Lagrangian position, in the angle unit of the call: degrees here.
-    #
-    # One row per tracer, in the order of the input. A tracer left out, or
-    # without a valid realization, has NaN Lagrangian coordinates and
-    # displacement
-    columns = [("tracRA", False, "tracer right ascension and declination, in degrees"),
-               ("tracDec", False, ""), ("tracRed", False, "tracer redshift"),
-               ("lagrRA", False, "mean Lagrangian position on the sky, in degrees, and its redshift"),
-               ("lagrDec", False, ""), ("lagrRed", False, ""),
-               ("tracX", False, "tracer position, in Mpc/h"), ("tracY", False, ""), ("tracZ", False, ""),
-               ("lagrX", False, "mean Lagrangian position, tracer + mean displacement, in Mpc/h"),
-               ("lagrY", False, ""), ("lagrZ", False, ""),
-               ("displX", False, "mean displacement over the valid realizations, in Mpc/h"),
-               ("displY", False, ""), ("displZ", False, ""),
-               ("nValidRec", True, "number of valid realizations of the tracer"),
-               ("outsideRedshiftCut", True, "1 if the tracer was left out by the redshift cut"),
-               ("outsideMask", True, "1 if the tracer was left out by the mask")]
-    rows = np.column_stack([tracers_sky, result.lagrangian_sky, tracers, tracers + mean, mean,
-                            result.valid_realizations, result.outside_redshift_cut, result.outside_mask])
-    write_table(output / "displacement_lightcone.dat", columns, rows)
+    # One row per tracer, in the order of the input: its sky coordinates
+    # and those of its mean Lagrangian position, in degrees, its Cartesian
+    # position, its mean Lagrangian position and its mean displacement, in
+    # Mpc/h, its number of valid realizations and the two selection flags,
+    # with a header giving the units and the parameters of the run. A tracer
+    # left out, or without a valid realization, has NaN Lagrangian
+    # coordinates and displacement. The writer is the C++ library's, so the
+    # file is the C++ example's, byte for byte.
+    # otswap.io.write_displacement_field writes every realization instead,
+    # losslessly, and otswap.io.write_mps_profile the mps(z)
+    otswap.io.write_displacements(output / "displacement_lightcone.dat", result)
 
     print("Written: output/displacement_lightcone.dat")
 
