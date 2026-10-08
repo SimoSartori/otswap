@@ -10,6 +10,7 @@ authors:
     given-names: Simone
     email: simone.sartori@inaf.it
 version: 0.1.0
+date-released: 2026-10-08
 license: GPL-2.0-or-later
 repository-code: "https://github.com/SimoSartori/otswap"
 url: "https://simosartori.github.io/otswap/"
