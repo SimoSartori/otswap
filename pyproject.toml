@@ -23,11 +23,12 @@ test = ["pytest"]
 minimum-version = "0.11"
 build-dir = "build/{wheel_tag}"
 wheel.packages = ["python/otswap"]
+# the examples and their data are for the source repository only
+sdist.exclude = ["examples/"]
 
 [tool.scikit-build.cmake.define]
 OTSWAP_BUILD_PYTHON = "ON"
 OTSWAP_BUILD_TESTS = "OFF"
-OTSWAP_BUILD_EXAMPLES = "OFF"
 
 [tool.cibuildwheel]
 # CPython from 3.9 to 3.14, on manylinux for x86_64 and aarch64 and on macOS

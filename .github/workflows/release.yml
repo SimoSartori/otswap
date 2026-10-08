@@ -40,6 +40,12 @@ jobs:
       - name: Build
         run: pipx run build --sdist
 
+      - name: The sdist holds no example
+        run: |
+          if tar -tzf dist/*.tar.gz | grep '/examples/'; then
+            exit 1
+          fi
+
       - name: Check the metadata PyPI will render
         run: pipx run twine check dist/*
 
@@ -68,14 +74,14 @@ jobs:
           output-dir: wheelhouse
 
       # The C++ install rules are off under scikit-build-core.
-      - name: The wheels hold no C++ library, header or CMake file
+      - name: The wheels hold no C++ library, header, CMake file or example
         run: |
           python3 - <<'PY'
           import glob, sys, zipfile
           wheels = glob.glob("wheelhouse/*.whl")
           bad = [f"{w}: {name}" for w in wheels for name in zipfile.ZipFile(w).namelist()
-                 if name.endswith((".a", ".h", ".cmake"))]
-          print(len(wheels), "wheels;", len(bad), "C++ library, header or CMake files")
+                 if name.endswith((".a", ".h", ".cmake")) or "examples/" in name]
+          print(len(wheels), "wheels;", len(bad), "C++ library, header, CMake or example files")
           print("\n".join(bad))
           sys.exit(1 if bad or not wheels else 0)
           PY

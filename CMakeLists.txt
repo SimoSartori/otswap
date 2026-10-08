@@ -32,7 +32,6 @@ else()
 endif()
 
 option(OTSWAP_BUILD_TESTS "Build the C++ test suite" ${OTSWAP_IS_TOP_LEVEL})
-option(OTSWAP_BUILD_EXAMPLES "Build the examples" ${OTSWAP_IS_TOP_LEVEL})
 option(OTSWAP_BUILD_PYTHON "Build the Python bindings" OFF)
 option(OTSWAP_INSTALL "Generate the C++ install rules" ${OTSWAP_INSTALL_DEFAULT})
 
@@ -212,7 +211,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
 endif()
 
 # ---------------------------------------------------------------------------
-# Tests and examples
+# Tests
 # ---------------------------------------------------------------------------
 
 if (OTSWAP_BUILD_TESTS)
@@ -264,14 +263,6 @@ if (OTSWAP_BUILD_TESTS)
   target_link_libraries(cpp_reference PRIVATE otswap)
   if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(cpp_reference PRIVATE -Wall -Wextra)
-  endif()
-endif()
-
-if (OTSWAP_BUILD_EXAMPLES)
-  add_executable(example_box examples/example_box.cpp)
-  target_link_libraries(example_box PRIVATE otswap)
-  if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    target_compile_options(example_box PRIVATE -Wall -Wextra)
   endif()
 endif()
 

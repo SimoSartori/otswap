@@ -130,6 +130,25 @@ jobs:
           cmake --build build-install-consumer
           ./build-install-consumer/consumer
 
+      # Each example is a project of its own, built against the moved package.
+      - name: Build the C++ examples
+        run: |
+          for d in box lightcone full_recons_lightcone full_recons_box; do
+            cmake -S examples/$d -B build-examples/$d -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/moved" \
+              -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_CXX_FLAGS="-Wall -Wextra"
+            cmake --build build-examples/$d
+          done
+
+      # With a fixed seed the C++ and the Python examples write the same files.
+      - name: Run the examples, C++ then Python, and compare their outputs
+        run: |
+          for d in box lightcone full_recons_lightcone full_recons_box; do
+            "./build-examples/$d/$d"
+            mv "examples/$d/output" "examples/$d/output-cpp"
+            python "examples/$d/$d.py"
+            diff -r "examples/$d/output-cpp" "examples/$d/output"
+          done
+
       # add_subdirectory on the source tree: no tests, no example, no build type
       - name: Consume the source tree as a subproject
         run: |
@@ -140,8 +159,8 @@ jobs:
       # An installed meshsearch of the same minor version is used, not fetched.
       - name: Build against an installed meshsearch
         run: |
-          cmake -S . -B build-found -DOTSWAP_BUILD_TESTS=OFF -DOTSWAP_BUILD_EXAMPLES=OFF \
-            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/moved" | tee found.log
+          cmake -S . -B build-found -DOTSWAP_BUILD_TESTS=OFF -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/moved" \
+            | tee found.log
           grep -q "otswap: using meshsearch 0.2" found.log
           test ! -d build-found/_deps/meshsearch-src
           cmake --build build-found --parallel

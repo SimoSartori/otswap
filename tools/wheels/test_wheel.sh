@@ -31,8 +31,7 @@ build="$DEPS/cpp-reference-$arch"
 reference="$build/cpp_reference"
 
 if [ ! -x "$reference" ]; then
-  args=(-DCMAKE_BUILD_TYPE=Release -DOTSWAP_BUILD_TESTS=ON -DOTSWAP_BUILD_EXAMPLES=OFF
-        -DCFITSIO_ROOT="$DEPS")
+  args=(-DCMAKE_BUILD_TYPE=Release -DOTSWAP_BUILD_TESTS=ON -DCFITSIO_ROOT="$DEPS")
   if [ "$(uname)" = Darwin ]; then
     # the wheel's own deployment target, from its tag: macosx_10_13_x86_64
     target=$(basename "$WHEEL" | sed -E 's/.*-macosx_([0-9]+)_([0-9]+)_.*/\1.\2/')
