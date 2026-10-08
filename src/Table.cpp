@@ -273,8 +273,9 @@ namespace {
       fillRow(row, values);
       for (std::size_t c = 0; c < columns.size(); ++c) {
         if (c > 0) out << " ";
-        if (columns[c].type == 'J') out << (long long)values[c];
-        else                        out << values[c];
+        if (columns[c].type == 'J')      out << (long long)values[c];
+        else if (std::isnan(values[c])) out << "nan";
+        else                             out << values[c];
       }
       out << std::endl;
     }

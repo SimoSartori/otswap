@@ -25,8 +25,11 @@
  *  the header says are loud.
  */
 
+#include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <iterator>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -157,6 +160,17 @@ int main ()
 
     check_throws([&] { io::write(temporary("empty.dat"), {}); },
                  "an empty column list raises on write");
+  }
+
+  group("in ASCII a NaN is written as nan whatever its sign");
+  {
+    const std::string file = temporary("nan.dat");
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    io::write(file, {{"a", 'D', "", {nan, -nan, 1.5}}});
+    std::ifstream in(file);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    check(std::signbit(-nan) && text == "###   a\nnan\nnan\n1.5\n", "nan twice, then 1.5: " + text);
+    std::remove(file.c_str());
   }
 
   group("comment and delimiter characters are honoured");

@@ -812,6 +812,10 @@ namespace otswap {
     /**
      *  @brief Write a table. An existing file is overwritten.
      *
+     *  The format follows the extension, as in read. In ASCII each value is
+     *  written with 9 significant digits, and a NaN as nan whatever its
+     *  sign.
+     *
      *  @exception Error if the columns differ in length, or the file
      *  cannot be written.
      */
