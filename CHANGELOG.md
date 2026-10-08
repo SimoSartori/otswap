@@ -6,7 +6,7 @@ First release.
 
 ### Compared with CosmoBolognaLib's OTreconstruction
 
-- The same algorithm and inputs: seeding on a mesh, then local search that
+- The same algorithm and inputs: a local first guess, then local search that
   tries every permutation of the partners of four neighbouring tracers.
 - With a fixed seed, the result does not depend on the number of threads, and
   is the same bit for bit on every supported platform and compiler: the
