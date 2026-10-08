@@ -35,41 +35,38 @@
 
 namespace {
 
-  // Speed of light in km/s. With H0 = 100 h km/s/Mpc, the Hubble distance
-  // c/H0 is (c/100) / h Mpc, which is c/100 Mpc/h. The table is in Mpc/h,
-  // so h cancels out of the comoving distance and only enters if a caller
-  // converts to Mpc. h is validated regardless: a non-positive h is a
-  // caller error whatever the unit.
+  /// Speed of light in km/s. The table is in Mpc/h, so h cancels out of the
+  /// comoving distance.
   constexpr double kSpeedOfLight = 299792.458;
 
   constexpr double kHubbleDistance = kSpeedOfLight / 100.;
 
-  // The growth equation is started deep in matter domination, where
-  // D is proportional to a to well below the accuracy anything here
-  // needs. The start is also kept well below the first sampled point, so
-  // that a table reaching to high redshift still has a run-up.
+  /// The growth equation is started deep in matter domination, where
+  /// D is proportional to a to well below the accuracy anything here
+  /// needs. The start is also kept well below the first sampled point, so
+  /// that a table reaching to high redshift still has a run-up.
   constexpr double kGrowthStartRedshift = 1000.;
   constexpr double kGrowthStartMargin = 100.;
 
-  // Runge-Kutta steps for the run-up, and per sampled interval after it.
+  /// Runge-Kutta steps for the run-up, and per sampled interval after it.
   constexpr unsigned kGrowthLeadSteps = 4000;
   constexpr unsigned kGrowthSteps = 8;
 
-  // Sub-intervals of Simpson's rule per sampled step. The integrand
-  // 1/E(z) is smooth and monotonic, so the error falls as the fourth
-  // power of the step; four sub-intervals on a step of a few times 1e-3
-  // in z puts the truncation error far below the linear interpolation
-  // error the table itself carries.
+  /// Sub-intervals of Simpson's rule per sampled step. The integrand
+  /// 1/E(z) is smooth and monotonic, so the error falls as the fourth
+  /// power of the step; four sub-intervals on a step of a few times 1e-3
+  /// in z puts the truncation error far below the linear interpolation
+  /// error the table itself carries.
   constexpr unsigned kSimpsonSteps = 4;
 
-  // A lookup outside a table's range by at most this many rounding errors
-  // of the range's largest magnitude is taken to be at the nearer end.
-  // Values computed from the table's own ends, such as the radius of a
-  // position converted at the largest redshift, land that close to it.
+  /// A lookup outside a table's range by at most this many rounding errors
+  /// of the range's largest magnitude is taken to be at the nearer end.
+  /// Values computed from the table's own ends, such as the radius of a
+  /// position converted at the largest redshift, land that close to it.
   constexpr double kEndToleranceInRoundingErrors = 8.;
 
-  // Clamps value to [lo, hi] when it lies outside by no more than the end
-  // tolerance, and returns false when it lies further outside.
+  /// Clamps value to [lo, hi] when it lies outside by no more than the end
+  /// tolerance, and returns false when it lies further outside.
   bool clamp_to_range (double& value, const double lo, const double hi)
   {
     const double tolerance = kEndToleranceInRoundingErrors *
@@ -109,8 +106,8 @@ namespace {
   }
 
 
-  // The dark-energy density relative to its value today, in the scale
-  // factor. It is the CPL form written with 1+z = 1/a.
+  /// The dark-energy density relative to its value today, in the scale
+  /// factor. It is the CPL form written with 1+z = 1/a.
   double f_DE (const double a, const double w0, const double wa)
   {
     return otswap::internal::det_pow(a, -3. * (1. + w0 + wa)) *
@@ -131,14 +128,14 @@ namespace {
   }
 
 
-  // The linear growth equation, as a first-order system in the scale
-  // factor:
-  //
-  //   D'' + (3/a + E'/E) D' - (3/2) OmegaM / (a^5 E^2) D = 0
-  //
-  // with ' = d/da and E'/E = (E^2)' / (2 E^2). The growth rate follows
-  // from the solution as f = dlnD/dlna = a D'/D, so the normalisation of
-  // D never enters and no fitting form is involved.
+  /// The linear growth equation, as a first-order system in the scale
+  /// factor:
+  ///
+  ///   D'' + (3/a + E'/E) D' - (3/2) OmegaM / (a^5 E^2) D = 0
+  ///
+  /// with ' = d/da and E'/E = (E^2)' / (2 E^2). The growth rate follows
+  /// from the solution as f = dlnD/dlna = a D'/D, so the normalisation of
+  /// D never enters and no fitting form is involved.
   void growth_derivatives (const double a, const double D, const double dD,
                            const double OmegaM, const double w0, const double wa,
                            double& outD, double& outdD)
@@ -249,9 +246,6 @@ otswap::DistanceTable::DistanceTable (const double OmegaM, const double h,
 
   m_growthRate.resize(nSamples);
 
-  // The samples ascend in redshift, so they descend in scale factor. The
-  // integration runs the other way, from the earliest time forward, and
-  // fills the array from its last entry back.
   const double aFirst = 1. / (1. + m_redshift.back());
   const double aStart = std::min(1. / (1. + kGrowthStartRedshift),
                                  aFirst / kGrowthStartMargin);
@@ -312,8 +306,6 @@ otswap::DistanceTable::DistanceTable (std::vector<double> redshift,
                 " entries against " + std::to_string(m_redshift.size()) +
                 " redshifts; it must either match or be empty");
 
-  // The growth rate need not be monotonic, so only finiteness and sign
-  // are checked.
   for (std::size_t i = 0; i < m_growthRate.size(); ++i)
     if (!std::isfinite(m_growthRate[i]) || m_growthRate[i] <= 0.)
       throw Error("the growth-rate array holds a non-positive or non-finite value at entry " +

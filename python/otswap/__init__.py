@@ -12,6 +12,17 @@ The number of threads follows ``OMP_NUM_THREADS``. The reconstruction
 functions release the GIL while they run.
 
 Tables are read and written by the submodule ``otswap.io``.
+
+The redshift-space correction of tracer i is a shift along its line of
+sight::
+
+    s_i = f(z_i) / (b(z_i) + 3 f(z_i) / 5) * <Psi . r_hat>_i
+
+with Psi the reconstructed displacement (``Result.mean_displacement``, from
+the observed to the reconstructed position), r_hat the line of sight, f the
+linear growth rate, b the linear bias and < > a gaussian average over the
+neighbouring tracers. ``real_space_lightcone`` and ``real_space_box`` run the
+whole chain; the four steps are also available on their own.
 """
 
 from enum import IntEnum

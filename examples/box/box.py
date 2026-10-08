@@ -72,9 +72,9 @@ def main():
     # has exactly 8 per tracer. Omitting the randoms lets otswap draw them
     # itself, uniformly in the tracers' bounding box.
     #
-    # convergence: the swap loop stops when a sweep changes fewer than this
-    # fraction of the pairs. Larger values are faster and less accurate; the
-    # default is 1e-3.
+    # convergence: the sweeps stop once the fraction of successful swaps in a
+    # sweep, swaps per tracer visited, no longer exceeds this threshold.
+    # Larger values are faster and less accurate; the default is 1e-3.
     #
     # seed: a fixed seed makes the run reproducible; 0 draws a new seed at
     # each run, and Result.seed records the one drawn. The number of threads
@@ -84,8 +84,9 @@ def main():
     # cell_size: the grid cell, in units of mps, affects the speed only,
     # never the result; the default is 4.
     #
-    # verbosity: what the reconstruction prints; "detailed" adds to the line
-    # of the call the mean particle separation and its source
+    # verbosity: what the reconstruction prints; "detailed" adds, before the
+    # line of the call, a line with the mean particle separation and its
+    # source
     options = dict(n_realizations=8, convergence=1e-2, seed=12345, cell_size=4.0,
                    verbosity="detailed")
 

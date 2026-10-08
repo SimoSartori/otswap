@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 by Simone Sartori, simone.sartori@inaf.it
 """Tests for the Python bindings.
 
 They cover every function and property of the package, and what only exists

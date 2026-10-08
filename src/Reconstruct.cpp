@@ -48,34 +48,32 @@
 
 namespace {
 
-  // Properties of the algorithm, not knobs: none is exposed in the public
-  // header.
 
-  // Radius, in units of the local mean particle separation, of the ball
-  // around a starter from which the seeding pass draws tracers to pair.
+  /// Radius, in units of the local mean particle separation, of the ball
+  /// around a starter from which the seeding pass draws tracers to pair.
   constexpr double kSeedingRadiusInMps = 8.;
 
-  // Radius, in units of the local mean particle separation, of the
-  // neighbourhood the three swap partners are drawn from.
+  /// Radius, in units of the local mean particle separation, of the
+  /// neighbourhood the three swap partners are drawn from.
   constexpr double kNeighbourhoodRadiusInMps = 3.;
 
-  // Neighbours held per tracer: the count a sphere of
-  // kNeighbourhoodRadiusInMps mean separations holds at mean density,
-  // (4/3) * pi * 3^3 = 113.097..., truncated to 113. It is also the size
-  // of the list the swap partners are drawn from, and one less than the
-  // smallest catalog accepted.
+  /// Neighbours held per tracer: the count a sphere of
+  /// kNeighbourhoodRadiusInMps mean separations holds at mean density,
+  /// (4/3) * pi * 3^3 = 113.097..., truncated to 113. It is also the size
+  /// of the list the swap partners are drawn from, and one less than the
+  /// smallest catalog accepted.
   constexpr unsigned kNeighbours =
     (unsigned)((4. / 3.) * 3.14159265358979323846 *
                kNeighbourhoodRadiusInMps * kNeighbourhoodRadiusInMps *
                kNeighbourhoodRadiusInMps);
 
-  // Pairs the seeding pass makes around one starter before moving on.
+  /// Pairs the seeding pass makes around one starter before moving on.
   constexpr unsigned kMaxPairsPerStarter = 31;
 
-  // The 24 permutations of four elements. The order is load-bearing: the
-  // loop keeps the first permutation that strictly improves on the best so
-  // far, so a different order can pick a different permutation of equal
-  // cost.
+  /// The 24 permutations of four elements. The order is load-bearing: the
+  /// loop keeps the first permutation that strictly improves on the best so
+  /// far, so a different order can pick a different permutation of equal
+  /// cost.
   constexpr int kPermutations[24][4] = {
     {0,1,2,3}, {0,1,3,2}, {0,2,1,3}, {0,2,3,1}, {0,3,1,2}, {0,3,2,1},
     {1,0,2,3}, {1,0,3,2}, {1,2,0,3}, {1,2,3,0}, {1,3,0,2}, {1,3,2,0},
@@ -145,9 +143,6 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
   const meshsearch::MeshGrid tracerGrid(tracerX, tracerY, tracerZ, cellsize, extent);
   const std::vector<std::vector<double>> lims = tracerGrid.get_lims();
 
-  // An exception cannot leave a parallel region: the first one caught is
-  // kept, whatever its type, and rethrown unchanged after the region. The
-  // same holds for the realizations below.
   std::vector<std::vector<unsigned>> neighbours(nObjects);
   {
     std::exception_ptr failure;
@@ -227,11 +222,6 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
       for (const unsigned i : starters) {
         if (paired[i]) continue;
 
-        // The grid returns the ball in cell order, which depends on the cell
-        // size; sorted by index, the pairs drawn from it below do not. The
-        // nearest-random list needs no sorting: it is ordered by distance,
-        // nearest first, so only randoms at exactly equal distances could
-        // come in an order that depends on the cell size.
         std::vector<unsigned> close =
           tracerCopy.closeObjects(tracerX[i], tracerY[i], tracerZ[i],
                                   kSeedingRadiusInMps * mps[i]);
@@ -245,11 +235,6 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
         std::vector<unsigned> closeRandom =
           randomCopy.nearestObjects(wanted, tracerX[i], tracerY[i], tracerZ[i]);
 
-        // The starter is paired first, with its nearest unused random, and
-        // the remaining pairs are drawn at random from the ball. Every
-        // starter reached here is therefore paired, so every tracer leaves
-        // the pass with a partner of its own and the matching is a
-        // permutation, whatever the cap and the size of the ball.
         const auto self = std::find(close.begin(), close.end(), i);
         if (self != close.end() && !closeRandom.empty()) {
           const unsigned r = closeRandom.front();
@@ -423,8 +408,6 @@ void otswap::internal::summarize (Result& result)
   const std::size_t nObjects = result.nObjects;
   const unsigned nRealizations = result.nRealizations;
 
-  // Resized only when the sizes differ, then overwritten in place: a filter
-  // never moves the memory these arrays occupy.
   result.meanDisplacement.resize(3 * nObjects);
   result.validRealizations.resize(nObjects);
   std::fill(result.meanDisplacement.begin(), result.meanDisplacement.end(), 0.);

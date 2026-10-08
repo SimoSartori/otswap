@@ -45,8 +45,8 @@ namespace {
 
   using Fill = std::function<void(std::size_t, std::vector<double>&, std::vector<std::int64_t>&)>;
 
-  // Largest 0-based column index an ASCII request may name. A larger one
-  // is far more likely to be a mistyped column list than a real table.
+  /// Largest 0-based column index an ASCII request may name. A larger one
+  /// is far more likely to be a mistyped column list than a real table.
   constexpr std::size_t kMaxAsciiColumnIndex = 4095;
 
   /// Most significant digits written to ASCII: 17 read back as the same
@@ -732,7 +732,6 @@ otswap::BiasTable otswap::io::readBiasTable (const std::string& file,
     bias.bias[r] = table.values[2*r+1];
   }
 
-  // Rows are counted from 1 over the data, comments and blank lines left out.
   internal::check_bias_table(bias.redshift, bias.bias, "the bias table " + file, "data row", 1);
 
   return bias;

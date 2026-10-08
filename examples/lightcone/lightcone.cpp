@@ -114,9 +114,9 @@ int main (int argc, char** argv)
     // must number at least nRealizations times the tracers kept
     config.nRealizations = 8;
 
-    // The swap loop stops when a sweep changes fewer than this fraction of
-    // the pairs. Larger values are faster and less accurate; the default
-    // is 1e-3
+    // The sweeps stop once the fraction of successful swaps in a sweep,
+    // swaps per tracer visited, no longer exceeds this threshold. Larger
+    // values are faster and less accurate; the default is 1e-3
     config.convergence = 1.e-2;
 
     // A fixed seed makes the run reproducible; 0 draws a new seed at each

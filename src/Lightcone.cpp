@@ -52,19 +52,19 @@ namespace {
   constexpr double kDegToRad = kPi / 180.;
   constexpr double kRadToDeg = 180. / kPi;
 
-  // Square degrees on the whole sky, 4*pi*(180/pi)^2.
+  /// Square degrees on the whole sky, 4*pi*(180/pi)^2.
   const double kFullSkyDeg2 = 4. * kPi * (180. / kPi) * (180. / kPi);
 
-  // Relative precision demanded of a bin's mean particle separation.
+  /// Relative precision demanded of a bin's mean particle separation.
   constexpr double kMpsPrecision = 0.02;
 
-  // Smallest number of tracers a redshift bin may hold.
-  //
-  // mps = (N/V)^(-1/3), so the relative error on mps is one third of the
-  // relative error on the count, d(mps)/mps = (1/3)(dN/N). The count in a
-  // bin is Poisson, dN = sqrt(N), which gives d(mps)/mps = 1/(3*sqrt(N)).
-  // Requiring that to be at most kMpsPrecision gives
-  // N >= 1/(9*kMpsPrecision^2), which is 277.8 at eps = 0.02, hence 278.
+  /// Smallest number of tracers a redshift bin may hold.
+  ///
+  /// mps = (N/V)^(-1/3), so the relative error on mps is one third of the
+  /// relative error on the count, d(mps)/mps = (1/3)(dN/N). The count in a
+  /// bin is Poisson, dN = sqrt(N), which gives d(mps)/mps = 1/(3*sqrt(N)).
+  /// Requiring that to be at most kMpsPrecision gives
+  /// N >= 1/(9*kMpsPrecision^2), which is 277.8 at eps = 0.02, hence 278.
   constexpr unsigned kMinTracersPerBin =
     (unsigned)(1. / (9. * kMpsPrecision * kMpsPrecision)) + 1;
 
@@ -118,7 +118,7 @@ namespace {
     return s;
   }
 
-  // The rows of a flat 3-column array named by keep, in that order.
+  /// The rows of a flat 3-column array named by keep, in that order.
   std::vector<double> rows (const std::vector<double>& a, const std::vector<std::size_t>& keep)
   {
     std::vector<double> out(3 * keep.size());

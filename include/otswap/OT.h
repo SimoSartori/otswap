@@ -89,29 +89,35 @@ namespace otswap {
   // ==========================================================================
   // Coordinate layout
   // ==========================================================================
-  //
-  // Every coordinate array is flat and row-major, one object after the
-  // other. Cartesian arrays hold 3 * nObjects entries, ordered x, y, z, in
-  // Mpc/h, the distance table's unit. Sky arrays hold 3 * nObjects entries,
-  // ordered right ascension, declination, redshift; angles are in radians.
-  //
-  // Nothing is copied into a nested container at any point: the layout is
-  // the one the algorithm walks, and the one a numpy array maps onto
-  // without a copy. The arrays of a Result and of a RealSpaceCatalog:
-  //
-  //   [realization][object][3]  Result::displacement, Result::matchedRandom
-  //   [realization][object]     Result::valid (uint8, 0 or 1)
-  //   [object][3]               Result::tracers, tracersSky, meanDisplacement,
-  //                             lagrangian, lagrangianSky;
-  //                             RealSpaceCatalog::sky, cartesian
-  //   [object]                  Result::validRealizations, outsideRedshiftCut,
-  //                             outsideMask (uint8);
-  //                             RealSpaceCatalog::shift, factor, status,
-  //                             validRealizations, nNeighbours,
-  //                             nRealizationsAveraged
-  //
-  // Flags are uint8, 0 or 1; counts are unsigned; indices of objects are
-  // their rows.
+
+  /**
+   *  @defgroup coordinate_layout Coordinate layout
+   *
+   *  @brief How coordinate arrays and the arrays of a result are laid out.
+   *
+   *  Every coordinate array is flat and row-major, one object after the
+   *  other. Cartesian arrays hold 3 * nObjects entries, ordered x, y, z, in
+   *  Mpc/h, the distance table's unit. Sky arrays hold 3 * nObjects entries,
+   *  ordered right ascension, declination, redshift; angles are in radians.
+   *
+   *  Nothing is copied into a nested container at any point: the layout is
+   *  the one the algorithm walks, and the one a numpy array maps onto
+   *  without a copy. The arrays of a Result and of a RealSpaceCatalog:
+   *
+   *      [realization][object][3]  Result::displacement, Result::matchedRandom
+   *      [realization][object]     Result::valid (uint8, 0 or 1)
+   *      [object][3]               Result::tracers, tracersSky, meanDisplacement,
+   *                                lagrangian, lagrangianSky;
+   *                                RealSpaceCatalog::sky, cartesian
+   *      [object]                  Result::validRealizations, outsideRedshiftCut,
+   *                                outsideMask (uint8);
+   *                                RealSpaceCatalog::shift, factor, status,
+   *                                validRealizations, nNeighbours,
+   *                                nRealizationsAveraged
+   *
+   *  Flags are uint8, 0 or 1; counts are unsigned; indices of objects are
+   *  their rows.
+   */
 
   // ==========================================================================
   // Configuration
@@ -132,8 +138,8 @@ namespace otswap {
     /// (SelectionCounts::message), and the extrapolation of b(z), when it
     /// happened; then one line per call with its time and what was lost:
     ///
-    ///     otswap: reconstructLightcone: 8 realizations of 29579 tracers in 0.84 s; 62 without a valid displacement
-    ///     otswap: realSpaceLightcone: corrected 29517 of 29579 tracers in 0.12 s; 62 left uncorrected
+    ///     otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
+    ///     otswap: realSpaceLightcone: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
     Normal,
 
     /// As Normal, with the lines that explain it: the mean particle
@@ -156,8 +162,9 @@ namespace otswap {
     /// Independent reconstructions to run. Each consumes nObjects randoms.
     unsigned nRealizations = 1;
 
-    /// A sweep that changes no more than this fraction of pairs ends the
-    /// loop. Every tracer is examined in every sweep.
+    /// The sweeps stop once the fraction of successful swaps in a sweep,
+    /// swaps per tracer visited, no longer exceeds this threshold. Every
+    /// tracer is examined in every sweep.
     double convergence = 1.e-3;
 
     /// Seed of the generator. 0 draws one from std::random_device.
@@ -231,11 +238,11 @@ namespace otswap {
      *  One line for the tracers and one for the randoms, each listing the
      *  selections applied, then one for the rejected crossings when a
      *  filter was applied; each line ends in '\n'. A line is written even
-     *  when nothing was removed. For example:
+     *  when nothing was removed. In the form:
      *
-     *      otswap: kept 29120 of 29579 tracers: 312 outside the redshift cut [0.9, 1.08], 160 outside the mask (13 outside both)
-     *      otswap: kept 238101 of 242548 randoms: 2655 outside the redshift cut [0.9, 1.08], 1903 outside the mask (111 outside both)
-     *      otswap: rejected 1834 of 87360 displacements crossing more than 0 unobserved pixels
+     *      otswap: kept <n> of <N> tracers: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
+     *      otswap: kept <m> of <M> randoms: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
+     *      otswap: rejected <r> of <D> displacements crossing more than <L> unobserved pixels
      *
      *  @return the report, or an empty string when no selection was
      *  applied.
@@ -434,14 +441,12 @@ namespace otswap {
      *  Samples nSamples points over [zMin, zMax] and integrates 1/E(z).
      *  Non-flat cosmologies are served by the table constructor below.
      *
-     *  With the default range and sampling, for flat LCDM and for
-     *  w0 = -0.8, wa = 0.5, against the direct computation:
-     *  - the relative error of distanceAt, redshiftAt and growthRateAt is
-     *    below 1e-6 for z >= 0.01, and that of growthRateAt over the whole
-     *    range;
-     *  - the absolute error of distanceAt, and that of redshiftAt expressed
-     *    as a distance along the line of sight, is below 2e-5 Mpc/h over
-     *    the whole of [0, 10].
+     *  With the default range and sampling, for flat LCDM and w0-wa
+     *  cosmologies near it, the relative error of distanceAt, redshiftAt
+     *  and growthRateAt is below 1e-6 for z >= 0.01, and that of
+     *  growthRateAt over the whole range; the absolute error of distanceAt,
+     *  and that of redshiftAt expressed as a distance along the line of
+     *  sight, is below 2e-5 Mpc/h over [0, 10].
      *  Below z = 0.01 the relative error of the distances grows, because
      *  the distance itself vanishes at z = 0 while the absolute error does
      *  not. The table holds three arrays of nSamples doubles.
@@ -623,6 +628,9 @@ namespace otswap {
    *
    *  @param mps mean particle separation; must be positive.
    *
+   *  @param config the parameters of the run; rejectCrossings and
+   *  maxUnobservedPixelsCrossed are not read.
+   *
    *  @exception Error if any array has a size that is not a multiple of
    *  three, if the tracer array is empty, if the randoms are too few, if
    *  any coordinate is not finite, or if mps is not positive.
@@ -670,6 +678,7 @@ namespace otswap {
    *
    *  @param sky sky coordinates, 3 * nObjects entries, ordered right
    *  ascension, declination, redshift; angles in radians. May be empty.
+   *  @param distances the redshift to distance relation.
    *
    *  @return Cartesian coordinates in the distance table's unit, Mpc/h,
    *  3 * nObjects entries ordered x, y, z.
@@ -695,6 +704,8 @@ namespace otswap {
    *
    *  @param cartesian 3 * nObjects entries, ordered x, y, z, in Mpc/h. May
    *  be empty. A row holding a NaN gives a NaN row.
+   *  @param distances the redshift to distance relation; its range bounds
+   *  the distances accepted.
    *
    *  @return sky coordinates, 3 * nObjects entries, ordered right
    *  ascension, declination, redshift; angles in radians.
@@ -763,6 +774,13 @@ namespace otswap {
    *
    *  @param nBins redshift bins used to measure mps(z).
    *
+   *  @param distances the redshift to distance relation, with which the sky
+   *  coordinates are converted and the shell volumes computed; it must
+   *  cover the redshifts of the objects kept.
+   *
+   *  @param config the parameters of the run; rejectCrossings and
+   *  maxUnobservedPixelsCrossed are read by the mask overloads only.
+   *
    *  @param cut tracers and randoms whose redshift lies outside
    *  [cut.min, cut.max] are left out of the reconstruction, before
    *  anything else: the randoms are dropped, and the tracers keep their
@@ -801,6 +819,12 @@ namespace otswap {
    *
    *  @param tracers Cartesian coordinates, 3 * nObjects entries.
    *  @param randoms Cartesian coordinates of the randoms.
+   *  @param tracersSky as above.
+   *  @param randomsSky as above.
+   *  @param skyAreaDeg2 as above.
+   *  @param nBins as above.
+   *  @param distances as above.
+   *  @param config as above.
    *
    *  @param cut as above, decided on the sky redshifts; the same rows are
    *  dropped from the Cartesian arrays.
@@ -848,7 +872,15 @@ namespace otswap {
    *  filter only clears entries. Or set config.rejectCrossings to false and
    *  call rejectMaskCrossings on the result.
    *
+   *  @param tracersSky as in the overload with the sky area.
+   *  @param randomsSky as in the overload with the sky area.
+   *  @param nBins as in the overload with the sky area.
+   *  @param distances as in the overload with the sky area.
    *  @param mask the survey's veto mask; borrowed for the call only.
+   *  @param config as in the overload with the sky area; rejectCrossings
+   *  and maxUnobservedPixelsCrossed are read here.
+   *  @param cut as in the overload with the sky area, evaluated with the
+   *  mask on every object.
    *
    *  @exception Error as the overload with the sky area, the counts in the
    *  message naming the mask as well as the cut.
@@ -921,6 +953,8 @@ namespace otswap {
    *  the first filter applied to the result, and displacementsCrossingMask
    *  those rejected by every filter so far.
    *
+   *  @param result a lightcone result, updated in place.
+   *  @param mask the mask whose unobserved pixels are counted.
    *  @param maxUnobservedPixelsCrossed distinct unobserved pixels tolerated
    *  along the arc, the endpoint pixels excluded.
    *
@@ -964,8 +998,6 @@ namespace otswap {
 
 }
 
-// The redshift-space correction and the tables, declared over the types
-// above.
 #include "otswap/RSD.h"
 #include "otswap/io.h"
 

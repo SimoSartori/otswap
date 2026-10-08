@@ -170,6 +170,7 @@ namespace otswap {
    *  are counted in *nExtrapolated, when given.
    *
    *  @param redshift observed redshifts, inside the distance table's range.
+   *  @param distances a table carrying the growth rate.
    *  @param bias the b(z) table.
    *  @param nExtrapolated if not null, receives the number of redshifts
    *  outside the bias table.
@@ -188,6 +189,8 @@ namespace otswap {
    *  @brief The factor f / (b + 3 f / 5) of a box at a single redshift,
    *  f = distances.growthRateAt(redshift), with a constant bias.
    *
+   *  @param redshift the box's redshift, inside the distance table's range.
+   *  @param distances a table carrying the growth rate.
    *  @param bias finite and positive.
    *
    *  @exception Error if the redshift is not finite or lies outside the
@@ -337,6 +340,8 @@ namespace otswap {
    *
    *  @param result a lightcone reconstruction, with its tracers and
    *  tracersSky, as reconstructLightcone returns it.
+   *  @param distances a table carrying the growth rate, covering the
+   *  corrected distances as well as the observed ones.
    *  @param bias the b(z) table.
    *  @param sigma width of the average, in Mpc/h; 0 for none. 10 Mpc/h is a
    *  reasonable starting value; the best value depends on the sample, and
@@ -374,6 +379,7 @@ namespace otswap {
    *  @param result a box reconstruction, with its tracers.
    *  @param axis the line of sight: 0, 1 or 2.
    *  @param redshift the box's redshift, at which f is taken.
+   *  @param distances a table carrying the growth rate at that redshift.
    *  @param bias the tracers' linear bias; finite and positive.
    *  @param sigma as in realSpaceLightcone.
    *  @param config the weighting, and what the call reports.

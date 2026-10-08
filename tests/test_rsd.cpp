@@ -891,8 +891,7 @@ int main ()
     config.verbosity = Verbosity::Silent;
     const RedshiftCut cut {0.3, 0.6};
 
-    // NSIDE 64, RING, one pixel in nine unobserved, with values of every
-    // kind.
+    // NSIDE 64, RING, one pixel in nine unobserved, alternately -1 and NaN.
     std::vector<double> values(12 * 64 * 64, 1.);
     for (std::size_t p = 0; p < values.size(); p += 9) values[p] = (p % 2) ? kNaN : -1.;
     const Mask mask(values, PixelOrdering::Ring);

@@ -41,6 +41,7 @@ from typing import Literal, Optional, Sequence, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from typing_extensions import TypeAlias
 
 from . import BiasTable, MpsProfile, RealSpaceCatalog, Result
 
@@ -145,15 +146,22 @@ def write(
 ) -> None:
     """Write a table. An existing file is overwritten.
 
-    precision : significant digits of a ``"D"`` value in ASCII, from 1 to 17;
-        17 reads back as the same float64. FITS stores the values themselves.
-    keywords : ``(name, value, comment)`` tuples, written in this order; a
-        name is 1 to 8 characters of A-Z, 0-9, ``-`` and ``_``, a value at
-        most 68 characters. In FITS a value that reads entirely as an integer
-        or a finite number is written as one, anything else as a string.
+    Parameters
+    ----------
+    precision : int, optional
+        Significant digits of a ``"D"`` value in ASCII, from 1 to 17; 17 reads
+        back as the same float64. FITS stores the values themselves.
+    keywords : sequence of (str, str, str), optional
+        ``(name, value, comment)`` tuples, written in this order; a name is 1
+        to 8 characters of A-Z, 0-9, ``-`` and ``_``, a value at most 68
+        characters. In FITS a value that reads entirely as an integer or a
+        finite number is written as one, anything else as a string.
 
-    Raises if the columns differ in length, or a ``"J"`` value is not an
-    integer in [-2**31, 2**31); the message names the column and the row.
+    Raises
+    ------
+    Error
+        If the columns differ in length, or a ``"J"`` value is not an integer
+        in [-2**31, 2**31); the message names the column and the row.
     """
 
 
@@ -163,10 +171,11 @@ def read_bias_table(file: Path, *, delimiter: str = " ", comment: str = "#") -> 
     message names the file and the row."""
 
 
-DisplacementGroup = Literal["index", "tracer_sky", "lagrangian_sky", "tracer", "lagrangian",
-                            "displacement", "valid_realizations", "selection"]
-CatalogGroup = Literal["index", "sky", "cartesian", "valid_realizations", "neighbours", "shift",
-                       "status"]
+DisplacementGroup: TypeAlias = Literal["index", "tracer_sky", "lagrangian_sky", "tracer",
+                                       "lagrangian", "displacement", "valid_realizations",
+                                       "selection"]
+CatalogGroup: TypeAlias = Literal["index", "sky", "cartesian", "valid_realizations",
+                                  "neighbours", "shift", "status"]
 
 
 def write_displacements(
@@ -190,11 +199,16 @@ def write_displacements(
     - ``"valid_realizations"``: nValidRec;
     - ``"selection"``: outsideRedshiftCut, outsideMask (0 or 1); lightcone only.
 
-    groups : in output order; None for the default, CosmoBolognaLib's columns
+    Parameters
+    ----------
+    groups : sequence of DisplacementGroup, optional
+        In output order; None for the default, CosmoBolognaLib's columns
         first: box tracer, lagrangian, displacement, valid_realizations;
-        lightcone tracer_sky, lagrangian_sky, tracer, lagrangian, displacement,
-        valid_realizations, selection.
+        lightcone tracer_sky, lagrangian_sky, tracer, lagrangian,
+        displacement, valid_realizations, selection.
 
+    Notes
+    -----
     Floating values are written with 9 significant digits in ASCII. Keywords:
     NREC, SEED (the seed used), CONVERG; MPS for a box; ZCUTMIN and ZCUTMAX
     for the finite bounds of a redshift cut, MASK = 1 when a mask selected
@@ -239,10 +253,15 @@ def write_real_space_catalog(
     - ``"shift"``: shift (Mpc/h), rsdFactor;
     - ``"status"``: status, as ``RealSpaceCatalog.status``.
 
-    groups : in output order; None for the default, CosmoBolognaLib's
-        columns first: lightcone sky, cartesian, valid_realizations,
-        neighbours, status; box the same without sky.
+    Parameters
+    ----------
+    groups : sequence of CatalogGroup, optional
+        In output order; None for the default, CosmoBolognaLib's columns
+        first: lightcone sky, cartesian, valid_realizations, neighbours,
+        status; box the same without sky.
 
+    Notes
+    -----
     Floating values are written with 9 significant digits in ASCII.
     Keywords: SIGMA, WEIGHTED; NEXTRAP for a lightcone; AXIS, ZBOX and BIAS
     for a box.

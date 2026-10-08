@@ -45,16 +45,16 @@
 
 namespace {
 
-  // The gaussian is truncated at this many sigma.
+  /// The gaussian is truncated at this many sigma.
   constexpr double kTruncationInSigma = 3.;
 
-  // The grid cell, in mean separations of the positions averaged over.
+  /// The grid cell, in mean separations of the positions averaged over.
   constexpr double kCellInSeparations = 4.;
 
   const double kNaN = std::numeric_limits<double>::quiet_NaN();
 
-  // Number of objects in a flat array of 3*N entries that may hold NaN but
-  // no infinity, such as a displacement.
+  /// Number of objects in a flat array of 3*N entries that may hold NaN but
+  /// no infinity, such as a displacement.
   std::size_t check_nan_allowed (const std::vector<double>& a, const std::string& name)
   {
     if (a.size() % 3 != 0)
@@ -67,8 +67,8 @@ namespace {
     return a.size() / 3;
   }
 
-  // Positions that define a radial line of sight: finite and away from the
-  // origin.
+  /// Positions that define a radial line of sight: finite and away from the
+  /// origin.
   std::size_t check_radial_positions (const std::vector<double>& positions)
   {
     const std::size_t n = otswap::internal::check_coordinates(positions, "the position array");
@@ -156,8 +156,8 @@ namespace {
     return out;
   }
 
-  // Bias at z: linear between the nodes, extrapolated from the end
-  // segments; sets extrapolated when z lies outside the nodes.
+  /// Bias at z: linear between the nodes, extrapolated from the end
+  /// segments; sets extrapolated when z lies outside the nodes.
   double bias_at (const std::vector<double>& zb, const std::vector<double>& b, const double z,
                   bool& extrapolated)
   {
@@ -189,7 +189,7 @@ namespace {
     }
   }
 
-  // f / (b + 3 f / 5) at z for object who; counts an extrapolation of b.
+  /// f / (b + 3 f / 5) at z for object who; counts an extrapolation of b.
   double factor_at (const std::vector<double>& zb, const std::vector<double>& b, const double z,
                     const otswap::DistanceTable& distances, const std::string& who,
                     std::size_t& nExtrapolated)
@@ -358,8 +358,6 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
     return values;
   }
 
-  // The grid spans every position, so each query point lies inside it, and
-  // holds the valid objects only; grid index g is object member[g].
   std::vector<std::vector<double>> limits(3, std::vector<double>(2));
   for (int k = 0; k < 3; ++k) {
     double lo = positions[(std::size_t)k], hi = lo;
@@ -383,15 +381,11 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
   std::vector<double> average(n, kNaN);
   if (member.empty()) return average;
 
-  // Built before the parallel region: a cell size the grid refuses, as for
-  // positions spanning no volume, raises meshsearch's error here.
   const meshsearch::MeshGrid grid(X, Y, Z, cellSize, limits);
 
   const double cutoff = kTruncationInSigma * sigma;
   const double inverse = 1. / (2. * sigma * sigma);
 
-  // Every argument was checked above, so the search cannot fail but for
-  // memory; whatever is thrown is kept and rethrown after the region.
   std::exception_ptr failure;
 
 #pragma omp parallel for schedule(dynamic, 64)

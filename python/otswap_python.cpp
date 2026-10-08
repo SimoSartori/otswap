@@ -26,7 +26,9 @@
  *  submodule otswap.io specified by python/otswap/io.pyi.
  *
  *  Every argument is taken as a Python object and converted here, so that
- *  any invalid argument raises otswap.Error. Arrays are converted with
+ *  any invalid argument raises otswap.Error; every argument is declared
+ *  .none(), so that None reaches the conversions and raises otswap.Error
+ *  like any other invalid value. Arrays are converted with
  *  numpy.asarray to C-contiguous float64 and their shapes checked; the C++
  *  library then works on its own copy. Right ascension and declination are
  *  converted from degrees here, so the library only ever sees radians; a
@@ -57,20 +59,16 @@
 namespace nb = nanobind;
 using namespace nb::literals;
 
-// valid_realizations is exposed as uint32 and valid as bool over the uint8
-// bytes of the C++ result.
 static_assert(sizeof(unsigned) == 4, "valid_realizations is exposed as uint32");
 static_assert(sizeof(bool) == 1 && sizeof(std::uint8_t) == 1, "valid is exposed as bool");
-// MpsProfile.count is exposed as uint64 over size_t, and the status of a
-// catalogue as uint8 over its enumeration.
 static_assert(sizeof(std::size_t) == 8, "MpsProfile.count is exposed as uint64");
 static_assert(sizeof(otswap::CorrectionStatus) == 1, "status is exposed as uint8");
 
 namespace {
 
-  // pi/180 as a double: the factor numpy.deg2rad and otswap::skyToRadians
-  // multiply by, so that an angle converted here and one converted with
-  // either are the same double.
+  /// pi/180 as a double: the factor numpy.deg2rad and otswap::skyToRadians
+  /// multiply by, so that an angle converted here and one converted with
+  /// either are the same double.
   constexpr double kDegToRad = 3.14159265358979323846 / 180.;
 
   using CArray = nb::ndarray<const double, nb::c_contig, nb::device::cpu>;
@@ -90,7 +88,7 @@ namespace {
 
   // ----------------------------------------------------- argument conversion
 
-  // The argument as a C-contiguous float64 numpy array of the same shape.
+  /// The argument as a C-contiguous float64 numpy array of the same shape.
   nb::object float64_array (nb::handle value, const std::string& name)
   {
     const nb::module_ np = nb::module_::import_("numpy");
@@ -107,7 +105,7 @@ namespace {
     return nb::cast<CArray>(float64_array(value, name));
   }
 
-  // An (N, 3) array, copied into the flat layout the library takes.
+  /// An (N, 3) array, copied into the flat layout the library takes.
   std::vector<double> rows3 (nb::handle value, const std::string& name)
   {
     const CArray a = as_float64(value, name);
@@ -116,7 +114,7 @@ namespace {
     return std::vector<double>(a.data(), a.data() + a.size());
   }
 
-  // A one-dimensional array.
+  /// A one-dimensional array.
   std::vector<double> column (nb::handle value, const std::string& name)
   {
     const CArray a = as_float64(value, name);
@@ -156,8 +154,8 @@ namespace {
     return value.ptr() == Py_True;
   }
 
-  // A one-dimensional array of counts: each entry an integer in
-  // [0, 4294967295].
+  /// A one-dimensional array of counts: each entry an integer in
+  /// [0, 4294967295].
   std::vector<unsigned> counts (nb::handle value, const std::string& name)
   {
     const std::vector<double> c = column(value, name);
@@ -178,8 +176,8 @@ namespace {
     return nb::str(value).c_str();
   }
 
-  // An instance of a bound class; the reference stays valid while the
-  // caller holds the argument.
+  /// An instance of a bound class; the reference stays valid while the
+  /// caller holds the argument.
   template <typename T>
   T& instance (nb::handle value, const std::string& name, const std::string& type)
   {
@@ -239,7 +237,7 @@ namespace {
         print(nb::str(text.data() + start, end - start));
   }
 
-  // None, or a (min, max) pair.
+  /// The redshift cut from None or a (min, max) pair.
   otswap::RedshiftCut to_cut (nb::handle value)
   {
     otswap::RedshiftCut cut;
@@ -264,7 +262,7 @@ namespace {
     return config;
   }
 
-  // A path: a str or an os.PathLike.
+  /// A path: a str or an os.PathLike.
   std::string to_path (nb::handle value, const std::string& name)
   {
     nb::object path;
@@ -287,7 +285,7 @@ namespace {
     return s[0];
   }
 
-  // A sequence of column names; an int is a 0-based ASCII index.
+  /// A sequence of column names; an int is a 0-based ASCII index.
   std::vector<std::string> column_names (nb::handle value, const std::string& name)
   {
     if (nb::isinstance<nb::str>(value))
@@ -308,8 +306,8 @@ namespace {
     return names;
   }
 
-  // A one-dimensional array of 64-bit integers: integer or boolean values
-  // taken as they are, floating ones only when each is an integer in range.
+  /// A one-dimensional array of 64-bit integers: integer or boolean values
+  /// taken as they are, floating ones only when each is an integer in range.
   std::vector<std::int64_t> int64_column (nb::handle value, const std::string& name)
   {
     const nb::module_ np = nb::module_::import_("numpy");
@@ -383,7 +381,7 @@ namespace {
     return s;
   }
 
-  // A new numpy array that owns values.
+  /// A new numpy array that owns values.
   template <typename T>
   nb::ndarray<nb::numpy, T> owned (std::vector<T>&& values, const std::vector<std::size_t>& shape)
   {
@@ -392,7 +390,7 @@ namespace {
     return nb::ndarray<nb::numpy, T>(held->data(), shape.size(), shape.data(), owner);
   }
 
-  // A DistanceTable lookup applied to every element, keeping the shape.
+  /// A DistanceTable lookup applied to every element, keeping the shape.
   template <typename F>
   nb::ndarray<nb::numpy, double> elementwise (nb::handle value, const std::string& name, F lookup)
   {
@@ -402,8 +400,8 @@ namespace {
     return owned(std::move(out), shape_vector(a));
   }
 
-  // A read-only view on an array of a Result, which keeps the Python object
-  // holding the Result alive.
+  /// A read-only view on an array of a Result, which keeps the Python object
+  /// holding the Result alive.
   template <typename T>
   nb::ndarray<nb::numpy, const T> view (nb::handle owner, const T* data,
                                         std::initializer_list<std::size_t> shape)
@@ -413,11 +411,11 @@ namespace {
 
   // ------------------------------------------------------------- warnings
 
-  // otswap.ExtrapolationWarning, created with the module.
+  /// otswap.ExtrapolationWarning, created with the module.
   PyObject* extrapolation_warning = nullptr;
 
-  // Raise one ExtrapolationWarning for a call that extrapolated b(z) at
-  // count of total redshifts. Needs the GIL.
+  /// Raise one ExtrapolationWarning for a call that extrapolated b(z) at
+  /// count of total redshifts. Needs the GIL.
   void warn_extrapolation (const std::size_t count, const std::size_t total,
                            const std::vector<double>& biasRedshift)
   {
@@ -519,8 +517,6 @@ namespace {
 
 }
 
-// Every argument is declared .none(), so that None reaches the conversions
-// above and raises otswap.Error like any other invalid value.
 NB_MODULE(_otswap, m)
 {
   m.doc() = "Compiled part of the otswap package; import otswap instead.";
@@ -786,10 +782,6 @@ NB_MODULE(_otswap, m)
     .def_static("from_array",
         [] (nb::handle values, nb::handle nest) {
           const bool nested = to_bool(nest, "nest");
-          // The dtype is checked before any conversion, so that complex
-          // values, strings or objects are refused rather than cast. A
-          // C-contiguous float64 array is then read in place; any other is
-          // converted to one.
           const nb::module_ np = nb::module_::import_("numpy");
           nb::object raw;
           try {

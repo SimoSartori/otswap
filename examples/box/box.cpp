@@ -89,9 +89,9 @@ int main (int argc, char** argv)
     // uniformly in the tracers' bounding box
     config.nRealizations = 8;
 
-    // The swap loop stops when a sweep changes fewer than this fraction of
-    // the pairs. Larger values are faster and less accurate; the default
-    // is 1e-3
+    // The sweeps stop once the fraction of successful swaps in a sweep,
+    // swaps per tracer visited, no longer exceeds this threshold. Larger
+    // values are faster and less accurate; the default is 1e-3
     config.convergence = 1.e-2;
 
     // A fixed seed makes the run reproducible; 0 draws a new seed at each
@@ -104,9 +104,9 @@ int main (int argc, char** argv)
     // result; the default is 4
     config.cellSize = 4.;
 
-    // What the reconstruction reports, and where: Detailed adds to the
-    // line of the call the mean particle separation and its source. The
-    // report goes to std::clog by default; here to std::cout, in order
+    // What the reconstruction reports, and where: Detailed adds, before the
+    // line of the call, a line with the mean particle separation and its
+    // source. The report goes to std::clog by default; here to std::cout, in order
     // with this program's own lines
     config.verbosity = otswap::Verbosity::Detailed;
     config.log = &std::cout;

@@ -24,8 +24,19 @@
  *  @brief Reading and writing ASCII and FITS tables.
  *
  *  The format of a file follows its extension: .fits, .fit and .fits.gz
- *  are FITS, anything else is ASCII. Both layouts are stable, and a file
- *  written here reads back through io::read in either format.
+ *  are FITS, anything else is ASCII. Both layouts, described in the group
+ *  file_formats below, are stable, and a file written here reads back
+ *  through io::read in either format.
+ *
+ *  Included by otswap/OT.h; either header may be included first.
+ *
+ *  @author Simone Sartori <simone.sartori@inaf.it>
+ */
+
+/**
+ *  @defgroup file_formats File formats
+ *
+ *  @brief The layouts of the tables io::write and the writers produce.
  *
  *  ASCII:
  *
@@ -61,10 +72,6 @@
  *  header carries keywords: PRODUCT, what the file holds; OTSWAPV, the
  *  library version; GEOMETRY, box or lightcone; NOBJECTS; and those of the
  *  product, listed with each writer.
- *
- *  Included by otswap/OT.h; either header may be included first.
- *
- *  @author Simone Sartori <simone.sartori@inaf.it>
  */
 
 #ifndef OTSWAP_IO_H
@@ -272,6 +279,8 @@ namespace otswap {
      *  selected the objects, FILTNSID and MAXPIXCR when a mask filter was
      *  applied.
      *
+     *  @param file the file to write; its extension sets the format.
+     *  @param result a box or lightcone result.
      *  @param groups the groups to write, in this order; empty for the
      *  default of the result's geometry.
      *
@@ -329,6 +338,8 @@ namespace otswap {
      *  SIGMA, WEIGHTED (0 or 1); NEXTRAP for a lightcone; AXIS, ZBOX and BIAS
      *  for a box.
      *
+     *  @param file the file to write; its extension sets the format.
+     *  @param catalog a box or lightcone catalogue.
      *  @param groups the groups to write, in this order; empty for the
      *  default of the catalogue's geometry.
      *

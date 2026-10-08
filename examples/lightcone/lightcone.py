@@ -93,9 +93,9 @@ def main():
     # the randoms kept must number at least n_realizations times the
     # tracers kept.
     #
-    # convergence: the swap loop stops when a sweep changes fewer than this
-    # fraction of the pairs. Larger values are faster and less accurate; the
-    # default is 1e-3.
+    # convergence: the sweeps stop once the fraction of successful swaps in a
+    # sweep, swaps per tracer visited, no longer exceeds this threshold.
+    # Larger values are faster and less accurate; the default is 1e-3.
     #
     # seed: a fixed seed makes the run reproducible; 0 draws a new seed at
     # each run, and result.seed records the one drawn. The number of threads

@@ -49,24 +49,24 @@ namespace {
 
   const double kFullSkyDeg2 = 4. * kPi * (180. / kPi) * (180. / kPi);
 
-  // Pixel values are read 1024 to a FITS row; the layout is checked
-  // against the pixel count before anything is read.
+  /// Pixel values are read 1024 to a FITS row; the layout is checked
+  /// against the pixel count before anything is read.
   constexpr LONGLONG kPixelsPerRow = 1024;
 
-  // Rows read at a time: the values of one block, 512 KiB of doubles, are
-  // turned into bytes before the next block is read.
+  /// Rows read at a time: the values of one block, 512 KiB of doubles, are
+  /// turned into bytes before the next block is read.
   constexpr LONGLONG kRowsPerBlock = 64;
 
-  // A sub-arc shorter than this fraction of the pixel size is not split
-  // further.
+  /// A sub-arc shorter than this fraction of the pixel size is not split
+  /// further.
   constexpr double kArcFloorInPixels = 1.e-6;
 
   using Pixel = std::int64_t;
 
-  // True when the sub-arc from a point in pixP to a point in pixQ, shorter
-  // than a pixel, needs no further splitting: pixQ shares an edge with
-  // pixP, and no unobserved pixel other than pixQ and the two endpoint
-  // pixels neighbours both.
+  /// True when the sub-arc from a point in pixP to a point in pixQ, shorter
+  /// than a pixel, needs no further splitting: pixQ shares an edge with
+  /// pixP, and no unobserved pixel other than pixQ and the two endpoint
+  /// pixels neighbours both.
   bool edge_crossing_safe (const otswap::internal::PixelMask& mask, const Pixel pixP,
                            const Pixel pixQ, const Pixel pixA, const Pixel pixB)
   {
@@ -92,8 +92,8 @@ namespace {
     std::vector<Pixel>& found;
   };
 
-  // Examines the sub-arc from p to q, whose end pixels have been examined
-  // already. Returns true once more than search.limit pixels are found.
+  /// Examines the sub-arc from p to q, whose end pixels have been examined
+  /// already. Returns true once more than search.limit pixels are found.
   bool segment_exceeds (const ArcSearch& search,
                         const otswap::internal::Vec3& p, const Pixel pixP,
                         const otswap::internal::Vec3& q, const Pixel pixQ)
@@ -197,8 +197,6 @@ otswap::Mask::Mask (const std::string& fitsFile)
     LONGLONG nrows = 0;
     if (fits_get_num_rowsll(fptr, &nrows, &status)) fail("cannot read the number of rows");
 
-    // The most rows a map of NSIDE 2^29 fills; more cannot be a valid map,
-    // and the bound keeps the pixel count below overflow.
     const LONGLONG maxRows = 12 * internal::kMaxNside * internal::kMaxNside / kPixelsPerRow;
     if (nrows > maxRows)
       throw Error(source + " holds " + std::to_string(nrows) + " rows of " +
@@ -222,10 +220,6 @@ otswap::Mask::Mask (const std::string& fitsFile)
 
     internal::set_geometry(impl->mask, nside, nested, source);
 
-    // A floating column is read as stored, NaN and +-inf included: cfitsio's
-    // null check would turn +-inf into the null value too. An integer
-    // column is read with the check, so that its null value (TNULL) reads
-    // as NaN, unobserved.
     const bool floating = typecode == TFLOAT || typecode == TDOUBLE;
     double nullValue = std::numeric_limits<double>::quiet_NaN();
     std::vector<double> block((std::size_t)(kRowsPerBlock * kPixelsPerRow));
@@ -271,7 +265,6 @@ otswap::Mask::Mask (const double* values, const std::size_t count, const PixelOr
   if (values == nullptr)
     throw Error(source + " is given as a null pointer");
 
-  // NSIDE from the length, in integers: the root of count / 12, if exact.
   const std::uint64_t perFace = (std::uint64_t)count / 12;
   std::uint64_t nside = (std::uint64_t)std::llround(std::sqrt((double)perFace));
   while (nside > 0 && nside * nside > perFace) --nside;
@@ -283,7 +276,6 @@ otswap::Mask::Mask (const double* values, const std::size_t count, const PixelOr
                 "; a full-sky Healpix map holds 12 * NSIDE^2 values");
 
   auto impl = std::make_shared<Impl>();
-  // count / 12 < 2^63, so its root fits an int64 whatever its size.
   internal::set_geometry(impl->mask, (std::int64_t)nside, ordering == PixelOrdering::Nested,
                          source);
   internal::mark_observed(impl->mask, 0, values, count);

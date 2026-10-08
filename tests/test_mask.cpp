@@ -51,13 +51,12 @@
 
 using namespace otswap;
 
-// CosmoBolognaLib's arc_crosses_mask and what it calls, copied verbatim from
-// the anonymous namespace at the top of OTreconstruction/OTreconstruction.cpp:
-// the reference the port is checked against. Like otswap, it takes a pixel
-// as observed when its value is > 0. It finds pixels with Healpix's own
-// vec2pix, over the system atan2, where otswap uses its deterministic one;
-// the two can differ only for a direction within rounding of a pixel
-// boundary.
+// CosmoBolognaLib's arc_crosses_mask and the functions it calls, reproduced
+// verbatim as the reference implementation the mask search is checked
+// against. Like otswap, it takes a pixel as observed when its value is > 0.
+// It finds pixels with Healpix's own vec2pix, over the system atan2, where
+// otswap uses its deterministic one; the two can differ only for a direction
+// within rounding of a pixel boundary.
 namespace cbl_reference {
 
   constexpr double kArcFloorInPixels = 1.e-6;
@@ -1061,7 +1060,7 @@ int main ()
     rejectMaskCrossings(r, mask, 10000);
     check(r.valid == once.valid, "a looser limit afterwards restores nothing");
 
-    // A mask at a different NSIDE must now be refused.
+    // Once filtered, the result refuses a mask at a different NSIDE.
     const std::string other = temporary("mask32.fits");
     if (write_map(other, std::vector<float>(12288, 1.f), "RING", 32) == 0) {
       const Mask wrongSide(other);

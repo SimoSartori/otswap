@@ -10,6 +10,17 @@ The number of threads follows ``OMP_NUM_THREADS``. The reconstruction
 functions release the GIL while they run.
 
 Tables are read and written by the submodule ``otswap.io``.
+
+The redshift-space correction of tracer i is a shift along its line of
+sight::
+
+    s_i = f(z_i) / (b(z_i) + 3 f(z_i) / 5) * <Psi . r_hat>_i
+
+with Psi the reconstructed displacement (``Result.mean_displacement``, from
+the observed to the reconstructed position), r_hat the line of sight, f the
+linear growth rate, b the linear bias and < > a gaussian average over the
+neighbouring tracers. ``real_space_lightcone`` and ``real_space_box`` run the
+whole chain; the four steps are also available on their own.
 """
 
 from enum import IntEnum
@@ -17,12 +28,13 @@ from typing import Literal, NamedTuple, Optional
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from typing_extensions import TypeAlias
 
 from . import io as io
 
-AngleUnit = Literal["deg", "rad"]
+AngleUnit: TypeAlias = Literal["deg", "rad"]
 
-Verbosity = Literal["silent", "normal", "detailed"]
+Verbosity: TypeAlias = Literal["silent", "normal", "detailed"]
 """What a reconstruction or a correction prints, to ``sys.stdout``, each line
 starting with ``otswap:``:
 
@@ -30,8 +42,8 @@ starting with ``otswap:``:
 - ``"normal"``: the selection report of a lightcone, when a selection
   applied, then one line per call with its time and what was lost::
 
-      otswap: reconstructLightcone: 8 realizations of 29579 tracers in 0.84 s; 62 without a valid displacement
-      otswap: realSpaceLightcone: corrected 29517 of 29579 tracers in 0.12 s; 62 left uncorrected
+      otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
+      otswap: realSpaceLightcone: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
 
 - ``"detailed"``: as ``"normal"``, with the lines that explain it: the mean
   particle separation of a box and its source, the mps(z) profile of a
@@ -89,17 +101,25 @@ class Result:
     ) -> "Result":
         """Build a result from its arrays, as read back from a file.
 
-        displacement, matched_random : (n_realizations, n_objects, 3).
-        valid : (n_realizations, n_objects), each entry 0 or 1 (or bool).
-        tracers : (n_objects, 3), Cartesian.
-        tracers_sky : (n_objects, 3), for a lightcone result, with its
-            ``angle_unit`` and the ``distances`` table of the reconstruction,
-            from which ``lagrangian_sky`` is computed. Without it the result
-            is a box result, and neither may be given.
-        outside_redshift_cut, outside_mask : (n_objects,), 0 or 1; all 0
-            when omitted.
-        seed : the seed to record.
+        Parameters
+        ----------
+        displacement, matched_random : array_like, shape (n_realizations, n_objects, 3)
+        valid : array_like, shape (n_realizations, n_objects)
+            Each entry 0 or 1 (or bool).
+        tracers : array_like, shape (n_objects, 3)
+            Cartesian.
+        tracers_sky : array_like, shape (n_objects, 3), optional
+            For a lightcone result, with its ``angle_unit`` and the
+            ``distances`` table of the reconstruction, from which
+            ``lagrangian_sky`` is computed. Without it the result is a box
+            result, and neither may be given.
+        outside_redshift_cut, outside_mask : array_like, shape (n_objects,), optional
+            0 or 1; all 0 when omitted.
+        seed : int, optional
+            The seed to record.
 
+        Notes
+        -----
         ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
         ``lagrangian_sky`` are computed as ``recompute_means`` computes them,
         so arrays read back exactly give the reconstruction's values, bit for
@@ -434,17 +454,23 @@ class Mask:
     def from_array(values: ArrayLike, nest: bool = False) -> "Mask":
         """A full-sky HEALPix map given in memory, as healpy holds one.
 
-        values : 1-D, one value per pixel, of any real dtype: integer,
-            unsigned, floating, or bool as 0 and 1. Its length must be
-            12 NSIDE**2. It is read once and not kept. A C-contiguous
-            float64 array is read in place; any other input is first
-            converted to one, which takes 8 bytes per pixel while the mask
-            is built.
-        nest : True for NESTED, False for RING, as healpy's ``nest``.
+        Parameters
+        ----------
+        values : array_like, shape (12 NSIDE**2,)
+            One value per pixel, of any real dtype: integer, unsigned,
+            floating, or bool as 0 and 1. It is read once and not kept. A
+            C-contiguous float64 array is read in place; any other input is
+            first converted to one, which takes 8 bytes per pixel while the
+            mask is built.
+        nest : bool, optional
+            True for NESTED, False for RING, as healpy's ``nest``.
 
-        Raises otswap.Error for another length, NSIDE above 2**29, NESTED
-        with an NSIDE that is not a power of 2, an array that is not 1-D,
-        values that are not real numbers, or a ``nest`` that is not a bool.
+        Raises
+        ------
+        Error
+            For another length, NSIDE above 2**29, NESTED with an NSIDE that
+            is not a power of 2, an array that is not 1-D, values that are
+            not real numbers, or a ``nest`` that is not a bool.
         """
 
     @property
@@ -488,23 +514,33 @@ def reconstruct_box(
 
     Parameters
     ----------
-    tracers : (N, 3) Cartesian coordinates.
-    randoms : (M, 3) Cartesian coordinates, M >= n_realizations * N; each
-        realization uses a disjoint subset. If omitted, n_realizations * N
-        randoms are drawn uniformly in the bounding box of the tracers.
-    mps : mean particle separation, in the units of the coordinates. If
+    tracers : array_like, shape (N, 3)
+        Cartesian coordinates.
+    randoms : array_like, shape (M, 3), optional
+        Cartesian coordinates, M >= n_realizations * N; each realization uses
+        a disjoint subset. If omitted, n_realizations * N randoms are drawn
+        uniformly in the bounding box of the tracers.
+    mps : float, optional
+        Mean particle separation, in the units of the coordinates. If
         omitted, (V / N)^(1/3), with V the volume of the tracers' bounding
         box, the box drawn randoms fill; it is ``Result.mps``. Raises if the
         tracers span no volume.
-    n_realizations : independent reconstructions to run.
-    convergence : the loop stops after a sweep that changes at most this
-        fraction of the pairs.
-    seed : seed of the random streams; 0 draws one at random. With a fixed
-        seed the result does not depend on the number of threads.
-    cell_size : grid cell size in units of the mps. Affects speed only.
-    verbosity : what the call prints; see ``Verbosity``. ``"normal"`` prints
-        one line, ``"detailed"`` the mps and its source before it.
+    n_realizations : int, optional
+        Independent reconstructions to run.
+    convergence : float, optional
+        The sweeps stop once the fraction of successful swaps in a sweep,
+        swaps per tracer visited, no longer exceeds this threshold.
+    seed : int, optional
+        Seed of the random streams; 0 draws one at random. With a fixed seed
+        the result does not depend on the number of threads.
+    cell_size : float, optional
+        Grid cell size in units of the mps. Affects speed only.
+    verbosity : Verbosity, optional
+        What the call prints; see ``Verbosity``. ``"normal"`` prints one
+        line, ``"detailed"`` the mps and its source before it.
 
+    Notes
+    -----
     The box is not periodic: nothing flows through its faces, so modes on the
     scale of the box itself cannot be reconstructed.
     """
@@ -544,53 +580,63 @@ def reconstruct_lightcone(
 
     Parameters
     ----------
-    tracers_sky : (N, 3) sky coordinates of the tracers.
-    randoms_sky : (M, 3) sky coordinates of the randoms,
-        M >= n_realizations * N.
-    sky_area_deg2 : effective survey area, when no mask is given: the
-        published value. Give exactly one of ``sky_area_deg2`` and ``mask``.
-    mask : the survey's ``Mask``. The sky area is then ``mask.sky_area_deg2``,
-        and the mask is applied twice. Before the reconstruction, tracers and
+    tracers_sky : array_like, shape (N, 3)
+        Sky coordinates of the tracers.
+    randoms_sky : array_like, shape (M, 3)
+        Sky coordinates of the randoms, M >= n_realizations * N.
+    sky_area_deg2 : float, optional
+        Effective survey area, when no mask is given: the published value.
+        Give exactly one of ``sky_area_deg2`` and ``mask``.
+    mask : Mask, optional
+        The survey's mask. The sky area is then ``mask.sky_area_deg2``, and
+        the mask is applied twice. Before the reconstruction, tracers and
         randoms on unobserved pixels are left out, as ``Mask.allows`` decides:
         the randoms are dropped, and the tracers keep their row, flagged in
         ``Result.outside_mask``. After it, with ``reject_crossings``,
         ``reject_mask_crossings`` is applied with
         ``max_unobserved_pixels_crossed``. The mask and the redshift cut are
         both evaluated on every object; the objects kept pass both.
-    n_bins : redshift bins used to measure mps(z).
-    distances : table used for the conversion to Cartesian coordinates.
-    angle_unit : unit of right ascension and declination. A declination
-        outside [-90, 90] degrees ([-pi/2, pi/2] radians) raises, the message
-        giving it in this unit.
-    tracers, randoms : Cartesian coordinates already computed. Give both or
-        neither; when given, the conversion is skipped, and their agreement
-        with the sky coordinates is not checked.
-    redshift_cut : (min, max). Tracers and randoms whose redshift lies outside
-        this closed range are left out of the reconstruction, before anything
-        else: the randoms are dropped, and the tracers keep their row, flagged
-        in ``Result.outside_redshift_cut``. mps(z) is measured on the tracers
-        kept, and only their redshifts need lie in the distance table. None,
-        the default, cuts nothing.
-    reject_crossings : with a mask, filter the result with
-        ``reject_mask_crossings``. Ignored without a mask.
-    max_unobserved_pixels_crossed : the threshold of that filter. To filter
-        with another threshold, set it here: a second filter with the same
-        mask and a higher threshold changes nothing, since the filter only
-        marks displacements invalid.
-    verbosity : what the call prints; see ``Verbosity``. With ``"normal"``,
-        when a mask or a cut with a finite bound is applied, what was left
-        out: one line for the tracers, one for the randoms, one for the
-        rejected crossings, as ``Result.selection`` records them; then the
-        line of the call. For example::
+    n_bins : int
+        Redshift bins used to measure mps(z).
+    distances : DistanceTable
+        Table used for the conversion to Cartesian coordinates.
+    angle_unit : AngleUnit
+        Unit of right ascension and declination. A declination outside
+        [-90, 90] degrees ([-pi/2, pi/2] radians) raises, the message giving
+        it in this unit.
+    tracers, randoms : array_like, optional
+        Cartesian coordinates already computed, shape (N, 3) and (M, 3). Give
+        both or neither; when given, the conversion is skipped, and their
+        agreement with the sky coordinates is not checked.
+    redshift_cut : tuple of two floats, optional
+        (min, max). Tracers and randoms whose redshift lies outside this
+        closed range are left out of the reconstruction, before anything
+        else: the randoms are dropped, and the tracers keep their row,
+        flagged in ``Result.outside_redshift_cut``. mps(z) is measured on the
+        tracers kept, and only their redshifts need lie in the distance
+        table. None, the default, cuts nothing.
+    reject_crossings : bool, optional
+        With a mask, filter the result with ``reject_mask_crossings``.
+        Ignored without a mask.
+    max_unobserved_pixels_crossed : int, optional
+        The threshold of that filter. To filter with another threshold, set
+        it here: a second filter with the same mask and a higher threshold
+        changes nothing, since the filter only marks displacements invalid.
+    verbosity : Verbosity, optional
+        What the call prints; see ``Verbosity``. With ``"normal"``, when a
+        mask or a cut with a finite bound is applied, what was left out: one
+        line for the tracers, one for the randoms, one for the rejected
+        crossings, as ``Result.selection`` records them; then the line of the
+        call. In the form::
 
-            otswap: kept 29120 of 29579 tracers: 312 outside the redshift cut [0.9, 1.08], 160 outside the mask (13 outside both)
-            otswap: kept 238101 of 242548 randoms: 2655 outside the redshift cut [0.9, 1.08], 1903 outside the mask (111 outside both)
-            otswap: rejected 1834 of 87360 displacements crossing more than 0 unobserved pixels
-            otswap: reconstructLightcone: 8 realizations of 29579 tracers in 0.84 s; 2293 without a valid displacement
+            otswap: kept <n> of <N> tracers: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
+            otswap: kept <m> of <M> randoms: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
+            otswap: rejected <r> of <D> displacements crossing more than <L> unobserved pixels
+            otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
 
         ``"detailed"`` adds the mps(z) profile before the last line.
-
-    The remaining parameters are as in ``reconstruct_box``.
+    n_realizations, convergence, seed, cell_size
+        As in ``reconstruct_box``.
     """
 
 
@@ -624,16 +670,6 @@ def recompute_means(result: Result) -> None:
 
 # ---------------------------------------------------------------------------
 # Redshift-space correction
-#
-# The correction of tracer i is a shift along its line of sight,
-#
-#     s_i = f(z_i) / (b(z_i) + 3 f(z_i) / 5) * <Psi . r_hat>_i ,
-#
-# with Psi the reconstructed displacement (Result.mean_displacement, from the
-# observed to the reconstructed position), r_hat the line of sight, f the
-# linear growth rate, b the linear bias and < > a gaussian average over the
-# neighbouring tracers. real_space_lightcone and real_space_box run the whole
-# chain; the four steps are also available on their own.
 # ---------------------------------------------------------------------------
 
 class BiasTable:
@@ -769,9 +805,9 @@ class RealSpaceCatalog:
 def radial_projection(displacement: ArrayLike, positions: ArrayLike) -> NDArray[np.float64]:
     """Component of each displacement, shape (N, 3), along the line of sight
     of its position, shape (N, 3), Cartesian, finite and away from the origin
-    (for example ``Result.tracers``): r . d / |r|, shape (N,), positive when
-    the displacement points away from the observer. NaN displacements give
-    NaN; infinite ones raise."""
+    (for example ``Result.tracers``): ``r . d / |r|``, shape (N,), positive
+    when the displacement points away from the observer. NaN displacements
+    give NaN; infinite ones raise."""
 
 
 def axis_projection(displacement: ArrayLike, axis: int) -> NDArray[np.float64]:
@@ -813,17 +849,25 @@ def neighbour_average(
 
     Parameters
     ----------
-    positions : (N, 3) Cartesian coordinates, finite.
-    values : (N,); finite wherever the object is valid.
-    valid_realizations : (N,) non-negative integers, such as
-        ``Result.valid_realizations``.
-    sigma : width of the gaussian, in the unit of the positions; finite and
+    positions : array_like, shape (N, 3)
+        Cartesian coordinates, finite.
+    values : array_like, shape (N,)
+        Finite wherever the object is valid.
+    valid_realizations : array_like, shape (N,)
+        Non-negative integers, such as ``Result.valid_realizations``.
+    sigma : float
+        Width of the gaussian, in the unit of the positions; finite and
         non-negative. 10 Mpc/h is a reasonable starting value; the best value
         depends on the sample, and should be checked in each analysis.
 
-    Returns the averages and, per object, the number of valid objects
-    averaged and the sum of their valid realizations.
+    Returns
+    -------
+    NeighbourAverage
+        The averages and, per object, the number of valid objects averaged
+        and the sum of their valid realizations.
 
+    Notes
+    -----
     The result does not depend on the internal neighbour grid within
     rounding, and is the same bit for bit for the same inputs, whatever the
     number of threads. With sigma > 0, positions that span no volume (a
@@ -854,8 +898,8 @@ def rsd_factor_box(redshift: float, distances: DistanceTable, *, bias: float) ->
 
 def shift_radially(positions: ArrayLike, shift: ArrayLike) -> NDArray[np.float64]:
     """Move each position, shape (N, 3), by its shift, shape (N,), along its
-    own line of sight: r (1 + shift / |r|). A positive shift moves away from
-    the observer. A NaN shift gives a NaN row; infinite ones raise."""
+    own line of sight: ``r (1 + shift / |r|)``. A positive shift moves away
+    from the observer. A NaN shift gives a NaN row; infinite ones raise."""
 
 
 def shift_along_axis(positions: ArrayLike, shift: ArrayLike, axis: int) -> NDArray[np.float64]:
@@ -886,29 +930,38 @@ def real_space_lightcone(
 
     Parameters
     ----------
-    result : a lightcone result, which carries its tracers; ``sky`` comes back
-        in its ``angle_unit``.
-    distances : must carry the growth rate, and cover the corrected
-        distances as well as the observed ones.
-    bias : the b(z) table, as in ``rsd_factor``; warns
-        ``ExtrapolationWarning`` once if b(z) is extrapolated.
-    sigma : width of the average, in Mpc/h; 0 for none. 10 Mpc/h is a
-        reasonable starting value; the best value depends on the sample, and
-        should be checked in each analysis.
-    weight_by_realizations : weight each neighbour by its number of valid
-        realizations as well.
-    verbosity : what the call prints; see ``Verbosity``. ``"normal"`` prints
-        the line of the call; ``"detailed"`` before it how many of the
-        corrected moved with their neighbours' average, having no valid
-        realization, and how many of the uncorrected were left out of the
-        reconstruction or had no valid tracer within 3 sigma.
+    result : Result
+        A lightcone result, which carries its tracers; ``sky`` comes back in
+        its ``angle_unit``.
+    distances : DistanceTable
+        Must carry the growth rate, and cover the corrected distances as well
+        as the observed ones.
+    bias : BiasTable
+        The b(z) table, as in ``rsd_factor``; warns ``ExtrapolationWarning``
+        once if b(z) is extrapolated.
+    sigma : float
+        Width of the average, in Mpc/h; 0 for none. 10 Mpc/h is a reasonable
+        starting value; the best value depends on the sample, and should be
+        checked in each analysis.
+    weight_by_realizations : bool, optional
+        Weight each neighbour by its number of valid realizations as well.
+    verbosity : Verbosity, optional
+        What the call prints; see ``Verbosity``. ``"normal"`` prints the line
+        of the call; ``"detailed"`` before it how many of the corrected moved
+        with their neighbours' average, having no valid realization, and how
+        many of the uncorrected were left out of the reconstruction or had no
+        valid tracer within 3 sigma.
 
+    Raises
+    ------
+    Error
+        For a box result, or if a corrected comoving distance is not positive
+        or lies outside the distance table; the message names the tracer.
+
+    Notes
+    -----
     Tracers outside the reconstruction's redshift cut or mask are not
     corrected, take no part in any average, and have status 3.
-
-    Raises for a box result, or if a corrected comoving distance is not
-    positive or lies outside the distance table; the message names the
-    tracer.
     """
 
 
