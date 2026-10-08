@@ -14,7 +14,7 @@ permissions:
 jobs:
   sdist:
     name: sdist
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -60,7 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest]
 
     # The configuration is in pyproject.toml: every wheel is repaired,
     # checked by tools/wheels/check_dependencies.py and tested by
@@ -95,7 +95,7 @@ jobs:
     name: publish to PyPI
     needs: [sdist, wheels]
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # The trusted publisher on PyPI is configured against this environment name
     # and this workflow's filename. Changing either means changing it there.

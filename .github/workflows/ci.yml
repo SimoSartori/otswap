@@ -18,11 +18,11 @@ jobs:
       matrix:
         include:
           - name: Linux GCC
-            os: ubuntu-latest
+            os: ubuntu-24.04
             cc: gcc
             cxx: g++
           - name: Linux clang
-            os: ubuntu-latest
+            os: ubuntu-24.04
             cc: clang
             cxx: clang++
           - name: macOS Apple clang

@@ -63,6 +63,12 @@
 #define __double_t double
 #define __float_t  float
 
+/// The system libm, declared under its own names before the renames below:
+/// glibc builds the attributes of its vector variants by pasting the
+/// function name (__DECL_SIMD_asin). The sources' own #include "math.h"
+/// adds nothing to it.
+#include <math.h>
+
 #define sin                 otswap_fdlibm_sin
 #define cos                 otswap_fdlibm_cos
 #define exp                 otswap_fdlibm_exp
@@ -75,5 +81,16 @@
 #define __kernel_cos        otswap_fdlibm_kernel_cos
 #define __kernel_rem_pio2   otswap_fdlibm_kernel_rem_pio2
 #define __ieee754_rem_pio2  otswap_fdlibm_ieee754_rem_pio2
+
+/// The renamed functions, declared for the sources that call one another
+/// (e_atan2.c calls atan).
+double sin(double);
+double cos(double);
+double exp(double);
+double log1p(double);
+double pow(double, double);
+double atan(double);
+double atan2(double, double);
+double asin(double);
 
 #endif
