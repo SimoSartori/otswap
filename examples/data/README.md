@@ -1,8 +1,9 @@
 # Example data
 
-These files are provided only for running the examples in this directory's
-sibling folders. They are not covered by the licence of the otswap code, and
-they may not be used, copied or redistributed for any other purpose.
+These files are provided for running the examples in this directory's sibling
+folders, and may be redistributed unchanged together with them. They are not
+covered by the licence of the otswap code, and may not be used for any other
+purpose.
 
 | File | Content | Rows | Columns and units |
 |---|---|---|---|
@@ -15,15 +16,3 @@ they may not be used, copied or redistributed for any other purpose.
 | `lightcone_bias.dat` | the tracers' linear bias, five redshift nodes from 0.600 to 1.114 | 5 | z b |
 
 The ASCII files are space separated, with one header line starting with `#`.
-
-SHA-256:
-
-```
-ab1e40e53b9a7d595bbff84073648d294b8bc7e618b3f104bd438905c168b688  box_halos_real_space.dat
-66168cb28e590fc2c98a2cda23c0308af111b3bf9784d533253e11e6ca62032e  box_halos_redshift_space.dat
-c92ea58393b7836a1ac7a48f60dcd9d9a414994ffa649c4f249815a60bb06512  box_randoms.dat
-7c4e77be0f10af7087ba4c3f7866beac5e3074fd48311a6243a6753f7b7f1a2d  lightcone_tracers.dat
-83de91bb94588a2cbc3cdad589773b8f33cf948938bbc3319a7b5ad639e880e3  lightcone_randoms.dat
-d96195ceb66fc59ecd3820ce2f36c56c3347feefbe1f5baeac78429ef8f1892f  lightcone_mask.fits
-a8567446f0b99aff6b482ea757e59169fe7901041510f9a048560544a59bd5cb  lightcone_bias.dat
-```
