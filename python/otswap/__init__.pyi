@@ -98,6 +98,19 @@ class Result:
         """What ``reconstruct_lightcone`` left out, and why. Keeps this
         result alive."""
 
+    @property
+    def lagrangian_sky(self) -> Optional[NDArray[np.float64]]:
+        """Sky coordinates of each tracer's mean Lagrangian position, the
+        tracer's position plus ``mean_displacement``, shape (n_objects, 3), in
+        the ``angle_unit`` of the ``reconstruct_lightcone`` call: right
+        ascension in [0, 360) degrees ([0, 2 pi) radians), declination,
+        redshift, as ``to_sky`` computes them with the reconstruction's
+        distance table. NaN rows for the tracers left out by a selection and
+        for those with no valid realization; a position whose distance falls
+        outside the table has a NaN redshift. None for ``reconstruct_box``,
+        and after a ``reject_mask_crossings`` call that rejected any
+        displacement (recompute it with ``to_sky``)."""
+
 
 class SelectionCounts:
     """What a lightcone reconstruction left out, and why. Read-only.
@@ -227,6 +240,20 @@ def to_cartesian(
     using the same convention as ``reconstruct_lightcone``. Raises if a
     declination lies outside [-90, 90] degrees ([-pi/2, pi/2] radians); the
     message gives it in ``angle_unit``."""
+
+
+def to_sky(
+    cartesian: ArrayLike,
+    distances: DistanceTable,
+    *,
+    angle_unit: AngleUnit,
+) -> NDArray[np.float64]:
+    """Convert Cartesian coordinates, shape (N, 3), in Mpc/h, to sky
+    coordinates, shape (N, 3): right ascension in [0, 360) degrees
+    ([0, 2 pi) radians), declination, redshift. The inverse of
+    ``to_cartesian``, with the same observer; a position at the origin gets
+    right ascension and declination 0. A row holding a NaN gives a NaN
+    row; an infinite entry, or a distance outside the table, raises."""
 
 
 # ---------------------------------------------------------------------------
@@ -423,7 +450,8 @@ def reject_mask_crossings(
     tested. The count depends on NSIDE. Updates ``result`` in place; it only
     ever marks displacements invalid, and raises if ``result`` was already
     filtered against a mask of a different NSIDE. Tracers flagged in
-    ``outside_redshift_cut`` or ``outside_mask`` are left as they are.
+    ``outside_redshift_cut`` or ``outside_mask`` are left as they are. When
+    any displacement is rejected, ``result.lagrangian_sky`` becomes None.
     """
 
 

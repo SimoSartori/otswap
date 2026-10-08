@@ -265,6 +265,71 @@ int main ()
     check(named, "a redshift outside the table raises, naming the object");
   }
 
+  group("toSky inverts toCartesian; NaN rows, the origin, the right ascension fold and its errors");
+  {
+    const DistanceTable t(0.3, 0.7, -0.9, 0.1, 0., 2., 2000);
+    const double pi = 3.14159265358979323846;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+
+    std::vector<double> sky;
+    for (int i = 0; i < 400; ++i) {
+      sky.push_back(2. * pi * (i % 37) / 37.);
+      sky.push_back(-1.5 + 3. * (i % 23) / 22.);
+      sky.push_back(0.01 + 1.98 * (i % 101) / 100.);
+    }
+    sky.insert(sky.end(), {1., pi / 2., 0.7, 4., -pi / 2., 1.3});
+
+    const std::vector<double> back = toSky(toCartesian(sky, t), t);
+    check(back.size() == sky.size(), "three sky coordinates per object");
+    double raErr = 0., decErr = 0., zErr = 0.;
+    for (std::size_t i = 0; i < sky.size() / 3; ++i) {
+      zErr = std::max(zErr, std::fabs(back[3*i+2] - sky[3*i+2]));
+      decErr = std::max(decErr, std::fabs(back[3*i+1] - sky[3*i+1]));
+      if (std::fabs(sky[3*i+1]) < pi / 2.)
+        raErr = std::max(raErr, std::fabs(std::remainder(back[3*i] - sky[3*i], 2. * pi)));
+    }
+    check_close(raErr, 0., 4.e-15, "the right ascension comes back within a few rounding errors");
+    check_close(decErr, 0., 4.e-15, "so does the declination, at the poles too");
+    check_close(zErr, 0., 1.e-12, "and the redshift, within the table's interpolation rounding");
+    bool inRange = true;
+    for (std::size_t i = 0; i < back.size(); i += 3) inRange = inRange && back[i] >= 0. && back[i] < 2. * pi;
+    check(inRange, "every right ascension lies in [0, 2 pi)");
+
+    const std::vector<double> edge = toSky({1000., -1.e-17, 0., 1000., -0., 0., 0., 0., 0.}, t);
+    check(edge[0] == 0. && !std::signbit(edge[0]),
+          "an angle just below 0, which normalize_ra takes to 2 pi, is folded to 0");
+    check(edge[3] == 0. && !std::signbit(edge[3]), "and -0 to +0");
+    check(edge[6] == 0. && edge[7] == 0. && edge[8] == 0., "the origin is right ascension, declination "
+          "and redshift 0 with a table starting at distance 0");
+
+    const std::vector<double> holes = toSky({nan, 1., 1., 100., 0., 0., 1., 2., nan}, t);
+    check(std::isnan(holes[0]) && std::isnan(holes[1]) && std::isnan(holes[2]) &&
+          std::isnan(holes[6]) && std::isnan(holes[7]) && std::isnan(holes[8]) &&
+          std::isfinite(holes[5]), "a row holding a NaN gives a NaN row, and only that row");
+
+    check(toSky({}, t).empty(), "an empty array gives an empty result");
+    check_throws([&] { toSky({1., 2.}, t); }, "a size that is not a multiple of three raises");
+    const auto message = [&] (const std::vector<double>& c) -> std::string {
+      try {
+        toSky(c, t);
+      }
+      catch (const Error& e) {
+        return e.what();
+      }
+      return "";
+    };
+    const std::string infinite = message({1., 1., 1., 1., inf, 1.});
+    check(infinite.find("object 1") != std::string::npos && infinite.find("infinite") != std::string::npos,
+          "an infinite entry raises, naming the object: " + infinite);
+    const std::string far = message({100., 0., 0., 1.e5, 0., 0.});
+    check(far.find("object 1") != std::string::npos && far.find("wider redshift range") != std::string::npos,
+          "a distance beyond the table raises, naming the object and suggesting a wider table: " + far);
+    const DistanceTable above(0.3, 0.7, -1., 0., 0.5, 2., 500);
+    check_throws([&] { toSky({0., 0., 0.}, above); },
+                 "the origin raises with a table that does not start at distance 0");
+  }
+
   group("a value within a few rounding errors of either end is taken to be at it");
   {
     const double eps = std::numeric_limits<double>::epsilon();

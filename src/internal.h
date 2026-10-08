@@ -103,7 +103,8 @@ namespace otswap {
                            bool allowEmpty = false);
 
     /// Checks that each flag array of @p result, outsideRedshiftCut and
-    /// outsideMask, is empty or holds nObjects entries.
+    /// outsideMask, is empty or holds nObjects entries, and that
+    /// lagrangianSky is empty or holds 3 * nObjects.
     void check_flags (const Result& result);
 
     /// True when tracer @p i of @p result took no part in the

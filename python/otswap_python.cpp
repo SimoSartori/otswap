@@ -67,6 +67,9 @@ namespace {
   // double.
   constexpr double kDegToRad = 3.14159265358979323846 / 180.;
 
+  // 180/pi as a double: the factor numpy.rad2deg multiplies by.
+  constexpr double kRadToDeg = 180. / 3.14159265358979323846;
+
   using CArray = nb::ndarray<const double, nb::c_contig, nb::device::cpu>;
 
   std::string repr_of (nb::handle value)
@@ -205,6 +208,19 @@ namespace {
     for (std::size_t i = 0; i + 2 < sky.size(); i += 3) {
       sky[i]   *= kDegToRad;
       sky[i+1] *= kDegToRad;
+    }
+  }
+
+  /// Right ascension and declination of a flat sky array, from radians to
+  /// degrees; redshifts are left alone. A right ascension just below 2 pi
+  /// can round to 360 in the product, and is folded to 0, so that it stays
+  /// in [0, 360).
+  void sky_to_degrees (std::vector<double>& sky)
+  {
+    for (std::size_t i = 0; i + 2 < sky.size(); i += 3) {
+      sky[i]   *= kRadToDeg;
+      sky[i+1] *= kRadToDeg;
+      if (sky[i] >= 360.) sky[i] = 0.;
     }
   }
 
@@ -385,7 +401,14 @@ NB_MODULE(_otswap, m)
       }, "Whether each tracer fell on an unobserved pixel of the mask, shape (n_objects,).")
     .def_prop_ro("selection", [] (const otswap::Result& r) -> const otswap::SelectionCounts& {
         return r.selection;
-      }, nb::rv_policy::reference_internal, "What the reconstruction left out, and why.");
+      }, nb::rv_policy::reference_internal, "What the reconstruction left out, and why.")
+    .def_prop_ro("lagrangian_sky", [] (ResultHandle self) -> nb::object {
+        const otswap::Result& r = result_of(self);
+        if (r.lagrangianSky.empty()) return nb::none();
+        return nb::cast(view<double>(self, r.lagrangianSky.data(), {r.nObjects, 3}));
+      }, "Sky coordinates of each tracer's mean Lagrangian position, shape (n_objects, 3), in "
+         "the angle_unit of the reconstruct_lightcone call; None for a box result and after a "
+         "reject_mask_crossings call that rejected any displacement.");
 
   // ----------------------------------------------------------- DistanceTable
 
@@ -437,6 +460,19 @@ NB_MODULE(_otswap, m)
       },
       "sky"_a.none(), "distances"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
       "Convert sky coordinates, shape (N, 3), to Cartesian ones in Mpc/h.");
+
+  m.def("to_sky",
+      [] (nb::handle cartesian, nb::handle distances, nb::handle angleUnit) {
+        const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
+        const bool degrees = in_degrees(angleUnit);
+        const std::vector<double> c = rows3(cartesian, "cartesian");
+        std::vector<double> sky = otswap::toSky(c, table);
+        if (degrees) sky_to_degrees(sky);
+        const std::size_t n = sky.size() / 3;
+        return owned(std::move(sky), {n, 3});
+      },
+      "cartesian"_a.none(), "distances"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
+      "Convert Cartesian coordinates, shape (N, 3), in Mpc/h, to sky coordinates.");
 
   // -------------------------------------------------------------------- Mask
 
@@ -583,6 +619,7 @@ NB_MODULE(_otswap, m)
           for (std::size_t end; (end = message.find('\n', start)) != std::string::npos; start = end + 1)
             print(nb::str(message.data() + start, end - start));
         }
+        if (degrees) sky_to_degrees(result.lagrangianSky);
         return result;
       },
       "tracers_sky"_a.none(), "randoms_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(),

@@ -169,7 +169,7 @@ def test_exports():
         "neighbour_average",
         "real_space_box", "real_space_lightcone", "reconstruct_box", "reconstruct_lightcone",
         "reject_mask_crossings", "rsd_factor", "rsd_factor_box", "shift_along_line_of_sight",
-        "to_cartesian"])
+        "to_cartesian", "to_sky"])
     for name in otswap.__all__:
         assert hasattr(otswap, name)
     assert otswap.AngleUnit.__args__ == ("deg", "rad")
@@ -330,6 +330,59 @@ def test_to_cartesian_needs_a_table_and_a_keyword_unit(table):
         otswap.to_cartesian([[20.0, 5.0, 0.4]], table)
     with pytest.raises(TypeError):
         otswap.to_cartesian([[20.0, 5.0, 0.4]], table, "deg")
+
+
+def to_degrees(sky):
+    """Right ascension and declination to degrees as the binding converts
+    them, with 360 folded to 0."""
+    out = np.array(sky, dtype=np.float64)
+    out[:, :2] *= 180.0 / math.pi
+    out[out[:, 0] >= 360.0, 0] = 0.0
+    return out
+
+
+def test_to_sky_inverts_to_cartesian(table, lightcone):
+    sky = lightcone[0]
+    back = otswap.to_sky(otswap.to_cartesian(sky, table, angle_unit="deg"), table, angle_unit="deg")
+    assert back.shape == sky.shape and back.dtype == np.float64
+    np.testing.assert_allclose(back[:, :2], sky[:, :2], rtol=0, atol=1e-12)
+    np.testing.assert_allclose(back[:, 2], sky[:, 2], rtol=0, atol=1e-12)
+    rad = otswap.to_sky(otswap.to_cartesian(sky, table, angle_unit="deg"), table, angle_unit="rad")
+    assert same_bytes(back, to_degrees(rad))
+
+
+def test_to_sky_rows_and_the_fold(table):
+    xyz = [[1000.0, -1e-17, 0.0], [np.nan, 1.0, 1.0], [0.0, 0.0, 0.0], [0.0, 1000.0, 1000.0],
+           [-1000.0, -1e-3, 0.0]]
+    deg = otswap.to_sky(xyz, table, angle_unit="deg")
+    rad = otswap.to_sky(xyz, table, angle_unit="rad")
+    assert deg[0, 0] == 0.0 and rad[0, 0] == 0.0
+    assert np.isnan(deg[1]).all() and np.isnan(rad[1]).all()
+    assert (deg[2] == 0.0).all()
+    assert deg[3, 0] == pytest.approx(90.0, abs=1e-12) and deg[3, 1] == pytest.approx(45.0, abs=1e-12)
+    assert (deg[[0, 2, 3, 4], 0] < 360.0).all() and (rad[[0, 2, 3, 4], 0] < 2 * math.pi).all()
+    assert deg[4, 0] == pytest.approx(180.0, abs=1e-4)
+    assert otswap.to_sky(np.empty((0, 3)), table, angle_unit="deg").shape == (0, 3)
+
+
+@pytest.mark.parametrize("xyz, kwargs", [
+    (np.zeros((4, 2)), dict(angle_unit="deg")),
+    ([[1.0, np.inf, 1.0]], dict(angle_unit="deg")),
+    ([[1.0e5, 0.0, 0.0]], dict(angle_unit="deg")),
+    ([[1.0, 1.0, 1.0]], dict(angle_unit="degrees")),
+])
+def test_to_sky_errors(table, xyz, kwargs):
+    with pytest.raises(otswap.Error):
+        otswap.to_sky(xyz, table, **kwargs)
+
+
+def test_to_sky_needs_a_table_and_a_keyword_unit(table):
+    with pytest.raises(otswap.Error):
+        otswap.to_sky([[1.0, 1.0, 1.0]], "table", angle_unit="deg")
+    with pytest.raises(TypeError):
+        otswap.to_sky([[1.0, 1.0, 1.0]], table, "deg")
+    with pytest.raises(otswap.Error, match="wider redshift range"):
+        otswap.to_sky([[1.0, 1.0, 1.0], [1.0e5, 0.0, 0.0]], table, angle_unit="rad")
 
 
 # --------------------------------------------------------------------------
@@ -842,6 +895,35 @@ def test_lightcone_mask_filters_the_result(table, lightcone):
     assert two.selection.max_unobserved_pixels_crossed == 2
 
 
+def test_lagrangian_sky(table, lightcone):
+    tracers_sky, randoms_sky = lightcone
+    mask = nine_mask()
+    options = dict(mask=mask, n_bins=1, distances=table, n_realizations=2, seed=5,
+                   redshift_cut=MASK_CUT, verbose=False)
+    deg = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, angle_unit="deg", **options)
+    rad = otswap.reconstruct_lightcone(to_radians(tracers_sky), to_radians(randoms_sky),
+                                       angle_unit="rad", **options)
+    sky = deg.lagrangian_sky
+    assert sky.shape == (1600, 3) and sky.dtype == np.float64 and not sky.flags.writeable
+    assert same_bytes(sky, to_degrees(rad.lagrangian_sky))
+
+    position = otswap.to_cartesian(tracers_sky, table, angle_unit="deg") + deg.mean_displacement
+    assert same_bytes(sky, otswap.to_sky(position, table, angle_unit="deg"))
+    none = deg.outside_mask | deg.outside_redshift_cut | (deg.valid_realizations == 0)
+    assert np.isnan(sky[none]).all() and np.isfinite(sky[~none]).all()
+    assert (deg.valid_realizations[~deg.outside_mask & ~deg.outside_redshift_cut] == 0).any()
+    assert ((sky[~none, 0] >= 0) & (sky[~none, 0] < 360)).all()
+
+    otswap.reject_mask_crossings(deg, mask)
+    assert deg.lagrangian_sky is not None, "a filter that rejects nothing keeps it"
+    unfiltered = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, angle_unit="deg",
+                                              reject_crossings=False, **options)
+    otswap.reject_mask_crossings(unfiltered, mask)
+    assert unfiltered.lagrangian_sky is None, "one that rejects a displacement empties it"
+    box = otswap.reconstruct_box(box_catalogue(), mps=10.0)
+    assert box.lagrangian_sky is None
+
+
 def test_lightcone_selection_counts(table, lightcone):
     tracers_sky, randoms_sky = lightcone
     mask = nine_mask()
@@ -974,6 +1056,14 @@ def test_declinations_are_checked_in_the_unit_given(table, lightcone):
     assert np.isfinite(otswap.to_cartesian(poles, table, angle_unit="deg")).all()
     assert otswap.to_cartesian(np.deg2rad(poles) * [1, 1, 0] + [0, 0, 0.4], table,
                                angle_unit="rad").shape == (2, 3)
+
+
+def test_stub_lists_to_sky_and_lagrangian_sky():
+    stub = os.path.join(os.path.dirname(otswap.__file__), "__init__.pyi")
+    with open(stub) as f:
+        text = f.read()
+    assert "def to_sky(" in text
+    assert "    def lagrangian_sky(self) -> Optional[NDArray[np.float64]]:" in text
 
 
 def test_stub_lists_the_mask_keywords():
@@ -1200,6 +1290,8 @@ def test_lightcone_mask_overload_matches_cpp(tmp_path, table, lightcone, sieve_m
     assert_same_result(result, read_cpp_result(out, 2, len(tracers_sky)))
     assert same_bytes(result.outside_mask.view(np.uint8),
                       np.fromfile(f"{out}.outside_mask", dtype=np.uint8))
+    reference = np.fromfile(f"{out}.lagrangian_sky", dtype=np.float64).reshape(-1, 3)
+    assert same_bytes(result.lagrangian_sky, to_degrees(reference))
 
 
 @needs_cpp
@@ -1208,3 +1300,13 @@ def test_to_cartesian_matches_cpp(tmp_path, table, lightcone):
     out = run_cpp(tmp_path, "cartesian", {"sky": to_radians(sky)}, **TABLE_ARGS)
     reference = np.fromfile(f"{out}.xyz", dtype=np.float64).reshape(-1, 3)
     assert same_bytes(otswap.to_cartesian(sky, table, angle_unit="deg"), reference)
+
+
+@needs_cpp
+def test_to_sky_matches_cpp(tmp_path, table, lightcone):
+    xyz = otswap.to_cartesian(lightcone[1], table, angle_unit="deg") * 0.999
+    xyz[7] = np.nan
+    out = run_cpp(tmp_path, "sky", {"cartesian": xyz}, **TABLE_ARGS)
+    reference = np.fromfile(f"{out}.sky", dtype=np.float64).reshape(-1, 3)
+    assert same_bytes(otswap.to_sky(xyz, table, angle_unit="rad"), reference)
+    assert same_bytes(otswap.to_sky(xyz, table, angle_unit="deg"), to_degrees(reference))

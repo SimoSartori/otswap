@@ -157,6 +157,10 @@ void otswap::internal::check_flags (const Result& result)
   };
   check(result.outsideRedshiftCut, "outsideRedshiftCut");
   check(result.outsideMask, "outsideMask");
+  if (!result.lagrangianSky.empty() && result.lagrangianSky.size() != 3 * result.nObjects)
+    throw Error("the result is malformed: lagrangianSky holds " +
+                std::to_string(result.lagrangianSky.size()) + " entries for " +
+                std::to_string(result.nObjects) + " objects");
 }
 
 

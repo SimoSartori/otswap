@@ -1023,8 +1023,54 @@ int main ()
                         "outside the redshift cut or the mask"),
           "a masked tracer with valid realizations is malformed");
 
-    group("a declination outside [-pi/2, pi/2] is refused, with or without a mask; pi/2 is accepted");
+    group("lagrangianSky: toSky of the tracer plus meanDisplacement, NaN rows for the flagged and those "
+          "without a valid realization; emptied by a filter that rejects");
     const double kPi = 3.14159265358979323846;
+    const std::vector<double> tracerCart = toCartesian(sky, table);
+    const auto lagrangian = [&] (const Result& r) {
+      std::vector<double> at(3 * n, kNaN);
+      for (std::size_t i = 0; i < n; ++i)
+        if (!internal::excluded(r, i) && r.validRealizations[i] > 0)
+          for (int c = 0; c < 3; ++c) at[3*i+c] = tracerCart[3*i+c] + r.meanDisplacement[3*i+c];
+      return toSky(at, table);
+    };
+    check(same_bits(masked.lagrangianSky, lagrangian(masked)) &&
+          same_bits(plain.lagrangianSky, lagrangian(plain)) &&
+          same_bits(unmasked.lagrangianSky, lagrangian(unmasked)),
+          "bit for bit, with the mask and the filter, without the filter, and with the area");
+    bool rowsRight = true, someNaN = false;
+    for (std::size_t i = 0; i < n; ++i) {
+      const double* s = &masked.lagrangianSky[3*i];
+      const bool none = internal::excluded(masked, i) || masked.validRealizations[i] == 0;
+      someNaN = someNaN || (none && !internal::excluded(masked, i));
+      rowsRight = rowsRight && (none ? std::isnan(s[0]) && std::isnan(s[1]) && std::isnan(s[2])
+                                     : s[0] >= 0. && s[0] < 2. * kPi && std::isfinite(s[1]) &&
+                                       std::isfinite(s[2]));
+    }
+    check(rowsRight && someNaN, "NaN rows exactly for the flagged tracers and those the filter left "
+          "without a valid realization; finite rows elsewhere, right ascension in [0, 2 pi)");
+    check(same_bits(cartesian.lagrangianSky, masked.lagrangianSky),
+          "the Cartesian mask overload gives the same coordinates");
+    check(box.lagrangianSky.empty(), "a box result has none");
+    Result refiltered = plain;
+    rejectMaskCrossings(refiltered, mask, 0);
+    check(refiltered.lagrangianSky.empty(), "a filter that rejects a displacement empties it");
+    Result unchanged = masked;
+    rejectMaskCrossings(unchanged, mask, 0);
+    check(same_bits(unchanged.lagrangianSky, masked.lagrangianSky), "one that rejects nothing keeps it");
+    Result badSky = masked;
+    badSky.lagrangianSky.pop_back();
+    check(throws_naming([&] { rejectMaskCrossings(badSky, mask); }, "lagrangianSky holds"),
+          "a lagrangianSky of the wrong size is malformed for the filter");
+    check(throws_naming([&] { realSpaceLightcone(badSky, sky, table, zb, b, 10.); }, "lagrangianSky holds"),
+          "and for the correction");
+    Result noSky = masked;
+    noSky.lagrangianSky.clear();
+    check(same_bits(realSpaceLightcone(noSky, sky, table, zb, b, 10.).positions,
+                    realSpaceLightcone(masked, sky, table, zb, b, 10.).positions),
+          "an empty one is accepted, and the correction does not read it");
+
+    group("a declination outside [-pi/2, pi/2] is refused, with or without a mask; pi/2 is accepted");
     const double above = std::nextafter(kPi / 2., 2.);
     std::vector<double> bad = sky;
     bad[3*7+1] = above;
@@ -1055,6 +1101,43 @@ int main ()
       accepted = false;
     }
     check(accepted, "the poles themselves are accepted");
+  }
+
+  {
+    group("lagrangianSky: a mean position below the table's smallest distance has a NaN redshift and "
+          "keeps its right ascension and declination");
+    // Every object in a shell 0.2 Mpc/h thick at the table's lower end: the
+    // mean of matched randoms lies on a chord, closer to the observer.
+    const DistanceTable shell(0.3, 0.7, -1., 0., 0.5, 0.6, 2000);
+    const DistanceTable fromZero(0.3, 0.7, -1., 0., 0., 0.6, 2000);
+    const std::vector<double> sky = sky_points(600, 0.5, 0.5001, rng);
+    const std::vector<double> randomsSky = sky_points(2400, 0.5, 0.5001, rng);
+    Config config;
+    config.nRealizations = 4;
+    config.seed = 5;
+    config.verbose = false;
+    const Result r = reconstructLightcone(sky, randomsSky, 800., 1, shell, config);
+    const std::vector<double> cart = toCartesian(sky, shell);
+    std::size_t below = 0;
+    bool kept = true, raises = true;
+    for (std::size_t i = 0; i < 600; ++i) {
+      const std::vector<double> at {cart[3*i] + r.meanDisplacement[3*i],
+                                    cart[3*i+1] + r.meanDisplacement[3*i+1],
+                                    cart[3*i+2] + r.meanDisplacement[3*i+2]};
+      const std::vector<double> s = toSky(at, fromZero);
+      const double* l = &r.lagrangianSky[3*i];
+      if (s[2] < 0.5) {
+        ++below;
+        kept = kept && std::isnan(l[2]) && same_double(l[0], s[0]) && same_double(l[1], s[1]);
+        raises = raises && throws_naming([&] { toSky(at, shell); }, "covering a wider redshift range");
+      }
+      else {
+        kept = kept && same_double(l[0], s[0]) && same_double(l[1], s[1]) && std::isfinite(l[2]);
+      }
+    }
+    check(below > 0 && below < 600, std::to_string(below) + " of 600 below the table");
+    check(kept, "their redshift NaN, right ascension and declination as toSky's; the rest finite");
+    check(raises, "toSky itself raises for them, suggesting a wider table");
   }
 
   return report("test_rsd");

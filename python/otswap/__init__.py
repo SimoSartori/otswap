@@ -33,6 +33,7 @@ from ._otswap import (
     rsd_factor_box,
     shift_along_line_of_sight,
     to_cartesian,
+    to_sky,
 )
 
 AngleUnit = Literal["deg", "rad"]
@@ -57,4 +58,5 @@ __all__ = [
     "rsd_factor_box",
     "shift_along_line_of_sight",
     "to_cartesian",
+    "to_sky",
 ]

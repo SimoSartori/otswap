@@ -448,6 +448,7 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
                 "between the two, so filter an unfiltered result instead");
 
   const internal::PixelMask& pixels = mask.m_impl->mask;
+  const std::ptrdiff_t nValidBefore = std::count(result.valid.begin(), result.valid.end(), 1);
 
   std::exception_ptr failure;
 #pragma omp parallel for schedule(dynamic, 64)
@@ -492,6 +493,8 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
   }
   if (failure) std::rethrow_exception(failure);
 
+  if (std::count(result.valid.begin(), result.valid.end(), 1) != nValidBefore)
+    result.lagrangianSky.clear();
   internal::summarize(result);
   result.filteredNside = mask.nside();
 }

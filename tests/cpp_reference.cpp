@@ -42,10 +42,13 @@
  *
  *    cpp_reference cartesian sky=F omega_m=X h=X z_min=X z_max=X n_samples=N out=P
  *
+ *    cpp_reference sky cartesian=F omega_m=X h=X z_min=X z_max=X n_samples=N out=P
+ *
  *  Input files hold native float64 values, flat and row-major; sky angles
  *  are in radians. A reconstruction writes P.displacement, P.matched_random
  *  and P.mean_displacement (float64), P.valid and P.outside_mask (uint8) and
- *  P.valid_realizations (uint32); cartesian writes P.xyz (float64). The
+ *  P.valid_realizations (uint32), and P.lagrangian_sky (float64) when the
+ *  result carries it; cartesian writes P.xyz and sky P.sky (float64). The
  *  table of a lightcone is DistanceTable(omega_m, h, -1, 0, z_min, z_max,
  *  n_samples).
  */
@@ -127,6 +130,7 @@ namespace {
     write("valid", result.valid);
     write("outside_mask", result.outsideMask);
     write("valid_realizations", result.validRealizations);
+    if (!result.lagrangianSky.empty()) write("lagrangian_sky", result.lagrangianSky);
   }
 
 }
@@ -134,7 +138,7 @@ namespace {
 int main (int argc, char** argv)
 {
   if (argc < 2) {
-    std::fprintf(stderr, "usage: cpp_reference box|lightcone|cartesian key=value...\n");
+    std::fprintf(stderr, "usage: cpp_reference box|lightcone|cartesian|sky key=value...\n");
     return 2;
   }
   for (int i = 2; i < argc; ++i) {
@@ -179,6 +183,9 @@ int main (int argc, char** argv)
     }
     else if (mode == "cartesian") {
       write("xyz", otswap::toCartesian(read("sky"), table()));
+    }
+    else if (mode == "sky") {
+      write("sky", otswap::toSky(read("cartesian"), table()));
     }
     else {
       std::fprintf(stderr, "cpp_reference: unknown mode %s\n", mode.c_str());

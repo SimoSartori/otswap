@@ -1094,5 +1094,26 @@ int main ()
       }
   }
 
+  group("a right ascension just below 0, which normalize_ra takes to 2 pi, falls in the pixel of "
+        "right ascension 0, as Healpix's own fmodulo places it");
+  {
+    // Neighbouring RING pixels alternate, so the first and the last pixel of
+    // every ring differ.
+    std::vector<double> alternating(12 * 16 * 16);
+    for (std::size_t p = 0; p < alternating.size(); ++p) alternating[p] = (double)(p % 2);
+    const Mask mask(alternating, PixelOrdering::Ring);
+    const double twoPi = 2. * 3.14159265358979323846;
+    bool same = true, distinguishes = false;
+    for (int j = -89; j <= 89; ++j) {
+      const double dec = j * 3.14159265358979323846 / 180.;
+      const bool atZero = mask.allows(0., dec);
+      same = same && mask.allows(-1.e-17, dec) == atZero && mask.allows(-4.4e-16, dec) == atZero &&
+             mask.allows(twoPi, dec) == atZero;
+      distinguishes = distinguishes || mask.allows(std::nextafter(twoPi, 0.), dec) != atZero;
+    }
+    check(same, "-1e-17, -4.4e-16 and 2 pi give the pixel of 0 at every declination");
+    check(distinguishes, "while the largest double below 2 pi gives the last pixel of a ring");
+  }
+
   return report("test_mask");
 }

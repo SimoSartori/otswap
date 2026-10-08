@@ -266,6 +266,23 @@ namespace otswap {
 
     /// What reconstructLightcone left out, and why.
     SelectionCounts selection;
+
+    /// Sky coordinates of each tracer's mean Lagrangian position, the
+    /// tracer's Cartesian position plus meanDisplacement, as toSky computes
+    /// them with the reconstruction's distance table: right ascension in
+    /// [0, 2 pi), declination, redshift; radians. Flat, [object][3]. Size
+    /// 3 * nObjects, filled by reconstructLightcone; empty in a box result.
+    ///
+    /// NaN rows for the tracers flagged in outsideRedshiftCut or outsideMask
+    /// and for those with no valid realization. A position whose distance
+    /// falls outside the table, which a table that does not start at
+    /// distance 0 allows, has a NaN redshift and keeps its right ascension
+    /// and declination. rejectMaskCrossings empties the field when it
+    /// rejects any displacement, since it has no distance table to
+    /// recompute it with; toSky does. An empty field, or one of size
+    /// 3 * nObjects, is accepted by every function that takes a Result, and
+    /// none reads it.
+    std::vector<double> lagrangianSky;
   };
 
   // ==========================================================================
@@ -524,6 +541,31 @@ namespace otswap {
                                    const DistanceTable& distances);
 
   /**
+   *  @brief Convert Cartesian comoving coordinates to sky coordinates: the
+   *  inverse of toCartesian, with the same observer at the origin.
+   *
+   *  Object i at (x, y, z) maps to the right ascension atan2(y, x) folded
+   *  into [0, 2 pi), the declination asin(z / d), and the redshift at which
+   *  the table's comoving distance is d = |(x, y, z)|. A position at the
+   *  origin gets right ascension and declination 0. toSky(toCartesian(sky))
+   *  returns sky within a few rounding errors, with the right ascension
+   *  folded into [0, 2 pi).
+   *
+   *  @param cartesian 3 * nObjects entries, ordered x, y, z, in Mpc/h. May
+   *  be empty. A row holding a NaN gives a NaN row.
+   *
+   *  @return sky coordinates, 3 * nObjects entries, ordered right
+   *  ascension, declination, redshift; angles in radians.
+   *
+   *  @exception Error if the array's size is not a multiple of three, if an
+   *  entry is infinite, or if a distance falls outside the table (beyond
+   *  its end tolerance); the message names the object and, for the
+   *  distance, suggests a table covering a wider redshift range.
+   */
+  std::vector<double> toSky (const std::vector<double>& cartesian,
+                             const DistanceTable& distances);
+
+  /**
    *  @brief Reconstruct in lightcone geometry, from sky coordinates.
    *
    *  The mean particle separation is measured from the tracers
@@ -703,7 +745,9 @@ namespace otswap {
    *  already cleared stay cleared, so the filter composes with any other
    *  and applying it twice with the same mask and threshold changes
    *  nothing. validRealizations and meanDisplacement are then recomputed
-   *  from valid.
+   *  from valid. When any displacement is rejected, lagrangianSky is
+   *  emptied: a result filtered after the reconstruction no longer carries
+   *  the Lagrangian sky coordinates; recompute them with toSky.
    *
    *  @param maxUnobservedPixelsCrossed distinct unobserved pixels tolerated
    *  along the arc, the endpoint pixels excluded.
@@ -718,8 +762,9 @@ namespace otswap {
    *  finite.
    *
    *  @exception Error if the result is malformed (including a NaN outside
-   *  the flagged tracers' rows, a flagged tracer with a valid entry, or a
-   *  flag array whose size is neither 0 nor nObjects), if an entry of valid is
+   *  the flagged tracers' rows, a flagged tracer with a valid entry, a
+   *  flag array whose size is neither 0 nor nObjects, or a lagrangianSky
+   *  whose size is neither 0 nor 3 * nObjects), if an entry of valid is
    *  neither 0 nor 1, or if the result was already filtered against a
    *  mask of a different NSIDE.
    */

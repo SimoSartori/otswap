@@ -144,6 +144,12 @@ def compute():
     tracers_sky = sky_points(1200, 11)
     randoms_sky = sky_points(4 * 1200, 12)
     out["to_cartesian"] = digest(otswap.to_cartesian(tracers_sky, lc_table, angle_unit="deg"))
+    # The inverse, with a NaN row, the origin, and a point whose right
+    # ascension folds from 2 pi to 0.
+    xyz = np.vstack([otswap.to_cartesian(tracers_sky, lc_table, angle_unit="deg"),
+                     [[np.nan, 1.0, 1.0], [0.0, 0.0, 0.0], [1000.0, -1e-17, 0.0]]])
+    out["to_sky.deg"] = digest(otswap.to_sky(xyz, lc_table, angle_unit="deg"))
+    out["to_sky.rad"] = digest(otswap.to_sky(xyz, lc_table, angle_unit="rad"))
 
     tracers = box_points(600, 100.0, 21)
     randoms = box_points(4 * 600, 100.0, 22)
@@ -161,6 +167,7 @@ def compute():
     r = lightcone()
     out["reconstruct_lightcone.displacement"] = digest(r.displacement)
     out["reconstruct_lightcone.mean_displacement"] = digest(r.mean_displacement)
+    out["reconstruct_lightcone.lagrangian_sky"] = digest(r.lagrangian_sky)
 
     with tempfile.TemporaryDirectory() as tmp:
         mask = otswap.Mask(write_mask(Path(tmp) / "mask.fits", 64))
@@ -181,6 +188,7 @@ def compute():
         out["mask.from_array.allows"] = allows
 
         otswap.reject_mask_crossings(r, mask, 0)
+        assert r.lagrangian_sky is None, "a filter that rejects must empty lagrangian_sky"
         out["reject_mask_crossings.0.valid"] = digest(r.valid)
         out["reject_mask_crossings.0.mean_displacement"] = digest(r.mean_displacement)
 
@@ -205,6 +213,7 @@ def compute():
             out[f"reconstruct_lightcone.{label}.displacement"] = digest(masked.displacement)
             out[f"reconstruct_lightcone.{label}.valid"] = digest(masked.valid)
             out[f"reconstruct_lightcone.{label}.outside_mask"] = digest(masked.outside_mask)
+            out[f"reconstruct_lightcone.{label}.lagrangian_sky"] = digest(masked.lagrangian_sky)
 
     # The redshift-space correction, on the lightcone filtered at limit 0,
     # whose tracers without a valid realization exercise the NaN paths, and
@@ -250,6 +259,7 @@ def compute():
                                            verbose=False)
         out["reconstruct_lightcone.cut.displacement"] = digest(cut.displacement)
         out["reconstruct_lightcone.cut.outside_redshift_cut"] = digest(cut.outside_redshift_cut)
+        out["reconstruct_lightcone.cut.lagrangian_sky"] = digest(cut.lagrangian_sky)
         c = otswap.real_space_lightcone(cut, tracers_sky, distances=lc_table, bias_redshift=bias_z,
                                         bias=bias, sigma=10.0, angle_unit="deg")
         out["rsd.real_space_lightcone.cut.positions"] = digest(c.positions)

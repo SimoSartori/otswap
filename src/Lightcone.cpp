@@ -63,6 +63,17 @@ namespace {
 
   const double kNaN = std::numeric_limits<double>::quiet_NaN();
 
+  /// Sky coordinates and distance of a Cartesian position, the right
+  /// ascension in [0, 2 pi): normalize_ra returns 2 pi itself for a
+  /// negative angle smaller in magnitude than half its rounding step, and
+  /// -0 for -0; both are folded here to +0.
+  void sky_of (const double x, const double y, const double z,
+               double& ra, double& dec, double& distance)
+  {
+    otswap::internal::to_sky(x, y, z, ra, dec, distance);
+    if (ra == 0. || ra >= 2. * kPi) ra = 0.;
+  }
+
   void check_cut (const otswap::RedshiftCut& cut)
   {
     if (std::isnan(cut.min) || std::isnan(cut.max))
@@ -334,6 +345,44 @@ std::vector<double> otswap::toCartesian (const std::vector<double>& sky,
 // ============================================================================
 
 
+std::vector<double> otswap::toSky (const std::vector<double>& cartesian,
+                                   const DistanceTable& distances)
+{
+  if (cartesian.size() % 3 != 0)
+    throw Error("the Cartesian array holds " + std::to_string(cartesian.size()) +
+                " entries, which is not a multiple of three");
+
+  const std::size_t nObjects = cartesian.size() / 3;
+  std::vector<double> sky(3 * nObjects, kNaN);
+
+  for (std::size_t i = 0; i < nObjects; ++i) {
+    const double* p = &cartesian[3*i];
+    for (std::size_t c = 0; c < 3; ++c)
+      if (std::isinf(p[c]))
+        throw Error("object " + std::to_string(i) + " of the Cartesian array: component " +
+                    std::to_string(c) + " is infinite");
+    if (std::isnan(p[0]) || std::isnan(p[1]) || std::isnan(p[2])) continue;
+
+    double distance = 0.;
+    sky_of(p[0], p[1], p[2], sky[3*i], sky[3*i+1], distance);
+    try {
+      sky[3*i+2] = distances.redshiftAt(distance);
+    }
+    catch (const Error& e) {
+      throw Error("object " + std::to_string(i) + " of the Cartesian array: " + e.what() +
+                  "; use a distance table covering a wider redshift range than [" +
+                  std::to_string(distances.minRedshift()) + ", " +
+                  std::to_string(distances.maxRedshift()) + "]");
+    }
+  }
+
+  return sky;
+}
+
+
+// ============================================================================
+
+
 namespace {
 
   /// Every lightcone overload: the Cartesian arrays are null for the sky
@@ -440,6 +489,20 @@ namespace {
       counts.displacements = valid();
       rejectMaskCrossings(result, *mask, config.maxUnobservedPixelsCrossed);
       counts.displacementsCrossingMask = counts.displacements - valid();
+    }
+
+    result.lagrangianSky.assign(3 * nObjects, kNaN);
+    for (std::size_t k = 0; k < nKept; ++k) {
+      const std::size_t i = dropTracers ? keepTracers[k] : k;
+      if (result.validRealizations[i] == 0) continue;
+      double* sky = &result.lagrangianSky[3*i];
+      double distance = 0.;
+      sky_of(t[3*k] + result.meanDisplacement[3*i], t[3*k+1] + result.meanDisplacement[3*i+1],
+             t[3*k+2] + result.meanDisplacement[3*i+2], sky[0], sky[1], distance);
+      try {
+        sky[2] = distances.redshiftAt(distance);
+      }
+      catch (const Error&) {}
     }
 
     result.selection = counts;
