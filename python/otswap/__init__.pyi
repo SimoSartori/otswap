@@ -583,7 +583,10 @@ def reconstruct_lightcone(
     tracers_sky : array_like, shape (N, 3)
         Sky coordinates of the tracers.
     randoms_sky : array_like, shape (M, 3)
-        Sky coordinates of the randoms, M >= n_realizations * N.
+        Sky coordinates of the randoms. Their number is checked after the
+        redshift cut and the mask: the randoms kept must number at least
+        ``n_realizations`` times the tracers kept, which is
+        M >= n_realizations * N when nothing is left out.
     sky_area_deg2 : float, optional
         Effective survey area, when no mask is given: the published value.
         Give exactly one of ``sky_area_deg2`` and ``mask``.

@@ -762,9 +762,12 @@ namespace otswap {
    *
    *  @param tracersSky sky coordinates, 3 * nObjects entries, radians.
    *
-   *  @param randomsSky sky coordinates of the randoms; at least
-   *  config.nRealizations * nObjects of them. They may lie outside the
-   *  Cartesian bounding box of the tracers.
+   *  @param randomsSky sky coordinates of the randoms. Their number is
+   *  checked after the redshift cut and, in the overloads with a mask, the
+   *  mask: the randoms kept must number at least config.nRealizations
+   *  times the tracers kept, which is config.nRealizations * nObjects when
+   *  nothing is left out. They may lie outside the Cartesian bounding box
+   *  of the tracers.
    *
    *  @param skyAreaDeg2 effective area of the survey. When a mask is
    *  available, pass the mask instead, to the overload below, which takes
