@@ -1,8 +1,9 @@
 C++ reference
 =============
 
-Generated from the public headers ``otswap/OT.h``, ``otswap/RSD.h`` and
-``otswap/io.h`` by Doxygen, with only what carries a comment included.
+Generated from the public headers ``otswap/OT.h``, ``otswap/RSD.h``,
+``otswap/io.h`` and ``otswap/Maths.h`` by Doxygen, with only what carries a
+comment included.
 
 otswap/OT.h
 -----------
@@ -156,3 +157,8 @@ Writers
 ``io::writeDisplacements``, ``io::writeDisplacementField``,
 ``io::writeRealSpaceCatalog``, ``io::writeMpsProfile`` and their group enums
 are documented on the :doc:`formats` page, with the layouts they write.
+
+otswap/Maths.h
+--------------
+
+.. doxygenfile:: Maths.h

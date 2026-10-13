@@ -2,14 +2,15 @@
 // Copyright (C) 2026 by Simone Sartori, simone.sartori@inaf.it
 //
 // A program built against otswap the way a consumer builds it, from its
-// public header alone: a mask from a map in memory, a small box
-// reconstruction, and otswap::Error on invalid input. Returns non-zero on
-// any mismatch.
+// public headers alone: a mask from a map in memory, a small box
+// reconstruction, otswap::Error on invalid input, and the functions of
+// otswap/Maths.h. Returns non-zero on any mismatch.
 
 #include <cmath>
 #include <cstdio>
 #include <vector>
 
+#include "otswap/Maths.h"
 #include "otswap/OT.h"
 
 int main ()
@@ -63,6 +64,10 @@ int main ()
     threw = true;
   }
   check(threw, "invalid input raises otswap::Error");
+
+  check(otswap::maths::cbrt(-27.) == -3. && otswap::maths::pow(2., 10.) == 1024. &&
+        otswap::maths::sin(0.) == 0. && otswap::maths::exp(0.) == 1.,
+        "otswap/Maths.h gives the exact values");
 
   if (failures == 0) std::printf("consumer: all checks passed\n");
   return failures == 0 ? 0 : 1;

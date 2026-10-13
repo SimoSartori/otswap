@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 by Simone Sartori, simone.sartori@inaf.it
 """Write tests/detmath_reference.h: the reference values of the edge-case
-tests of src/detmath.h and of the pixel lookup in src/arc.h.
+tests of src/detmath.h, of otswap::maths::cbrt and of the pixel lookup in
+src/arc.h.
 
 Every function value is computed with mpmath at a precision far above
 double, then rounded to the nearest double, ties to even, subnormals
@@ -197,8 +198,18 @@ POW = ([F("pow", x, y, special=s) for (x, y, s) in (
            (1.0000001, 1e10), (1e-4, -1.0 / 3.0), (3.7e-5, -1.0 / 3.0), (2.3e-7, -1.0 / 3.0),
            (0.5, 0.6), (0.25, -0.3), (0.9, -2.7), (DBL_MAX, 0.5), (TINY, 0.5), (TINY, -0.5))])
 
+DBL_MIN = 2.0 ** -1022
+
+CBRT = ([F("cbrt", 0.0, special=0.0), F("cbrt", -0.0, special=-0.0),
+         F("cbrt", INF, special=INF), F("cbrt", -INF, special=-INF), F("cbrt", NAN, special=NAN)]
+        + [F("cbrt", x) for x in (
+            1.0, -1.0, 8.0, -8.0, 27.0, 0.125, 2.0, -2.0, 3.0, 4.0, 10.0, 0.1, 1e-3,
+            up(1.0), down(1.0), up(8.0), down(8.0), 2.0 ** 300, 2.0 ** 301, 2.0 ** 302,
+            TINY, -TINY, 2.0 ** -1071, 2.0 ** -1050, DBL_MIN, down(DBL_MIN), up(DBL_MIN),
+            1e-300, 1e300, DBL_MAX, -DBL_MAX, 3.7e-5, 1234.5678, -0.3)])
+
 FUNCTIONS = [("sin", SIN), ("cos", COS), ("exp", EXP), ("log1p", LOG1P),
-             ("asin", ASIN), ("atan2", ATAN2), ("pow", POW)]
+             ("asin", ASIN), ("atan2", ATAN2), ("pow", POW), ("cbrt", CBRT)]
 
 MP = {
     "sin": lambda x: mp.sin(mpf(x)),
@@ -208,6 +219,7 @@ MP = {
     "asin": lambda x: mp.asin(mpf(x)),
     "atan2": lambda y, x: mp.atan2(mpf(y), mpf(x)),
     "pow": lambda x, y: mp.power(mpf(x), mpf(y)),
+    "cbrt": lambda x: mp.cbrt(mpf(x)) if x >= 0 else -mp.cbrt(-mpf(x)),
 }
 
 

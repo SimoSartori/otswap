@@ -21,10 +21,10 @@
 /**
  *  @file tests/test_detmath.cpp
  *
- *  @brief The deterministic elementary functions of src/detmath.h and the
- *  pixel lookup of src/arc.h, at their edge cases, against reference
- *  values computed at high precision (tests/detmath_reference.h, written
- *  by tools/determinism/edge_values.py).
+ *  @brief The deterministic elementary functions of src/detmath.h and
+ *  otswap/Maths.h and the pixel lookup of src/arc.h, at their edge cases,
+ *  against reference values computed at high precision
+ *  (tests/detmath_reference.h, written by tools/determinism/edge_values.py).
  */
 
 #include <cmath>
@@ -38,6 +38,7 @@
 #include <pointing.h>
 #include <vec3.h>
 
+#include "otswap/Maths.h"
 #include "detmath.h"
 #include "internal.h"
 #include "pixel.h"
@@ -193,6 +194,51 @@ int main ()
                                       [] (double x, double y) { return internal::det_pow(x, y); }, true);
     std::cout << "    " << n << " of " << sizeof(detref::k_pow) / sizeof(detref::Case)
               << " correctly rounded" << std::endl;
+  }
+
+  group("cbrt of otswap/Maths.h: signed zeros, NaN and infinities, perfect cubes exactly, "
+        "and into the subnormals");
+  {
+    const std::size_t n = check_table("maths::cbrt", detref::k_cbrt,
+                                      [] (double x, double) { return maths::cbrt(x); }, false);
+    std::cout << "    " << n << " of " << sizeof(detref::k_cbrt) / sizeof(detref::Case)
+              << " correctly rounded" << std::endl;
+  }
+
+  group("otswap/Maths.h returns the same bits as the functions otswap computes its results with");
+  {
+    std::size_t differ = 0, total = 0;
+    auto unary = [&] (double (*ours) (double), double (*internal) (double), const double x) {
+      if (!same_bits(ours(x), internal(x))) ++differ;
+      ++total;
+    };
+    auto binary = [&] (double (*ours) (double, double), double (*internal) (double, double),
+                       const double x, const double y) {
+      if (!same_bits(ours(x, y), internal(x, y))) ++differ;
+      ++total;
+    };
+    for (const detref::Case& c : detref::k_sin) unary(maths::sin, internal::det_sin, c.x);
+    for (const detref::Case& c : detref::k_cos) unary(maths::cos, internal::det_cos, c.x);
+    for (const detref::Case& c : detref::k_exp) unary(maths::exp, internal::det_exp, c.x);
+    for (const detref::Case& c : detref::k_log1p) unary(maths::log1p, internal::det_log1p, c.x);
+    for (const detref::Case& c : detref::k_asin) unary(maths::asin, internal::det_asin, c.x);
+    for (const detref::Case& c : detref::k_atan2) binary(maths::atan2, internal::det_atan2, c.x, c.y);
+    for (const detref::Case& c : detref::k_pow) binary(maths::pow, internal::det_pow, c.x, c.y);
+
+    std::mt19937 rng(5);
+    for (int i = 0; i < 100000; ++i) {
+      const double x = internal::uniform_real(rng, -10., 10.);
+      const double y = internal::uniform_real(rng, -10., 10.);
+      unary(maths::sin, internal::det_sin, x);
+      unary(maths::cos, internal::det_cos, x);
+      unary(maths::exp, internal::det_exp, 70. * x);
+      unary(maths::log1p, internal::det_log1p, std::fabs(x));
+      unary(maths::asin, internal::det_asin, x / 10.);
+      binary(maths::atan2, internal::det_atan2, y, x);
+      binary(maths::pow, internal::det_pow, std::fabs(x), y);
+    }
+    check(differ == 0, std::to_string(differ) + " of " + std::to_string(total) +
+                       " calls return different bits");
   }
 
   group("vec2pix and ang2pix: on pixel boundaries, at the poles, at RA 0 and 2 pi, "

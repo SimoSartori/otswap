@@ -24,9 +24,9 @@
  *
  * It renames every external symbol those files define, so that nothing
  * clashes with, or is resolved against, the system libm; src/detmath.h
- * declares the renamed functions. It also supplies the few FreeBSD
- * definitions the files need and that glibc and macOS lack, and it
- * disables the long double aliases, which would otherwise export
+ * and src/Maths.cpp declare the renamed functions. It also supplies the
+ * few FreeBSD definitions the files need and that glibc and macOS lack,
+ * and it disables the long double aliases, which would otherwise export
  * unrenamed libm names where long double is double.
  *
  * Not part of the public API.
@@ -77,6 +77,7 @@
 #define atan                otswap_fdlibm_atan
 #define atan2               otswap_fdlibm_atan2
 #define asin                otswap_fdlibm_asin
+#define cbrt                otswap_fdlibm_cbrt
 #define __kernel_sin        otswap_fdlibm_kernel_sin
 #define __kernel_cos        otswap_fdlibm_kernel_cos
 #define __kernel_rem_pio2   otswap_fdlibm_kernel_rem_pio2
@@ -92,5 +93,6 @@ double pow(double, double);
 double atan(double);
 double atan2(double, double);
 double asin(double);
+double cbrt(double);
 
 #endif

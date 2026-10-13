@@ -357,6 +357,48 @@ namespace detref {
     {0x0.0000000000001p-1022, -0x1.0000000000000p-1, 0x1.0000000000000p+537, false, true},
   };
 
+  const Case k_cbrt[] = {
+    {0x0.0p+0, 0x0.0p+0, 0x0.0p+0, true, true},
+    {-0x0.0p+0, 0x0.0p+0, -0x0.0p+0, true, true},
+    {kInf, 0x0.0p+0, kInf, true, true},
+    {-kInf, 0x0.0p+0, -kInf, true, true},
+    {kNaN, 0x0.0p+0, kNaN, true, true},
+    {0x1.0000000000000p+0, 0x0.0p+0, 0x1.0000000000000p+0, false, true},
+    {-0x1.0000000000000p+0, 0x0.0p+0, -0x1.0000000000000p+0, false, true},
+    {0x1.0000000000000p+3, 0x0.0p+0, 0x1.0000000000000p+1, false, true},
+    {-0x1.0000000000000p+3, 0x0.0p+0, -0x1.0000000000000p+1, false, true},
+    {0x1.b000000000000p+4, 0x0.0p+0, 0x1.8000000000000p+1, false, true},
+    {0x1.0000000000000p-3, 0x0.0p+0, 0x1.0000000000000p-1, false, true},
+    {0x1.0000000000000p+1, 0x0.0p+0, 0x1.428a2f98d728bp+0, false, false},
+    {-0x1.0000000000000p+1, 0x0.0p+0, -0x1.428a2f98d728bp+0, false, false},
+    {0x1.8000000000000p+1, 0x0.0p+0, 0x1.7137449123ef6p+0, false, false},
+    {0x1.0000000000000p+2, 0x0.0p+0, 0x1.965fea53d6e3dp+0, false, false},
+    {0x1.4000000000000p+3, 0x0.0p+0, 0x1.13c484138704fp+1, false, false},
+    {0x1.999999999999ap-4, 0x0.0p+0, 0x1.db4c7760bcff3p-2, false, false},
+    {0x1.0624dd2f1a9fcp-10, 0x0.0p+0, 0x1.999999999999ap-4, false, false},
+    {0x1.0000000000001p+0, 0x0.0p+0, 0x1.0000000000000p+0, false, false},
+    {0x1.fffffffffffffp-1, 0x0.0p+0, 0x1.0000000000000p+0, false, false},
+    {0x1.0000000000001p+3, 0x0.0p+0, 0x1.0000000000000p+1, false, false},
+    {0x1.fffffffffffffp+2, 0x0.0p+0, 0x1.0000000000000p+1, false, false},
+    {0x1.0000000000000p+300, 0x0.0p+0, 0x1.0000000000000p+100, false, true},
+    {0x1.0000000000000p+301, 0x0.0p+0, 0x1.428a2f98d728bp+100, false, false},
+    {0x1.0000000000000p+302, 0x0.0p+0, 0x1.965fea53d6e3dp+100, false, false},
+    {0x0.0000000000001p-1022, 0x0.0p+0, 0x1.0000000000000p-358, false, true},
+    {-0x0.0000000000001p-1022, 0x0.0p+0, -0x1.0000000000000p-358, false, true},
+    {0x0.0000000000008p-1022, 0x0.0p+0, 0x1.0000000000000p-357, false, true},
+    {0x0.0000001000000p-1022, 0x0.0p+0, 0x1.0000000000000p-350, false, true},
+    {0x1.0000000000000p-1022, 0x0.0p+0, 0x1.428a2f98d728bp-341, false, false},
+    {0x0.fffffffffffffp-1022, 0x0.0p+0, 0x1.428a2f98d728ap-341, false, false},
+    {0x1.0000000000001p-1022, 0x0.0p+0, 0x1.428a2f98d728bp-341, false, false},
+    {0x1.56e1fc2f8f359p-997, 0x0.0p+0, 0x1.bff2ee48e0530p-333, false, false},
+    {0x1.7e43c8800759cp+996, 0x0.0p+0, 0x1.249ad2594c37dp+332, false, false},
+    {0x1.fffffffffffffp+1023, 0x0.0p+0, 0x1.428a2f98d728bp+341, false, false},
+    {-0x1.fffffffffffffp+1023, 0x0.0p+0, -0x1.428a2f98d728bp+341, false, false},
+    {0x1.3660e51d25aabp-15, 0x0.0p+0, 0x1.10f9c1d8447acp-5, false, false},
+    {0x1.34a456d5cfaadp+10, 0x0.0p+0, 0x1.5748fca6927a7p+3, false, false},
+    {-0x1.3333333333333p-2, 0x0.0p+0, -0x1.56bfea66ef78dp-1, false, false},
+  };
+
   const int kNsides[] = {1, 8, 16, 1024, 8192};
   constexpr int kNNsides = 5;
 

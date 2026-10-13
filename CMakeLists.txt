@@ -124,13 +124,14 @@ endif()
 # ---------------------------------------------------------------------------
 # Deterministic math, vendored
 #
-# sin, cos, exp, log1p, pow, atan2 and asin from FreeBSD's msun, copied
+# sin, cos, exp, log1p, pow, atan2, asin and cbrt from FreeBSD's msun, copied
 # unmodified into extern/fdlibm/msun/src (see its README), so that every
 # platform computes them with the same code rather than with its own libm.
 # Third-party code that must not be edited: its warnings are suppressed, and
 # extern/fdlibm/otswap_fdlibm.h is force-included to rename its symbols.
-# Only src/detmath.h calls it. An object library, whose objects go into
-# libotswap.a: nothing of it is installed or exported on its own.
+# Only src/detmath.h and src/Maths.cpp call it. An object library, whose
+# objects go into libotswap.a: nothing of it is installed or exported on its
+# own.
 # ---------------------------------------------------------------------------
 
 set(OTSWAP_FDLIBM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/extern/fdlibm)
@@ -146,7 +147,8 @@ add_library(otswap_fdlibm OBJECT
   ${OTSWAP_FDLIBM_DIR}/msun/src/e_pow.c
   ${OTSWAP_FDLIBM_DIR}/msun/src/e_atan2.c
   ${OTSWAP_FDLIBM_DIR}/msun/src/s_atan.c
-  ${OTSWAP_FDLIBM_DIR}/msun/src/e_asin.c)
+  ${OTSWAP_FDLIBM_DIR}/msun/src/e_asin.c
+  ${OTSWAP_FDLIBM_DIR}/msun/src/s_cbrt.c)
 
 # GNU C: math_private.h needs the BSD integer types and endianness macros,
 # which glibc declares only outside strict ISO mode.
@@ -174,6 +176,7 @@ add_library(otswap STATIC
   src/DistanceTable.cpp
   src/Lightcone.cpp
   src/Mask.cpp
+  src/Maths.cpp
   src/Pixel.cpp
   src/Reconstruct.cpp
   src/RSD.cpp

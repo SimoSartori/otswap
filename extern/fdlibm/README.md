@@ -1,6 +1,6 @@
 # Vendored deterministic math: FreeBSD msun (fdlibm lineage)
 
-The 13 files under `msun/src/` are copied from the **FreeBSD source tree**,
+The 14 files under `msun/src/` are copied from the **FreeBSD source tree**,
 `lib/msun/src/`, byte for byte and **unmodified**:
 
 - Repository: <https://github.com/freebsd/freebsd-src>
@@ -22,6 +22,7 @@ The 13 files under `msun/src/` are copied from the **FreeBSD source tree**,
 | `e_atan2.c` | `atan2` | `cae6f5c5ddf95616c4d6bbfdcc081ac5898d18c3e79ed944a777c8a687540c1d` |
 | `s_atan.c` | `atan` | `562febb0fe60383526f7fda1a668f1186b2dcd2e0773b738d57f2ed30bdb6ebb` |
 | `e_asin.c` | `asin` | `4340fb7ca58f3b84a8e8c395b2fa0428ff24baa4a313302ea0d6ffc984ba775a` |
+| `s_cbrt.c` | `cbrt` | `93d89d7b265a0cec593d69c539b11fed490dbe6029ddf722d8655739a7e3aa86` |
 | `math_private.h` | word-access macros, `rnint`, kernel prototypes | `6a90b768df36af4f83f4b51e9a94d8d289f1560365371d3a5c7282ef4dd57cad` |
 
 FreeBSD's own `math.h` is not vendored: it depends on FreeBSD's system
@@ -47,8 +48,8 @@ is preserved.
 ```
 
 (`SunPro` in place of `SunSoft` in `s_sin.c`, `s_cos.c`, `s_atan.c`,
-`s_log1p.c` and `math_private.h`; `e_rem_pio2.c` adds "Optimized by Bruce
-D. Evans.") `e_exp.c` and `e_pow.c` read:
+`s_log1p.c`, `s_cbrt.c` and `math_private.h`; `e_rem_pio2.c` and `s_cbrt.c`
+add "Optimized by Bruce D. Evans.") `e_exp.c` and `e_pow.c` read:
 
 ```
 Copyright (C) 2004 by Sun Microsystems, Inc. All rights reserved.
@@ -78,7 +79,8 @@ otswap's GPL-2.0-or-later.
   double.
 - `shim/machine/endian.h`, also otswap's, stands in for FreeBSD's
   `<machine/endian.h>` where the system has none (glibc).
-- otswap calls them only through `src/detmath.h`.
+- otswap calls them only through `src/detmath.h`, for its own results,
+  and `src/Maths.cpp`, which defines the public `otswap/Maths.h`.
 
 They are third-party code: do not edit them. Update by copying the same
 files from a newer commit, and record it here.
