@@ -775,6 +775,26 @@ def test_reconstruct_lightcone(table, lightcone):
     assert 0.2 * mps < np.median(np.linalg.norm(result.displacement, axis=2)) < 3 * mps
 
 
+def test_reconstruct_neighbour_search_error(table, lightcone):
+    """An error of the neighbour search is an otswap.Error whose message starts
+    with "meshsearch: ", from reconstruct_box and every form of
+    reconstruct_lightcone: a cell of 1e-12 mps needs more cells than the grid
+    can count."""
+    for mps in (10.0, None):
+        with pytest.raises(otswap.Error, match="^meshsearch: "):
+            otswap.reconstruct_box(box_catalogue(), mps=mps, cell_size=1e-12, seed=1,
+                                   verbosity="silent")
+    tracers_sky, randoms_sky = lightcone
+    tracers = otswap.to_cartesian(tracers_sky, table, angle_unit="deg")
+    randoms = otswap.to_cartesian(randoms_sky, table, angle_unit="deg")
+    full_sky = otswap.Mask.from_array(np.ones(12))
+    for area in (dict(), dict(sky_area_deg2=None, mask=full_sky)):
+        for cartesian in (dict(), dict(tracers=tracers, randoms=randoms)):
+            with pytest.raises(otswap.Error, match="^meshsearch: "):
+                lightcone_result(table, lightcone, cell_size=1e-12, verbosity="silent",
+                                 **area, **cartesian)
+
+
 def test_reconstruct_lightcone_deg_and_rad_are_identical(table, lightcone):
     tracers_sky, randoms_sky = lightcone
 

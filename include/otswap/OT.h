@@ -48,9 +48,11 @@ namespace otswap {
 
   /// Base class of every exception otswap throws on invalid input or
   /// failure. std::bad_alloc is not converted, and propagates unchanged,
-  /// from inside a parallel region too. The neighbour search of the
-  /// redshift-space correction raises meshsearch::Error, a
-  /// std::runtime_error, for positions that span no volume.
+  /// from inside a parallel region too. An error of the neighbour search,
+  /// a meshsearch::Error or an exception derived from it, reaches the
+  /// caller as an Error whose message is "meshsearch: " followed by its
+  /// own, with the original nested in it (std::throw_with_nested), so
+  /// std::rethrow_if_nested recovers it.
   ///
   /// An Error records where it was constructed: the source file, the
   /// function and the line. The location is not part of what(), which
@@ -633,7 +635,10 @@ namespace otswap {
    *
    *  @exception Error if any array has a size that is not a multiple of
    *  three, if the tracer array is empty, if the randoms are too few, if
-   *  any coordinate is not finite, or if mps is not positive.
+   *  any coordinate is not finite, or if mps is not positive. Also, from
+   *  the neighbour search (see Error), if the grid cannot be built: a cell
+   *  of config.cellSize * mps so small against the extent of the tracers
+   *  and randoms that the grid would need more cells than it can count.
    *
    *  @return the displacement field; every entry of valid is 1,
    *  validRealizations is uniformly config.nRealizations, and
@@ -660,8 +665,9 @@ namespace otswap {
    *  box, the box that drawn randoms fill, and N their number. The value
    *  used is Result::mps.
    *
-   *  @exception Error as above, and if the tracers span no volume (all of
-   *  them in one plane, on one line or at one point).
+   *  @exception Error as above, from the neighbour search included, and if
+   *  the tracers span no volume (all of them in one plane, on one line or
+   *  at one point).
    */
   Result reconstructBox (const std::vector<double>& tracers,
                          const std::vector<double>& randoms,
@@ -801,7 +807,11 @@ namespace otswap {
    *  declination lies outside [-pi/2, pi/2], if the randoms are too few,
    *  or if a redshift falls outside the distance table. Also if a bound of
    *  the cut is NaN or min > max, or if too few tracers or randoms remain
-   *  inside it; the message gives the counts kept and dropped.
+   *  inside it; the message gives the counts kept and dropped. Also, from
+   *  the neighbour search (see Error), if the grid cannot be built: a cell
+   *  of config.cellSize mean particle separations so small against the
+   *  extent of the tracers and randoms that the grid would need more cells
+   *  than it can count.
    */
   Result reconstructLightcone (const std::vector<double>& tracersSky,
                                const std::vector<double>& randomsSky,
@@ -832,8 +842,8 @@ namespace otswap {
    *  @param cut as above, decided on the sky redshifts; the same rows are
    *  dropped from the Cartesian arrays.
    *
-   *  @exception Error as above, and if the Cartesian and sky arrays
-   *  describe a different number of objects.
+   *  @exception Error as above, from the neighbour search included, and if
+   *  the Cartesian and sky arrays describe a different number of objects.
    *
    *  @warning No check verifies that the Cartesian coordinates agree with
    *  the sky ones under the given cosmology; disagreement is silent.
@@ -885,8 +895,9 @@ namespace otswap {
    *  @param cut as in the overload with the sky area, evaluated with the
    *  mask on every object.
    *
-   *  @exception Error as the overload with the sky area, the counts in the
-   *  message naming the mask as well as the cut.
+   *  @exception Error as the overload with the sky area, from the
+   *  neighbour search included, the counts in the message naming the mask
+   *  as well as the cut.
    */
   Result reconstructLightcone (const std::vector<double>& tracersSky,
                                const std::vector<double>& randomsSky,
@@ -904,8 +915,8 @@ namespace otswap {
    *  with the sky area. The mask is applied on the sky coordinates; the
    *  same rows are dropped from the Cartesian arrays.
    *
-   *  @exception Error as above, and if the Cartesian and sky arrays
-   *  describe a different number of objects.
+   *  @exception Error as above, from the neighbour search included, and if
+   *  the Cartesian and sky arrays describe a different number of objects.
    *
    *  @warning No check verifies that the Cartesian coordinates agree with
    *  the sky ones under the given cosmology; disagreement is silent.

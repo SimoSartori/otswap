@@ -29,9 +29,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <string>
 #include <vector>
+
+#include <meshsearch/MeshGrid.h>
 
 #include "detmath.h"
 #include "internal.h"
@@ -232,6 +235,41 @@ void otswap::internal::check_random_supply (const std::size_t nRandoms,
               " randoms for " + std::to_string(nObjects) + " tracers is a ratio of " +
               std::to_string(ratio) + ", below the " + std::to_string(nRealizations) +
               " realizations requested; " + std::to_string(needed) + " randoms are needed");
+}
+
+
+// ============================================================================
+
+
+void otswap::internal::rethrow (const std::exception_ptr failure, const char* file,
+                                const char* function, const int line)
+{
+  try {
+    std::rethrow_exception(failure);
+  }
+  catch (const meshsearch::Error& e) {
+    std::throw_with_nested(Error(std::string("meshsearch: ") + e.what(), file, function, line));
+  }
+}
+
+
+// ============================================================================
+
+
+meshsearch::MeshGrid otswap::internal::mesh_grid (const std::vector<double>& X,
+                                                  const std::vector<double>& Y,
+                                                  const std::vector<double>& Z,
+                                                  const double cellsize,
+                                                  const std::vector<std::vector<double>>& limits,
+                                                  const char* file, const char* function,
+                                                  const int line)
+{
+  try {
+    return meshsearch::MeshGrid(X, Y, Z, cellsize, limits);
+  }
+  catch (...) {
+    rethrow(std::current_exception(), file, function, line);
+  }
 }
 
 

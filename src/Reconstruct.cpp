@@ -140,7 +140,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
     axis[1] = std::max(axis[1], randoms[i]);
   }
 
-  const meshsearch::MeshGrid tracerGrid(tracerX, tracerY, tracerZ, cellsize, extent);
+  const meshsearch::MeshGrid tracerGrid = mesh_grid(tracerX, tracerY, tracerZ, cellsize, extent);
   const std::vector<std::vector<double>> lims = tracerGrid.get_lims();
 
   std::vector<std::vector<unsigned>> neighbours(nObjects);
@@ -156,7 +156,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
         if (!failure) failure = std::current_exception();
       }
     }
-    if (failure) std::rethrow_exception(failure);
+    if (failure) rethrow(failure);
   }
 
   std::vector<unsigned> supply;
@@ -368,7 +368,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
     }
   }
 
-  if (failure) std::rethrow_exception(failure);
+  if (failure) rethrow(failure);
 
   result.valid.assign((std::size_t)nRealizations * nObjects, 1);
   result.outsideRedshiftCut.assign(nObjects, 0);

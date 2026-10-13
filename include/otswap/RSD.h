@@ -139,9 +139,9 @@ namespace otswap {
    *  @exception Error if the sizes differ, if a position is not finite, if
    *  the value of a valid object is not finite, or if sigma is negative or
    *  not finite; the message names the object.
-   *  @exception meshsearch::Error if sigma > 0 and the positions span no
-   *  volume (a single object, or all of them in one plane or on one line):
-   *  the neighbour grid cannot be built.
+   *  @exception Error from the neighbour search (see Error) if sigma > 0
+   *  and the positions span no volume (a single object, or all of them in
+   *  one plane or on one line): the neighbour grid cannot be built.
    */
   NeighbourAverage neighbourAverage (const std::vector<double>& positions,
                                      const std::vector<double>& values,
@@ -355,7 +355,8 @@ namespace otswap {
    *  corrected comoving distance is not positive or lies outside the
    *  distance table; the message names the object, and in the last case
    *  suggests a table covering a wider redshift range.
-   *  @exception meshsearch::Error as neighbourAverage.
+   *  @exception Error from the neighbour search, as neighbourAverage, for
+   *  the tracers corrected.
    */
   RealSpaceCatalog realSpaceLightcone (const Result& result,
                                        const DistanceTable& distances,
@@ -386,7 +387,8 @@ namespace otswap {
    *
    *  @exception Error if result is not a box result, is malformed or lacks
    *  its tracers, if the axis is not 0, 1 or 2, or as rsdFactorBox.
-   *  @exception meshsearch::Error as neighbourAverage.
+   *  @exception Error from the neighbour search, as neighbourAverage, for
+   *  the tracers corrected.
    */
   RealSpaceCatalog realSpaceBox (const Result& result,
                                  unsigned axis,

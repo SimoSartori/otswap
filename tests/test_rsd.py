@@ -265,6 +265,31 @@ def test_real_space_lightcone_errors(table, lightcone, box):
         otswap.real_space_lightcone(edge, **dict(base, distances=short, sigma=0.0))
 
 
+def test_neighbour_search_error(table):
+    """An error of the neighbour search is an otswap.Error whose message starts
+    with "meshsearch: ": positions in one plane, given to neighbour_average or
+    as the tracers of a box or lightcone result to correct."""
+    rng = np.random.default_rng(6)
+    plane = rng.uniform(0, 80, (400, 3))
+    plane[:, 2] = 40.0
+    with pytest.raises(otswap.Error, match="^meshsearch: "):
+        otswap.neighbour_average(plane, np.ones(400), np.ones(400, dtype=np.uint32), sigma=3.0)
+    box = otswap.reconstruct_box(plane, mps=80 / 400 ** (1 / 3), seed=7, verbosity="silent")
+    with pytest.raises(otswap.Error, match="^meshsearch: "):
+        otswap.real_space_box(box, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=10.0,
+                              verbosity="silent")
+    # every tracer at declination 0 lies in the plane z = 0
+    tracers = np.column_stack([rng.uniform(10, 40, 600), np.zeros(600), rng.uniform(0.3, 0.6, 600)])
+    randoms = np.column_stack([rng.uniform(10, 40, 600), rng.uniform(-15, 15, 600),
+                               rng.uniform(0.3, 0.6, 600)])
+    light = otswap.reconstruct_lightcone(tracers, randoms, sky_area_deg2=870.0, n_bins=1,
+                                         distances=table, angle_unit="deg", seed=7,
+                                         verbosity="silent")
+    with pytest.raises(otswap.Error, match="^meshsearch: "):
+        otswap.real_space_lightcone(light, distances=table, bias=BIAS, sigma=10.0,
+                                    verbosity="silent")
+
+
 def test_result_agrees_with_its_tracers(table, lightcone, box):
     """matched_random - displacement gives back the tracers the result
     carries, within rounding."""

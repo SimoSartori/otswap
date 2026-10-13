@@ -12,8 +12,8 @@ project(otswap_subproject_consumer LANGUAGES C CXX)
 add_subdirectory(${OTSWAP_SOURCE_DIR} otswap)
 
 foreach (target test_support test_distance_table test_reconstruct test_table test_mask
-                test_detmath test_pixel test_rsd cpp_reference otswap_healpix test_meshgrid
-                example)
+                test_detmath test_pixel test_rsd test_writers cpp_reference otswap_healpix
+                test_meshgrid example)
   if (TARGET ${target})
     message(FATAL_ERROR "otswap built ${target} as a subproject")
   endif()

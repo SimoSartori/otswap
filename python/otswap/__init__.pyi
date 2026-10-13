@@ -539,6 +539,14 @@ def reconstruct_box(
         What the call prints; see ``Verbosity``. ``"normal"`` prints one
         line, ``"detailed"`` the mps and its source before it.
 
+    Raises
+    ------
+    Error
+        From the neighbour search, with a message starting
+        ``"meshsearch: "``, if its grid cannot be built: a cell of
+        ``cell_size`` mps so small against the extent of the tracers and
+        randoms that the grid would need more cells than it can count.
+
     Notes
     -----
     The box is not periodic: nothing flows through its faces, so modes on the
@@ -640,6 +648,12 @@ def reconstruct_lightcone(
         ``"detailed"`` adds the mps(z) profile before the last line.
     n_realizations, convergence, seed, cell_size
         As in ``reconstruct_box``.
+
+    Raises
+    ------
+    Error
+        From the neighbour search, as in ``reconstruct_box``, the cell being
+        ``cell_size`` mean particle separations.
     """
 
 
@@ -869,13 +883,18 @@ def neighbour_average(
         The averages and, per object, the number of valid objects averaged
         and the sum of their valid realizations.
 
+    Raises
+    ------
+    Error
+        From the neighbour search, with a message starting
+        ``"meshsearch: "``, if sigma > 0 and the positions span no volume (a
+        single object, or all in one plane or on one line).
+
     Notes
     -----
     The result does not depend on the internal neighbour grid within
     rounding, and is the same bit for bit for the same inputs, whatever the
-    number of threads. With sigma > 0, positions that span no volume (a
-    single object, or all in one plane or on one line) raise RuntimeError
-    from the neighbour search, not otswap.Error.
+    number of threads.
     """
 
 
@@ -960,6 +979,8 @@ def real_space_lightcone(
     Error
         For a box result, or if a corrected comoving distance is not positive
         or lies outside the distance table; the message names the tracer.
+        Also from the neighbour search, as in ``neighbour_average``, for the
+        tracers corrected.
 
     Notes
     -----
@@ -983,8 +1004,14 @@ def real_space_box(
     real space, with the line of sight along ``axis``: the chain of
     ``real_space_lightcone`` with the projection on the axis, a single factor
     at ``redshift`` with the constant ``bias``, and the shift along the axis,
-    without periodic wrapping. Raises for a lightcone result.
+    without periodic wrapping.
 
     The box is not periodic: nothing flows through its faces, so modes on the
     scale of the box itself cannot be reconstructed.
+
+    Raises
+    ------
+    Error
+        For a lightcone result, or from the neighbour search, as in
+        ``neighbour_average``, for the tracers corrected.
     """

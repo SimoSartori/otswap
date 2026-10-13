@@ -32,12 +32,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <random>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "otswap/OT.h"
+
+namespace meshsearch { class MeshGrid; }
 
 namespace otswap {
 
@@ -127,6 +130,29 @@ namespace otswap {
     /// The smallest catalog accepted: one more than the neighbours held
     /// per tracer. Defined in Reconstruct.cpp.
     std::size_t min_objects ();
+
+    /// Rethrows @p failure. A meshsearch::Error, or an exception derived
+    /// from it, becomes an Error whose message is "meshsearch: " followed
+    /// by its own, with the original nested (std::throw_with_nested); the
+    /// Error carries the location given, by default that of the call.
+    /// Anything else, std::bad_alloc included, is rethrown unchanged.
+    /// Called after a parallel region, never inside one.
+    [[noreturn]] void rethrow (std::exception_ptr failure,
+                               const char* file = __builtin_FILE(),
+                               const char* function = __builtin_FUNCTION(),
+                               int line = __builtin_LINE());
+
+    /// meshsearch::MeshGrid's constructor, a meshsearch::Error rethrown as
+    /// rethrow does, with the location of the call. Not for use inside a
+    /// parallel region.
+    meshsearch::MeshGrid mesh_grid (const std::vector<double>& X,
+                                    const std::vector<double>& Y,
+                                    const std::vector<double>& Z,
+                                    double cellsize,
+                                    const std::vector<std::vector<double>>& limits,
+                                    const char* file = __builtin_FILE(),
+                                    const char* function = __builtin_FUNCTION(),
+                                    int line = __builtin_LINE());
 
     /// One reconstruction, shared by both geometries.
     ///

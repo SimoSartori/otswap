@@ -134,12 +134,10 @@ returned.
 ## Errors
 
 Invalid input and failures raise {cpp:class}`otswap::Error`
-({py:class}`otswap.Error`), whose message names the object at fault. Two
-exceptions:
-
-- the neighbour search of the redshift-space correction raises
-  `meshsearch::Error` (in Python a `RuntimeError`) for positions that span no
-  volume;
-- the extrapolation of b(z) beyond its table is not an error: Python issues an
-  {py:class}`otswap.ExtrapolationWarning`, C++ reports it and counts it in
-  `nExtrapolated`.
+({py:class}`otswap.Error`), whose message names the object at fault. An error
+of the neighbour search is one too: its message starts with `meshsearch: `,
+and in C++ the original `meshsearch::Error` is nested in it
+(`std::rethrow_if_nested` recovers it). The extrapolation of b(z) beyond its
+table is not an error: Python issues an
+{py:class}`otswap.ExtrapolationWarning`, C++ reports it and counts it in
+`nExtrapolated`.

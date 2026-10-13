@@ -381,7 +381,7 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
   std::vector<double> average(n, kNaN);
   if (member.empty()) return average;
 
-  const meshsearch::MeshGrid grid(X, Y, Z, cellSize, limits);
+  const meshsearch::MeshGrid grid = internal::mesh_grid(X, Y, Z, cellSize, limits);
 
   const double cutoff = kTruncationInSigma * sigma;
   const double inverse = 1. / (2. * sigma * sigma);
@@ -416,7 +416,7 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
     }
   }
 
-  if (failure) std::rethrow_exception(failure);
+  if (failure) internal::rethrow(failure);
 
   return average;
 }

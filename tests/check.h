@@ -30,6 +30,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <string>
 
@@ -59,6 +60,42 @@ namespace {
       f();
     }
     catch (const otswap::Error&) {
+      return;
+    }
+    catch (const std::exception& e) {
+      std::cerr << "FAILED: " << what << " (threw the wrong type: " << e.what() << ")"
+                << std::endl;
+      ++failures;
+      return;
+    }
+    std::cerr << "FAILED: " << what << " (did not throw)" << std::endl;
+    ++failures;
+  }
+
+  /// @p f must raise an otswap::Error whose message starts with @p prefix
+  /// and in which an exception of type Nested is nested.
+  template <typename Nested, typename F>
+  void check_nested (F&& f, const std::string& prefix, const std::string& what)
+  {
+    try {
+      f();
+    }
+    catch (const otswap::Error& e) {
+      if (std::string(e.what()).compare(0, prefix.size(), prefix) != 0) {
+        std::cerr << "FAILED: " << what << " (the message does not start with \"" << prefix
+                  << "\": " << e.what() << ")" << std::endl;
+        ++failures;
+        return;
+      }
+      try {
+        std::rethrow_if_nested(e);
+      }
+      catch (const Nested&) {
+        return;
+      }
+      catch (...) {}
+      std::cerr << "FAILED: " << what << " (no exception of the expected type nested)" << std::endl;
+      ++failures;
       return;
     }
     catch (const std::exception& e) {

@@ -387,7 +387,8 @@ int main ()
   }
 #endif
 
-  group("the internal cell is 4 (V/N)^(1/3); positions spanning no volume are refused by the grid");
+  group("the internal cell is 4 (V/N)^(1/3); positions spanning no volume are refused by the grid, "
+        "as an Error with meshsearch's nested in it");
   {
     const double cell = internal::neighbour_cell(points);
     double lo[3], hi[3];
@@ -409,14 +410,8 @@ int main ()
       const std::vector<double> v(m, 1.);
       const std::vector<unsigned> r(m, 1);
       check(internal::neighbour_cell(c.second) == 0., c.first + ": the cell is 0");
-      bool refused = false;
-      try {
-        neighbourAverage(c.second, v, r, 3.);
-      }
-      catch (const meshsearch::Error&) {
-        refused = true;
-      }
-      check(refused, c.first + ": the grid refuses it with meshsearch's error, before any parallel region");
+      check_nested<meshsearch::Error>([&] { neighbourAverage(c.second, v, r, 3.); }, "meshsearch: ",
+                                      c.first + ": the grid refuses it, before any parallel region");
       check(neighbourAverage(c.second, v, r, 0.).values == v, c.first + ": with sigma = 0 there is no grid, and no error");
     }
   }
@@ -635,6 +630,39 @@ int main ()
         }
       check(worst <= 1.e-12 * 3000., "every realization, largest difference " + std::to_string(worst));
     }
+  }
+
+  group("an error of the neighbour search reaches the caller of the correction as an Error");
+  {
+    // Tracers in one plane: the reconstruction runs, but the neighbour grid
+    // of the correction cannot be built on them.
+    const DistanceTable table = linear_table(1.5, 0.8);
+    std::mt19937 own(41);
+    Config config;
+    config.seed = 7;
+
+    std::vector<double> plane = uniform_points(400, 80., own);
+    for (std::size_t i = 0; i < 400; ++i) plane[3*i+2] = 40.;
+    const Result box = reconstructBox(plane, {}, 80. / std::cbrt(400.), config);
+    check_nested<meshsearch::Error>([&] { realSpaceBox(box, 2, 0.5, table, 1.5, 10.); }, "meshsearch: ",
+                                    "realSpaceBox on a box whose tracers lie in one plane");
+
+    // Every tracer at declination 0 lies in the plane z = 0.
+    std::vector<double> sky(3 * 600), randomsSky(3 * 600);
+    for (std::size_t i = 0; i < sky.size(); i += 3) {
+      sky[i] = internal::uniform_real(own, 0.2, 0.7);
+      sky[i+1] = 0.;
+      sky[i+2] = internal::uniform_real(own, 0.3, 0.6);
+    }
+    for (std::size_t i = 0; i < randomsSky.size(); i += 3) {
+      randomsSky[i] = internal::uniform_real(own, 0.2, 0.7);
+      randomsSky[i+1] = internal::uniform_real(own, -0.25, 0.25);
+      randomsSky[i+2] = internal::uniform_real(own, 0.3, 0.6);
+    }
+    const Result light = reconstructLightcone(sky, randomsSky, 800., 1, table, config);
+    check_nested<meshsearch::Error>([&] {
+      realSpaceLightcone(light, table, BiasTable{{0., 1.5}, {1.5, 1.5}}, 10.);
+    }, "meshsearch: ", "realSpaceLightcone on a lightcone whose tracers lie on the celestial equator");
   }
 
   group("readBiasTable: ASCII and FITS, and every error");

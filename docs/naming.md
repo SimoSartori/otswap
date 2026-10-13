@@ -11,7 +11,7 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 |---|---|---|
 | `Error` | `Error` | C++ records the throw location: `file()`, `function()`, `line()` |
 | a line in the report, the count `nExtrapolated` | `ExtrapolationWarning` | b(z) extrapolated beyond its table |
-| `meshsearch::Error` | `RuntimeError` | positions that span no volume, in the neighbour search |
+| `meshsearch::Error` | — | rethrown as `Error`, the message starting `meshsearch: `; in C++ the original is nested |
 
 ## Configuration
 

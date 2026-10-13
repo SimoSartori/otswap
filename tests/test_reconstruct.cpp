@@ -40,6 +40,8 @@
 #include <omp.h>
 #endif
 
+#include <meshsearch/MeshGrid.h>
+
 #include "internal.h"
 #include "check.h"
 
@@ -128,6 +130,26 @@ int main ()
     two.nRealizations = 2;
     check_throws([&] { reconstructBox(tracers, tracers, spacing, two); },
                  "randoms too few for the realizations requested");
+  }
+
+  group("an error of the neighbour search reaches the caller as an Error, meshsearch's nested in it");
+  {
+    // A cell of 1e-12 mps: the tracer grid would need far more cells along
+    // an axis than it can count, and refuses before allocating anything.
+    Config c;
+    c.cellSize = 1.e-12;
+    check_nested<meshsearch::Error>([&] { reconstructBox(tracers, {}, spacing, c); },
+                                    "meshsearch: ", "reconstructBox with the mps");
+    check_nested<meshsearch::Error>([&] { reconstructBox(tracers, {}, c); },
+                                    "meshsearch: ", "reconstructBox without the mps");
+    try {
+      reconstructBox(tracers, {}, spacing, c);
+    }
+    catch (const Error& e) {
+      const std::string file = e.file();
+      check(file.size() >= 15 && file.compare(file.size() - 15, 15, "Reconstruct.cpp") == 0,
+            "the Error carries the location of the rethrow, in Reconstruct.cpp; got " + file);
+    }
   }
 
   group("the matching is a permutation: every random is used at most once");
@@ -609,6 +631,23 @@ int main ()
     check_throws([&] {
       reconstructLightcone(sky, randomSky, skyAreaDeg2, nBins, narrow, c);
     }, "redshifts outside the distance table raise");
+
+    group("an error of the neighbour search reaches the caller of every lightcone overload as an Error");
+    Config fine = c;
+    fine.cellSize = 1.e-12;
+    const Mask fullSky(std::vector<double>(12, 1.), PixelOrdering::Ring);
+    check_nested<meshsearch::Error>([&] {
+      reconstructLightcone(sky, randomSky, skyAreaDeg2, nBins, distances, fine);
+    }, "meshsearch: ", "the sky overload with the sky area");
+    check_nested<meshsearch::Error>([&] {
+      reconstructLightcone(cart, randomCart, sky, randomSky, skyAreaDeg2, nBins, distances, fine);
+    }, "meshsearch: ", "the Cartesian overload with the sky area");
+    check_nested<meshsearch::Error>([&] {
+      reconstructLightcone(sky, randomSky, fullSky, nBins, distances, fine);
+    }, "meshsearch: ", "the sky overload with a mask");
+    check_nested<meshsearch::Error>([&] {
+      reconstructLightcone(cart, randomCart, sky, randomSky, fullSky, nBins, distances, fine);
+    }, "meshsearch: ", "the Cartesian overload with a mask");
   }
 
   group("the box Result: geometry, configuration with the seed used, tracers, lagrangian, mps, time");
