@@ -26,7 +26,10 @@ mps that changes with redshift, measured from the tracers in `nBins`
 {py:func}`otswap.reconstruct_lightcone`. The survey's area comes from a
 {cpp:class}`otswap::Mask` or is given. Randoms are required: they carry the
 survey's geometry, selection function and completeness, which otswap does not
-model. A redshift cut may restrict the reconstruction to a slice.
+model. A redshift cut may restrict the reconstruction to a slice. The same
+profile, bit for bit, is available without the randoms and without
+reconstructing, to choose `nBins` beforehand:
+{cpp:func}`otswap::measureMpsProfile`, {py:func}`otswap.measure_mps_profile`.
 
 ## Coordinates and units
 

@@ -20,7 +20,7 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 | `Config::nRealizations`, `convergence`, `seed`, `cellSize` | keywords `n_realizations`, `convergence`, `seed`, `cell_size` | of `reconstruct_box` and `reconstruct_lightcone` |
 | `Config::rejectCrossings`, `maxUnobservedPixelsCrossed` | keywords `reject_crossings`, `max_unobserved_pixels_crossed` | of `reconstruct_lightcone` |
 | `Config::verbosity`, `CorrectionConfig::verbosity` | keyword `verbosity` | `Verbosity::Detailed` is `"detailed"` |
-| `Config::log`, `CorrectionConfig::log` | — | Python prints to `sys.stdout` |
+| `Config::log`, `CorrectionConfig::log`, the `log` of `measureMpsProfile` | — | Python prints to `sys.stdout` |
 | `CorrectionConfig::weightByRealizations` | keyword `weight_by_realizations` | |
 | `RedshiftCut` | keyword `redshift_cut`, a `(min, max)` tuple | |
 | `Geometry` | `"box"`, `"lightcone"` | the `geometry` property |
@@ -52,6 +52,7 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 |---|---|---|
 | `reconstructBox`, two overloads | `reconstruct_box` | `mps` omitted to compute it; randoms omitted to draw them |
 | `reconstructLightcone`, four overloads | `reconstruct_lightcone` | `sky_area_deg2=` or `mask=`; `tracers=` and `randoms=` for the Cartesian overloads |
+| `measureMpsProfile`, two overloads | `measure_mps_profile` | `sky_area_deg2=` or `mask=`; `verbosity` an argument, as no `Config` is taken |
 | `rejectMaskCrossings` | `reject_mask_crossings` | |
 | `recomputeMeans` | `recompute_means` | |
 

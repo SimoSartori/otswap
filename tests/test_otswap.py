@@ -168,7 +168,7 @@ def test_exports():
     assert sorted(otswap.__all__) == sorted([
         "AngleUnit", "BiasTable", "CorrectionStatus", "DistanceTable", "Error", "ExtrapolationWarning", "Mask",
         "MpsProfile", "NeighbourAverage", "RealSpaceCatalog", "Result", "SelectionCounts",
-        "axis_projection", "neighbour_average", "radial_projection",
+        "axis_projection", "measure_mps_profile", "neighbour_average", "radial_projection",
         "real_space_box", "real_space_lightcone", "recompute_means", "reconstruct_box",
         "reconstruct_lightcone", "reject_mask_crossings", "rsd_factor", "rsd_factor_box",
         "shift_along_axis", "shift_radially",
@@ -1117,6 +1117,102 @@ def test_lightcone_mask_argument_errors(table, lightcone, kwargs, text):
     with pytest.raises(otswap.Error, match=text):
         otswap.reconstruct_lightcone(*lightcone, n_bins=1, distances=table, angle_unit="deg",
                                      **kwargs)
+
+
+# --------------------------------------------------------------------------
+# measure_mps_profile: the profile of reconstruct_lightcone, without the randoms
+
+
+def same_profile(a, b):
+    return (same_bytes(a.redshift, b.redshift) and same_bytes(a.mps, b.mps)
+            and same_bytes(a.count, b.count)
+            and same_bytes(np.float64(a.redshift_min), np.float64(b.redshift_min))
+            and same_bytes(np.float64(a.redshift_max), np.float64(b.redshift_max))
+            and same_bytes(np.float64(a.representative), np.float64(b.representative)))
+
+
+@pytest.mark.parametrize("unit", ["deg", "rad"])
+@pytest.mark.parametrize("selection, n_bins", [
+    (dict(sky_area_deg2="area"), 3),
+    (dict(sky_area_deg2="area", redshift_cut=MASK_CUT), 1),
+    (dict(mask="mask"), 3),
+    (dict(mask="mask", redshift_cut=MASK_CUT), 1),
+])
+def test_measure_mps_profile_is_the_reconstruction_profile(table, lightcone, selection, n_bins, unit):
+    selection = {k: {"area": patch_area_deg2(), "mask": nine_mask()}.get(v, v) if isinstance(v, str)
+                 else v for k, v in selection.items()}
+    tracers_sky, randoms_sky = lightcone
+    if unit == "rad":
+        tracers_sky, randoms_sky = (np.column_stack([np.deg2rad(s[:, 0]), np.deg2rad(s[:, 1]), s[:, 2]])
+                                    for s in lightcone)
+    options = dict(n_bins=n_bins, distances=table, angle_unit=unit, verbosity="silent", **selection)
+    profile = otswap.measure_mps_profile(tracers_sky, **options)
+    assert isinstance(profile, otswap.MpsProfile)
+    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, n_realizations=2, seed=5, **options)
+    assert same_profile(profile, result.mps_profile)
+
+
+@pytest.mark.parametrize("selection, n_bins, text", [
+    (dict(sky_area_deg2="area"), 10, "redshift bin 0 of 10"),
+    (dict(mask="mask", redshift_cut=MASK_CUT), 10, "holds"),
+    (dict(sky_area_deg2="area", redshift_cut=(0.35, 0.351)), 1, "keeps"),
+    (dict(sky_area_deg2="area", redshift_cut=(0.6, 0.3)), 1, "lower bound exceeds"),
+])
+def test_measure_mps_profile_fails_as_the_reconstruction(table, lightcone, selection, n_bins, text):
+    selection = {k: {"area": patch_area_deg2(), "mask": nine_mask()}.get(v, v) if isinstance(v, str)
+                 else v for k, v in selection.items()}
+    options = dict(n_bins=n_bins, distances=table, angle_unit="deg", verbosity="silent", **selection)
+    with pytest.raises(otswap.Error, match=text) as measured:
+        otswap.measure_mps_profile(lightcone[0], **options)
+    with pytest.raises(otswap.Error) as reconstructed:
+        otswap.reconstruct_lightcone(*lightcone, n_realizations=2, seed=5, **options)
+    assert type(measured.value) is type(reconstructed.value) is otswap.Error
+    assert str(measured.value) == str(reconstructed.value)
+
+
+def test_measure_mps_profile_report(table, lightcone, capfd):
+    mask = nine_mask()
+    options = dict(n_bins=1, distances=table, angle_unit="deg")
+    result = otswap.reconstruct_lightcone(*lightcone, mask=mask, redshift_cut=MASK_CUT, n_realizations=2,
+                                          seed=5, verbosity="silent", **options)
+    profile = otswap.measure_mps_profile(lightcone[0], mask=mask, redshift_cut=MASK_CUT, **options)
+    call = (f"otswap: measureMpsProfile: 1 bin over [{profile.redshift_min:g}, "
+            f"{profile.redshift_max:g}]")
+    tracer_line = repr(result.selection).split("\n")[0]
+    assert capfd.readouterr() == (tracer_line + "\n" + call + "\n", "")
+
+    otswap.measure_mps_profile(lightcone[0], mask=mask, redshift_cut=MASK_CUT, verbosity="detailed",
+                               **options)
+    p = profile
+    assert capfd.readouterr() == (
+        tracer_line + "\n" + f"otswap: mps(z) from {p.mps[0]:g} to {p.mps[0]:g} Mpc/h in 1 bin over "
+        f"[{p.redshift_min:g}, {p.redshift_max:g}]\n" + call + "\n", "")
+
+    otswap.measure_mps_profile(lightcone[0], mask=mask, verbosity="silent", **options)
+    assert capfd.readouterr() == ("", "")
+    area = otswap.measure_mps_profile(lightcone[0], sky_area_deg2=patch_area_deg2(), n_bins=3,
+                                      distances=table, angle_unit="deg")
+    assert capfd.readouterr() == (f"otswap: measureMpsProfile: 3 bins over [{area.redshift_min:g}, "
+                                  f"{area.redshift_max:g}]\n", "")
+    otswap.measure_mps_profile(lightcone[0], sky_area_deg2=patch_area_deg2(), redshift_cut=MASK_CUT,
+                               **options)
+    out, err = capfd.readouterr()
+    assert len(out.splitlines()) == 2 and out.startswith("otswap: kept ")
+    assert "outside the redshift cut [0.35, 0.55]" in out and "mask" not in out and "randoms" not in out
+
+
+@pytest.mark.parametrize("kwargs, text", [
+    (dict(sky_area_deg2=900.0, mask="mask"), "not both"),
+    (dict(), "one is required"),
+    (dict(mask="mask.fits"), "mask must be an otswap.Mask"),
+    (dict(sky_area_deg2=900.0, verbosity="loud"), "verbosity must be"),
+])
+def test_measure_mps_profile_argument_errors(table, lightcone, kwargs, text):
+    kwargs = {k: (nine_mask() if v == "mask" else v) for k, v in kwargs.items()}
+    with pytest.raises(otswap.Error, match=text):
+        otswap.measure_mps_profile(lightcone[0], n_bins=1, distances=table, angle_unit="deg", **kwargs)
+    with pytest.raises(TypeError):
+        otswap.measure_mps_profile(lightcone[0], sky_area_deg2=900.0, n_bins=1, distances=table)
 
 
 def test_declinations_are_checked_in_the_unit_given(table, lightcone):

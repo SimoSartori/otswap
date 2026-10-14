@@ -22,7 +22,7 @@
  *  @file src/Lightcone.cpp
  *
  *  @brief Lightcone geometry: the mean particle separation profile and
- *  the two entry points that use it.
+ *  the entry points that use it.
  *
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */
@@ -127,30 +127,87 @@ namespace {
     return out;
   }
 
+  /// The selections named in a message: the cut, the mask, or both.
+  std::string selection_name (const otswap::SelectionCounts& counts,
+                              const otswap::RedshiftCut& redshiftCut)
+  {
+    const std::string cut = "the redshift cut [" + std::to_string(redshiftCut.min) + ", " +
+                            std::to_string(redshiftCut.max) + "]";
+    return !counts.maskApplied ? cut : counts.redshiftCut ? cut + " and the mask" : "the mask";
+  }
+
+  /// The tracers left by the selections: at least min_objects().
+  void check_kept_tracers (const otswap::SelectionCounts& counts,
+                           const otswap::RedshiftCut& redshiftCut, const std::size_t keptTracers)
+  {
+    const std::size_t nTracers = counts.tracers;
+    if (keptTracers < otswap::internal::min_objects())
+      throw otswap::Error(selection_name(counts, redshiftCut) + " keeps " +
+                          std::to_string(keptTracers) + " of " +
+                          std::to_string(nTracers) + " tracers (" +
+                          std::to_string(nTracers - keptTracers) + " dropped); at least " +
+                          std::to_string(otswap::internal::min_objects()) + " are required");
+  }
+
   /// The supply left by the selections, checked with the counts they
-  /// dropped, before anything else is computed.
+  /// dropped, before anything else is computed: the tracers first, then the
+  /// randoms.
   void check_kept (const otswap::SelectionCounts& counts, const otswap::RedshiftCut& redshiftCut,
                    const std::size_t keptTracers, const std::size_t keptRandoms,
                    const unsigned nRealizations)
   {
-    const std::size_t nTracers = counts.tracers, nRandoms = counts.randoms;
-    const std::string cut = "the redshift cut [" + std::to_string(redshiftCut.min) + ", " +
-                            std::to_string(redshiftCut.max) + "]";
-    const std::string range = !counts.maskApplied ? cut
-                            : counts.redshiftCut ? cut + " and the mask" : "the mask";
-    if (keptTracers < otswap::internal::min_objects())
-      throw otswap::Error(range + " keeps " + std::to_string(keptTracers) + " of " +
-                          std::to_string(nTracers) + " tracers (" +
-                          std::to_string(nTracers - keptTracers) + " dropped); at least " +
-                          std::to_string(otswap::internal::min_objects()) + " are required");
+    check_kept_tracers(counts, redshiftCut, keptTracers);
+    const std::size_t nRandoms = counts.randoms;
     const std::size_t needed = (std::size_t)nRealizations * keptTracers;
     if (keptRandoms < needed)
-      throw otswap::Error(range + " keeps " + std::to_string(keptRandoms) + " of " +
+      throw otswap::Error(selection_name(counts, redshiftCut) + " keeps " +
+                          std::to_string(keptRandoms) + " of " +
                           std::to_string(nRandoms) + " randoms (" +
                           std::to_string(nRandoms - keptRandoms) + " dropped), for " +
                           std::to_string(keptTracers) + " tracers kept; " +
                           std::to_string(nRealizations) + " realizations need " +
                           std::to_string(needed));
+  }
+
+  /// The tracer side of the selection counts: the cut, when a bound is
+  /// finite, whether a mask applied, and what the selection of the tracers
+  /// left out.
+  otswap::SelectionCounts tracer_counts (const otswap::RedshiftCut& cut, const otswap::Mask* mask,
+                                         const std::size_t nObjects, const Selection& selection)
+  {
+    otswap::SelectionCounts counts;
+    if (std::isfinite(cut.min) || std::isfinite(cut.max)) counts.redshiftCut = cut;
+    counts.maskApplied = mask != nullptr;
+    counts.tracers = nObjects;
+    counts.tracersOutsideRedshiftCut = selection.nOutsideCut;
+    counts.tracersOutsideMask = selection.nOutsideMask;
+    counts.tracersOutsideBoth = selection.nOutsideBoth;
+    return counts;
+  }
+
+  /// One line of the selection report, for the tracers or the randoms.
+  void selection_line (std::ostream& out, const otswap::SelectionCounts& counts, const char* what,
+                       const std::size_t given, const std::size_t outsideCut,
+                       const std::size_t outsideMask, const std::size_t outsideBoth)
+  {
+    out << "otswap: kept " << given - (outsideCut + outsideMask - outsideBoth) << " of " << given
+        << " " << what << ": ";
+    if (counts.redshiftCut)
+      out << outsideCut << " outside the redshift cut [" << counts.redshiftCut->min << ", "
+          << counts.redshiftCut->max << "]";
+    if (counts.redshiftCut && counts.maskApplied) out << ", ";
+    if (counts.maskApplied) out << outsideMask << " outside the mask";
+    if (counts.redshiftCut && counts.maskApplied) out << " (" << outsideBoth << " outside both)";
+    out << '\n';
+  }
+
+  /// The line of a Detailed report that describes an mps(z) profile.
+  void profile_line (std::ostream& out, const otswap::MpsProfile& p)
+  {
+    const auto range = std::minmax_element(p.mps.begin(), p.mps.end());
+    out << "otswap: mps(z) from " << *range.first << " to " << *range.second << " Mpc/h in "
+        << p.mps.size() << (p.mps.size() == 1 ? " bin" : " bins") << " over ["
+        << p.redshiftMin << ", " << p.redshiftMax << "]\n";
   }
 
   /// The result of the kept tracers, expanded to one row per input tracer:
@@ -508,13 +565,7 @@ namespace {
     const Selection tracerSelection = select(tracersSky, cut, mask);
     const Selection randomSelection = select(randomsSky, cut, mask);
 
-    SelectionCounts counts;
-    if (std::isfinite(cut.min) || std::isfinite(cut.max)) counts.redshiftCut = cut;
-    counts.maskApplied = mask != nullptr;
-    counts.tracers = nObjects;
-    counts.tracersOutsideRedshiftCut = tracerSelection.nOutsideCut;
-    counts.tracersOutsideMask = tracerSelection.nOutsideMask;
-    counts.tracersOutsideBoth = tracerSelection.nOutsideBoth;
+    SelectionCounts counts = tracer_counts(cut, mask, nObjects, tracerSelection);
     counts.randoms = nRandoms;
     counts.randomsOutsideRedshiftCut = randomSelection.nOutsideCut;
     counts.randomsOutsideMask = randomSelection.nOutsideMask;
@@ -593,15 +644,55 @@ namespace {
       std::ostringstream out;
       out.imbue(std::locale::classic());
       out << result.selection.message();
-      if (config.verbosity == Verbosity::Detailed) {
-        const MpsProfile& p = result.mpsProfile;
-        const auto range = std::minmax_element(p.mps.begin(), p.mps.end());
-        out << "otswap: mps(z) from " << *range.first << " to " << *range.second << " Mpc/h in "
-            << p.mps.size() << (p.mps.size() == 1 ? " bin" : " bins") << " over ["
-            << p.redshiftMin << ", " << p.redshiftMax << "]\n";
-      }
+      if (config.verbosity == Verbosity::Detailed) profile_line(out, result.mpsProfile);
       out << internal::reconstruction_line("reconstructLightcone", result);
       *config.log << out.str() << std::flush;
+    }
+
+    return result;
+  }
+
+  /// The profile of measureMpsProfile: the steps of lightcone that concern
+  /// the tracers, in its order, with the mask null for the overload with
+  /// the sky area. The kept-tracer minimum applies whenever a selection
+  /// does, since the randoms that decide it in lightcone are not given.
+  otswap::MpsProfile tracer_profile (const std::vector<double>& tracersSky,
+                                     const double skyAreaDeg2,
+                                     const otswap::Mask* mask,
+                                     const unsigned nBins,
+                                     const otswap::DistanceTable& distances,
+                                     const otswap::RedshiftCut& cut,
+                                     const otswap::Verbosity verbosity,
+                                     std::ostream* log)
+  {
+    using namespace otswap;
+
+    const std::size_t nObjects = internal::check_sky(tracersSky, "the tracer sky array");
+
+    check_cut(cut);
+    const Selection selection = select(tracersSky, cut, mask);
+    const SelectionCounts counts = tracer_counts(cut, mask, nObjects, selection);
+
+    const std::vector<std::size_t>& keep = selection.keep;
+    const bool selected = counts.redshiftCut || counts.maskApplied;
+    if (selected) check_kept_tracers(counts, cut, keep.size());
+
+    const bool dropTracers = keep.size() != nObjects;
+    const std::vector<double> keptSky = dropTracers ? rows(tracersSky, keep) : std::vector<double>();
+    MpsProfile result = internal::mps_profile(dropTracers ? keptSky : tracersSky, skyAreaDeg2, nBins,
+                                              distances);
+
+    if (log != nullptr && verbosity != Verbosity::Silent) {
+      std::ostringstream out;
+      out.imbue(std::locale::classic());
+      if (selected)
+        selection_line(out, counts, "tracers", counts.tracers, counts.tracersOutsideRedshiftCut,
+                       counts.tracersOutsideMask, counts.tracersOutsideBoth);
+      if (verbosity == Verbosity::Detailed) profile_line(out, result);
+      out << "otswap: measureMpsProfile: " << result.mps.size()
+          << (result.mps.size() == 1 ? " bin" : " bins") << " over [" << result.redshiftMin << ", "
+          << result.redshiftMax << "]\n";
+      *log << out.str() << std::flush;
     }
 
     return result;
@@ -618,22 +709,11 @@ std::string otswap::SelectionCounts::message () const
   std::ostringstream out;
   out.imbue(std::locale::classic());
 
-  auto line = [&] (const char* what, const std::size_t given, const std::size_t outsideCut,
-                   const std::size_t outsideMask, const std::size_t outsideBoth) {
-    out << "otswap: kept " << given - (outsideCut + outsideMask - outsideBoth) << " of " << given
-        << " " << what << ": ";
-    if (redshiftCut)
-      out << outsideCut << " outside the redshift cut [" << redshiftCut->min << ", "
-          << redshiftCut->max << "]";
-    if (redshiftCut && maskApplied) out << ", ";
-    if (maskApplied) out << outsideMask << " outside the mask";
-    if (redshiftCut && maskApplied) out << " (" << outsideBoth << " outside both)";
-    out << '\n';
-  };
-
   if (redshiftCut || maskApplied) {
-    line("tracers", tracers, tracersOutsideRedshiftCut, tracersOutsideMask, tracersOutsideBoth);
-    line("randoms", randoms, randomsOutsideRedshiftCut, randomsOutsideMask, randomsOutsideBoth);
+    selection_line(out, *this, "tracers", tracers, tracersOutsideRedshiftCut, tracersOutsideMask,
+                   tracersOutsideBoth);
+    selection_line(out, *this, "randoms", randoms, randomsOutsideRedshiftCut, randomsOutsideMask,
+                   randomsOutsideBoth);
   }
 
   if (maxUnobservedPixelsCrossed)
@@ -710,4 +790,34 @@ otswap::Result otswap::reconstructLightcone (const std::vector<double>& tracers,
 {
   return lightcone(&tracers, &randoms, tracersSky, randomsSky, mask.skyAreaDeg2(), &mask, nBins,
                    distances, config, cut);
+}
+
+
+// ============================================================================
+
+
+otswap::MpsProfile otswap::measureMpsProfile (const std::vector<double>& tracersSky,
+                                              const double skyAreaDeg2,
+                                              const unsigned nBins,
+                                              const DistanceTable& distances,
+                                              const RedshiftCut& cut,
+                                              const Verbosity verbosity,
+                                              std::ostream* log)
+{
+  return tracer_profile(tracersSky, skyAreaDeg2, nullptr, nBins, distances, cut, verbosity, log);
+}
+
+
+// ============================================================================
+
+
+otswap::MpsProfile otswap::measureMpsProfile (const std::vector<double>& tracersSky,
+                                              const Mask& mask,
+                                              const unsigned nBins,
+                                              const DistanceTable& distances,
+                                              const RedshiftCut& cut,
+                                              const Verbosity verbosity,
+                                              std::ostream* log)
+{
+  return tracer_profile(tracersSky, mask.skyAreaDeg2(), &mask, nBins, distances, cut, verbosity, log);
 }

@@ -141,6 +141,7 @@ namespace otswap {
     /// happened; then one line per call with its time and what was lost:
     ///
     ///     otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
+    ///     otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
     ///     otswap: realSpaceLightcone: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
     Normal,
 
@@ -262,7 +263,8 @@ namespace otswap {
 
   /**
    *  @brief The mean particle separation of a lightcone as a function of
-   *  redshift, measured by reconstructLightcone.
+   *  redshift, measured by reconstructLightcone, or alone by
+   *  measureMpsProfile.
    *
    *  The tracers kept are binned in nBins uniform redshift bins over
    *  [redshiftMin, redshiftMax], and mps = (N / V)^(-1/3) in each, V the
@@ -930,6 +932,82 @@ namespace otswap {
                                const DistanceTable& distances,
                                const Config& config,
                                const RedshiftCut& cut = {});
+
+  /**
+   *  @brief The mps(z) profile reconstructLightcone measures, without
+   *  reconstructing: from sky coordinates, with the sky area given.
+   *
+   *  The steps of reconstructLightcone that concern the tracers, in the
+   *  same order and with the same code: the checks of the sky array and of
+   *  the cut, the redshift cut, the minimum number of tracers kept, and
+   *  the profile with its per-bin threshold. The profile equals, bit for
+   *  bit, Result::mpsProfile of a reconstructLightcone call with the same
+   *  tracers, skyAreaDeg2, nBins, distances and cut, whatever its randoms
+   *  and config. Use it to choose nBins, or to inspect the profile, before
+   *  a reconstruction.
+   *
+   *  @param tracersSky as in reconstructLightcone.
+   *  @param skyAreaDeg2 as in reconstructLightcone.
+   *  @param nBins as in reconstructLightcone.
+   *  @param distances as in reconstructLightcone; it must cover the
+   *  redshifts of the tracers kept.
+   *  @param cut as in reconstructLightcone, applied to the tracers.
+   *
+   *  @param verbosity what the call reports. At Normal, when the cut has a
+   *  finite bound, the tracer line of the selection report
+   *  (SelectionCounts::message), then
+   *
+   *      otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
+   *
+   *  At Detailed, the mps(z) line of reconstructLightcone before the last.
+   *
+   *  @param log where the report is written; null writes nothing.
+   *
+   *  @exception Error as reconstructLightcone, with the same messages, if
+   *  the tracer array is malformed, if a declination lies outside
+   *  [-pi/2, pi/2], if a bound of the cut is NaN or min > max, if a cut
+   *  with a finite bound keeps too few tracers, if a bin holds too few
+   *  tracers, or if a redshift kept falls outside the distance table.
+   */
+  MpsProfile measureMpsProfile (const std::vector<double>& tracersSky,
+                                double skyAreaDeg2,
+                                unsigned nBins,
+                                const DistanceTable& distances,
+                                const RedshiftCut& cut = {},
+                                Verbosity verbosity = Verbosity::Normal,
+                                std::ostream* log = &std::clog);
+
+  /**
+   *  @brief The mps(z) profile reconstructLightcone measures, without
+   *  reconstructing: from sky coordinates, within the observed pixels of a
+   *  mask.
+   *
+   *  As the overload with the sky area, with the area taken from the mask,
+   *  mask.skyAreaDeg2(), and the tracers on unobserved pixels left out as
+   *  reconstructLightcone leaves them out. The profile equals, bit for bit,
+   *  Result::mpsProfile of the mask overloads of reconstructLightcone with
+   *  the same tracers, mask, nBins, distances and cut.
+   *
+   *  @param tracersSky as in reconstructLightcone.
+   *  @param mask the survey's veto mask; borrowed for the call only.
+   *  @param nBins as in reconstructLightcone.
+   *  @param distances as in the overload with the sky area.
+   *  @param cut as in reconstructLightcone, evaluated with the mask on
+   *  every tracer.
+   *  @param verbosity as in the overload with the sky area; the tracer line
+   *  of the selection report is always written, since the mask applies.
+   *  @param log as in the overload with the sky area.
+   *
+   *  @exception Error as the overload with the sky area, the counts in the
+   *  message naming the mask as well as the cut.
+   */
+  MpsProfile measureMpsProfile (const std::vector<double>& tracersSky,
+                                const Mask& mask,
+                                unsigned nBins,
+                                const DistanceTable& distances,
+                                const RedshiftCut& cut = {},
+                                Verbosity verbosity = Verbosity::Normal,
+                                std::ostream* log = &std::clog);
 
   // ==========================================================================
   // Filtering

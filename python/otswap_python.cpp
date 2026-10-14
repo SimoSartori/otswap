@@ -927,6 +927,40 @@ NB_MODULE(_otswap, m)
       "max_unobserved_pixels_crossed"_a.none() = 0, "verbosity"_a.none() = "normal",
       "Reconstruct in lightcone geometry.");
 
+  m.def("measure_mps_profile",
+      [] (nb::handle tracersSky, nb::handle skyAreaDeg2, nb::handle mask, nb::handle nBins,
+          nb::handle distances, nb::handle redshiftCut, nb::handle angleUnit, nb::handle verbosity) {
+        const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
+        const bool degrees = in_degrees(angleUnit);
+        std::vector<double> ts = rows3(tracersSky, "tracers_sky");
+        if (degrees) sky_to_radians(ts, "tracers_sky");
+        if (!skyAreaDeg2.is_none() && !mask.is_none())
+          throw otswap::Error("give sky_area_deg2 or mask, not both; with a mask the sky area is "
+                              "the mask's");
+        if (skyAreaDeg2.is_none() && mask.is_none())
+          throw otswap::Error("give sky_area_deg2 or mask; one is required");
+        const otswap::Mask* footprint = mask.is_none() ? nullptr
+                                       : &instance<otswap::Mask>(mask, "mask", "Mask");
+        const double area = footprint ? 0. : to_double(skyAreaDeg2, "sky_area_deg2");
+        const unsigned bins = to_unsigned(nBins, "n_bins");
+        const otswap::Verbosity level = to_verbosity(verbosity);
+        std::ostringstream report;
+        const otswap::RedshiftCut cut = to_cut(redshiftCut);
+
+        otswap::MpsProfile profile;
+        {
+          nb::gil_scoped_release released;
+          profile = footprint ? otswap::measureMpsProfile(ts, *footprint, bins, table, cut, level, &report)
+                              : otswap::measureMpsProfile(ts, area, bins, table, cut, level, &report);
+        }
+        print_report(report.str());
+        return profile;
+      },
+      "tracers_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(), "mask"_a = nb::none(),
+      "n_bins"_a.none(), "distances"_a.none(), "redshift_cut"_a = nb::none(), "angle_unit"_a.none(),
+      "verbosity"_a.none() = "normal",
+      "Measure the mps(z) profile of a lightcone without reconstructing.");
+
   m.def("reject_mask_crossings",
       [] (nb::handle result, nb::handle mask, nb::handle maxUnobservedPixelsCrossed) {
         PyResult& r = instance<PyResult>(result, "result", "Result");

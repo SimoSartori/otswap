@@ -1127,6 +1127,97 @@ int main ()
     check(throws_naming([&] { reconstructLightcone(sky, randomsSky, sparse, 1, table, config, cut); },
                         "the redshift cut [0.300000, 0.600000] and the mask keeps"), "both");
 
+    group("measureMpsProfile returns Result::mpsProfile bit for bit, with and without the cut, the mask "
+          "and the area, and fails as reconstructLightcone does on the same tracers");
+    auto same_profile = [] (const MpsProfile& a, const MpsProfile& b) {
+      return same_bits(a.redshift, b.redshift) && same_bits(a.mps, b.mps) && a.count == b.count &&
+             same_double(a.redshiftMin, b.redshiftMin) && same_double(a.redshiftMax, b.redshiftMax) &&
+             same_double(a.representative, b.representative);
+    };
+    auto message_of = [] (const std::function<void()>& f) {
+      try {
+        f();
+      }
+      catch (const Error& e) {
+        return std::string(e.what());
+      }
+      return std::string();
+    };
+    const RedshiftCut none;
+    check(same_profile(measureMpsProfile(sky, 800., 2, table, none, Verbosity::Silent),
+                       reconstructLightcone(sky, randomsSky, 800., 2, table, config).mpsProfile),
+          "the area, no cut");
+    check(same_profile(measureMpsProfile(sky, 800., 1, table, cut, Verbosity::Silent),
+                       reconstructLightcone(sky, randomsSky, 800., 1, table, config, cut).mpsProfile),
+          "the area and the cut");
+    check(same_profile(measureMpsProfile(sky, mask, 2, table, none, Verbosity::Silent),
+                       reconstructLightcone(sky, randomsSky, mask, 2, table, config).mpsProfile),
+          "the mask, no cut");
+    const MpsProfile maskCut = measureMpsProfile(sky, mask, 1, table, cut, Verbosity::Silent);
+    check(same_profile(maskCut, masked.mpsProfile) && same_profile(maskCut, cartesian.mpsProfile),
+          "the mask and the cut, against the sky and the Cartesian overloads");
+    check(same_profile(measureMpsProfile(rows(sky, keep), mask.skyAreaDeg2(), 1, table, none, Verbosity::Silent),
+                       maskCut),
+          "the mask and the cut: the profile of the catalogue selected beforehand, with the mask's area");
+
+    const std::string binError = message_of([&] { measureMpsProfile(sky, 800., 10, table, none, Verbosity::Silent); });
+    check(binError.find("redshift bin 0 of 10") != std::string::npos &&
+          binError == message_of([&] { reconstructLightcone(sky, randomsSky, 800., 10, table, config); }),
+          "a bin below the threshold, the area: the same Error and message: " + binError);
+    const std::string maskBinError = message_of([&] { measureMpsProfile(sky, mask, 10, table, cut, Verbosity::Silent); });
+    check(maskBinError.find("holds") != std::string::npos &&
+          maskBinError == message_of([&] { reconstructLightcone(sky, randomsSky, mask, 10, table, config, cut); }),
+          "a bin below the threshold, the mask and the cut: " + maskBinError);
+    const std::string sparseError = message_of([&] { measureMpsProfile(sky, sparse, 1, table, cut, Verbosity::Silent); });
+    check(sparseError.find("the redshift cut [0.300000, 0.600000] and the mask keeps") != std::string::npos &&
+          sparseError == message_of([&] { reconstructLightcone(sky, randomsSky, sparse, 1, table, config, cut); }),
+          "too few tracers kept: " + sparseError);
+    const RedshiftCut narrow {0.3, 0.301};
+    const std::string narrowError = message_of([&] { measureMpsProfile(sky, 800., 1, table, narrow, Verbosity::Silent); });
+    check(narrowError.find("tracers") != std::string::npos &&
+          narrowError == message_of([&] { reconstructLightcone(sky, randomsSky, 800., 1, table, config, narrow); }),
+          "too few tracers kept by the cut: " + narrowError);
+    const RedshiftCut nanCut {kNaN, 1.};
+    const std::string nanError = message_of([&] { measureMpsProfile(sky, 800., 1, table, nanCut, Verbosity::Silent); });
+    check(!nanError.empty() &&
+          nanError == message_of([&] { reconstructLightcone(sky, randomsSky, 800., 1, table, config, nanCut); }),
+          "a NaN bound of the cut: " + nanError);
+
+    group("measureMpsProfile's report: the tracer line of the selection report, then the line of the "
+          "call; Detailed adds mps(z); Silent and a null log write nothing");
+    const std::string tracerLine = masked.selection.message().substr(0, masked.selection.message().find('\n') + 1);
+    std::ostringstream callLine1;
+    callLine1 << "otswap: measureMpsProfile: 1 bin over [" << maskCut.redshiftMin << ", "
+              << maskCut.redshiftMax << "]\n";
+    const std::string profileText = captured_clog([&] { measureMpsProfile(sky, mask, 1, table, cut); });
+    check(profileText == tracerLine + callLine1.str(), "Normal, to std::clog by default: " + profileText);
+    std::ostringstream ownProfile;
+    check(captured_clog([&] { measureMpsProfile(sky, mask, 1, table, cut, Verbosity::Normal, &ownProfile); })
+            .empty() && ownProfile.str() == profileText, "the log given receives it, std::clog nothing");
+    std::ostringstream mpsLine1;
+    mpsLine1 << "otswap: mps(z) from " << maskCut.mps[0] << " to " << maskCut.mps[0] << " Mpc/h in 1 bin over ["
+             << maskCut.redshiftMin << ", " << maskCut.redshiftMax << "]\n";
+    ownProfile.str("");
+    measureMpsProfile(sky, mask, 1, table, cut, Verbosity::Detailed, &ownProfile);
+    check(ownProfile.str() == tracerLine + mpsLine1.str() + callLine1.str(),
+          "Detailed: the mps(z) line before the call's: " + ownProfile.str());
+    check(captured_clog([&] { measureMpsProfile(sky, mask, 1, table, cut, Verbosity::Silent); }).empty(),
+          "Silent writes nothing");
+    check(captured_clog([&] { measureMpsProfile(sky, mask, 1, table, cut, Verbosity::Normal, nullptr); }).empty(),
+          "a null log writes nothing");
+    const MpsProfile twoBins = measureMpsProfile(sky, 800., 2, table, none, Verbosity::Silent);
+    std::ostringstream callLine2;
+    callLine2 << "otswap: measureMpsProfile: 2 bins over [" << twoBins.redshiftMin << ", "
+              << twoBins.redshiftMax << "]\n";
+    const std::string areaProfileText = captured_clog([&] { measureMpsProfile(sky, 800., 2, table); });
+    check(areaProfileText == callLine2.str(), "the area without a cut: the line of the call alone: " + areaProfileText);
+    const std::string cutProfileText = captured_clog([&] { measureMpsProfile(sky, 800., 1, table, cut); });
+    check(lines(cutProfileText) == 2 &&
+          cutProfileText.find("otswap: kept " + std::to_string(inside(sky, 0.3, 0.6).size()) +
+                              " of 900 tracers: ") == 0 &&
+          cutProfileText.find("mask") == std::string::npos && cutProfileText.find("randoms") == std::string::npos,
+          "the cut alone: the tracer line, then the call: " + cutProfileText);
+
     group("rejectMaskCrossings leaves masked tracers alone, and refuses one with a valid entry");
     Result again = masked;
     rejectMaskCrossings(again, mask, 0);

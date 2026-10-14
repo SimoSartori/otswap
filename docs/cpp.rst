@@ -64,6 +64,10 @@ Reconstruction
 
 .. doxygenfunction:: otswap::reconstructLightcone(const std::vector<double>&, const std::vector<double>&, const std::vector<double>&, const std::vector<double>&, const Mask&, unsigned, const DistanceTable&, const Config&, const RedshiftCut&)
 
+.. doxygenfunction:: otswap::measureMpsProfile(const std::vector<double>&, double, unsigned, const DistanceTable&, const RedshiftCut&, Verbosity, std::ostream*)
+
+.. doxygenfunction:: otswap::measureMpsProfile(const std::vector<double>&, const Mask&, unsigned, const DistanceTable&, const RedshiftCut&, Verbosity, std::ostream*)
+
 .. doxygenfunction:: otswap::rejectMaskCrossings
 
 .. doxygenfunction:: otswap::recomputeMeans

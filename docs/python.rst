@@ -37,6 +37,8 @@ Reconstruction
 
 .. autoapifunction:: otswap.reconstruct_lightcone
 
+.. autoapifunction:: otswap.measure_mps_profile
+
 .. autoapifunction:: otswap.reject_mask_crossings
 
 .. autoapifunction:: otswap.recompute_means

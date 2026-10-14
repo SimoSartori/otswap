@@ -245,7 +245,8 @@ class Result:
 
 class MpsProfile:
     """The mean particle separation of a lightcone as a function of
-    redshift, measured by ``reconstruct_lightcone``: the tracers kept in
+    redshift, measured by ``reconstruct_lightcone``, or alone by
+    ``measure_mps_profile``: the tracers kept in
     ``n_bins`` uniform redshift bins over [``redshift_min``,
     ``redshift_max``], mps = (N / V)^(-1/3) in each, joined linearly and
     extrapolated linearly beyond the outermost bins. Read-only."""
@@ -656,6 +657,81 @@ def reconstruct_lightcone(
         ``cell_size`` mean particle separations.
     """
 
+
+def measure_mps_profile(
+    tracers_sky: ArrayLike,
+    *,
+    sky_area_deg2: Optional[float] = None,
+    mask: Optional[Mask] = None,
+    n_bins: int,
+    distances: DistanceTable,
+    redshift_cut: Optional[tuple[float, float]] = None,
+    angle_unit: AngleUnit,
+    verbosity: Verbosity = "normal",
+) -> MpsProfile:
+    """Measure the mps(z) profile of a lightcone without reconstructing.
+
+    The steps of ``reconstruct_lightcone`` that concern the tracers, in the
+    same order and with the same code: the checks of the sky coordinates
+    and of the cut, the redshift cut and the mask, the minimum number of
+    tracers kept, and the profile with its per-bin threshold. The profile
+    equals, bit for bit, ``Result.mps_profile`` of a
+    ``reconstruct_lightcone`` call with the same tracers, sky area or mask,
+    ``n_bins``, ``distances`` and ``redshift_cut``, whatever its randoms and
+    other arguments. Use it to choose ``n_bins``, or to inspect the
+    profile, before a reconstruction.
+
+    Parameters
+    ----------
+    tracers_sky : array_like, shape (N, 3)
+        Sky coordinates of the tracers.
+    sky_area_deg2 : float, optional
+        Effective survey area, when no mask is given, as in
+        ``reconstruct_lightcone``. Give exactly one of ``sky_area_deg2`` and
+        ``mask``.
+    mask : Mask, optional
+        The survey's mask. The sky area is then ``mask.sky_area_deg2``, and
+        the tracers on unobserved pixels are left out, as
+        ``reconstruct_lightcone`` leaves them out.
+    n_bins : int
+        Redshift bins used to measure mps(z).
+    distances : DistanceTable
+        The redshift to distance relation; it must cover the redshifts of
+        the tracers kept.
+    redshift_cut : tuple of two floats, optional
+        (min, max), as in ``reconstruct_lightcone``: the tracers whose
+        redshift lies outside this closed range are left out. None, the
+        default, cuts nothing.
+    angle_unit : AngleUnit
+        Unit of right ascension and declination. A declination outside
+        [-90, 90] degrees ([-pi/2, pi/2] radians) raises, the message giving
+        it in this unit.
+    verbosity : Verbosity, optional
+        What the call prints; see ``Verbosity``. With ``"normal"``, when a
+        mask or a cut with a finite bound is applied, the tracer line of the
+        selection report of ``reconstruct_lightcone``; then the line of the
+        call. In the form::
+
+            otswap: kept <n> of <N> tracers: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
+            otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
+
+        ``"detailed"`` adds the mps(z) profile before the last line.
+
+    Returns
+    -------
+    MpsProfile
+        The profile.
+
+    Raises
+    ------
+    Error
+        As ``reconstruct_lightcone``, with the same messages, if the tracer
+        array is malformed, if a declination is out of range, if a bound of
+        the cut is NaN or its minimum exceeds its maximum, if a cut or the
+        mask keeps too few tracers, if a bin holds too few tracers, or if a
+        redshift kept falls outside the distance table; also if both or
+        neither of ``sky_area_deg2`` and ``mask`` are given.
+    """
 
 def reject_mask_crossings(
     result: Result,
