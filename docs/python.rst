@@ -33,6 +33,9 @@ Mask
 Reconstruction
 ~~~~~~~~~~~~~~
 
+.. autoapiclass:: otswap.BoxLimits
+   :members:
+
 .. autoapifunction:: otswap.reconstruct_box
 
 .. autoapifunction:: otswap.reconstruct_lightcone

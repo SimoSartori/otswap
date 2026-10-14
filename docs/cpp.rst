@@ -27,6 +27,9 @@ Configuration
 .. doxygenstruct:: otswap::RedshiftCut
    :members:
 
+.. doxygenstruct:: otswap::BoxLimits
+   :members:
+
 Distances
 ~~~~~~~~~
 
@@ -52,9 +55,9 @@ Mask
 Reconstruction
 ~~~~~~~~~~~~~~
 
-.. doxygenfunction:: otswap::reconstructBox(const std::vector<double>&, const std::vector<double>&, double, const Config&)
+.. doxygenfunction:: otswap::reconstructBox(const std::vector<double>&, const std::vector<double>&, double, const Config&, const std::optional<BoxLimits>&)
 
-.. doxygenfunction:: otswap::reconstructBox(const std::vector<double>&, const std::vector<double>&, const Config&)
+.. doxygenfunction:: otswap::reconstructBox(const std::vector<double>&, const std::vector<double>&, const Config&, const std::optional<BoxLimits>&)
 
 .. doxygenfunction:: otswap::reconstructLightcone(const std::vector<double>&, const std::vector<double>&, double, unsigned, const DistanceTable&, const Config&, const RedshiftCut&)
 

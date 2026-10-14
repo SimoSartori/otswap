@@ -166,6 +166,17 @@ def compute():
     out["reconstruct_box.computed_mps.mps"] = digest([computed.mps])
     out["reconstruct_box.computed_mps.displacement"] = digest(computed.displacement)
 
+    # Box limits inside the tracers' extent: the tracers outside them left
+    # out, the given randoms outside them dropped, drawn ones filling the
+    # limits, and the mps computed from their volume.
+    limits = ((5.0, 0.0, 10.0), (95.0, 80.0, 100.0))
+    for label, given in (("generated", None), ("given", randoms)):
+        limited = otswap.reconstruct_box(tracers, given, box=limits, n_realizations=3, seed=12345,
+                                         verbosity="silent")
+        out[f"reconstruct_box.limits.{label}.displacement"] = digest(limited.displacement)
+        out[f"reconstruct_box.limits.{label}.valid"] = digest(limited.valid)
+        out[f"reconstruct_box.limits.{label}.outside_box"] = digest(limited.outside_box)
+
     def lightcone():
         return otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0,
                                             n_bins=2, distances=lc_table, angle_unit="deg",

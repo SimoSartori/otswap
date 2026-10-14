@@ -23,6 +23,7 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 | `Config::log`, `CorrectionConfig::log`, the `log` of `measureMpsProfile` | — | Python prints to `sys.stdout` |
 | `CorrectionConfig::weightByRealizations` | keyword `weight_by_realizations` | |
 | `RedshiftCut` | keyword `redshift_cut`, a `(min, max)` tuple | |
+| `BoxLimits`, `lower`, `upper` | `BoxLimits`, `lower`, `upper`; keyword `box` | `box=` also takes a pair `((x0, y0, z0), (x1, y1, z1))` |
 | `Geometry` | `"box"`, `"lightcone"` | the `geometry` property |
 | `PixelOrdering` | keyword `nest` of `Mask.from_array` | |
 
@@ -50,7 +51,7 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 
 | C++ | Python | Notes |
 |---|---|---|
-| `reconstructBox`, two overloads | `reconstruct_box` | `mps` omitted to compute it; randoms omitted to draw them |
+| `reconstructBox`, two overloads | `reconstruct_box` | `mps` omitted to compute it; randoms omitted to draw them; `limits` is `box=` |
 | `reconstructLightcone`, four overloads | `reconstruct_lightcone` | `sky_area_deg2=` or `mask=`; `tracers=` and `randoms=` for the Cartesian overloads |
 | `measureMpsProfile`, two overloads | `measure_mps_profile` | `sky_area_deg2=` or `mask=`; `verbosity` an argument, as no `Config` is taken |
 | `rejectMaskCrossings` | `reject_mask_crossings` | |
@@ -66,6 +67,9 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 | — | `Result.angle_unit` | the unit of `tracers_sky` and `lagrangian_sky` |
 | — | `Result.from_arrays` | a result from arrays read back from a file |
 | `Result::mps`, NaN in a lightcone | `Result.mps`, None in a lightcone | |
+| `Result::box`, empty in a lightcone | `Result.box`, None in a lightcone | a copy in Python |
+| `Result::outsideBox` | `Result.outside_box` | a bool view in Python, as `outside_mask` |
+| `SelectionCounts::boxLimits` | `SelectionCounts.box_limits` | None when no limits were given |
 | `MpsProfile`, `at` | `MpsProfile`, `at` | Python's `at` takes arrays |
 | `SelectionCounts`, `message()` | `SelectionCounts`, `repr()` | |
 

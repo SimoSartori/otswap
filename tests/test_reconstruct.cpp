@@ -30,9 +30,11 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <numeric>
 #include <random>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -42,6 +44,7 @@
 
 #include <meshsearch/MeshGrid.h>
 
+#include "detmath.h"
 #include "internal.h"
 #include "check.h"
 
@@ -238,7 +241,7 @@ int main ()
     std::vector<std::vector<double>> trace;
 
     internal::reconstruct(tracers, {}, mps, spacing, c,
-                          internal::check_config(c), &trace);
+                          internal::check_config(c), nullptr, &trace);
 
     check(trace.size() == 2, "each realization reports its sweeps");
 
@@ -282,7 +285,7 @@ int main ()
     const std::vector<double> mps(nObjects, spacing);
     std::vector<std::vector<double>> trace;
     const Result result =
-      internal::reconstruct(tracers, tracers, mps, spacing, c, 4, &trace);
+      internal::reconstruct(tracers, tracers, mps, spacing, c, 4, nullptr, &trace);
 
     const double seeded = trace[0].front();
     const double reached = total_cost(result, tracers, 0) / (double)nObjects;
@@ -661,6 +664,12 @@ int main ()
     check(r.tracers == tracers && r.tracersSky.empty() && r.mps == spacing && !r.distances &&
           r.lagrangianSky.empty() && r.mpsProfile.redshift.empty(),
           "the tracers as given, the mps given, nothing of a lightcone");
+    const BoxLimits bounds = internal::bounding_box(tracers);
+    check(r.box && r.box->lower == bounds.lower && r.box->upper == bounds.upper,
+          "Result::box: the tracers' bounding box, with mps given too");
+    check(r.outsideBox == std::vector<std::uint8_t>(nObjects, 0) && !r.selection.boxLimits &&
+          r.selection.tracers == 0 && r.selection.message().empty(),
+          "without limits, no tracer is flagged and nothing is selected");
     bool lagrangian = r.lagrangian.size() == 3 * nObjects;
     for (std::size_t k = 0; lagrangian && k < 3 * nObjects; ++k)
       lagrangian = r.lagrangian[k] == tracers[k] + r.meanDisplacement[k];
@@ -682,7 +691,6 @@ int main ()
     Config c;
     c.nRealizations = 2;
     c.seed = 5;
-    const double computed = internal::bounding_box_separation(tracers);
     double lo[3], hi[3];
     for (int k = 0; k < 3; ++k) {
       lo[k] = hi[k] = tracers[(std::size_t)k];
@@ -691,16 +699,210 @@ int main ()
         hi[k] = std::max(hi[k], tracers[3*i+k]);
       }
     }
+    const BoxLimits bounds = internal::bounding_box(tracers);
+    check(bounds.lower[0] == lo[0] && bounds.lower[1] == lo[1] && bounds.lower[2] == lo[2] &&
+          bounds.upper[0] == hi[0] && bounds.upper[1] == hi[1] && bounds.upper[2] == hi[2],
+          "the bounding box: the smallest and largest coordinate on each axis");
     const double volume = (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]);
+    const Result r = reconstructBox(tracers, {}, c);
+    const double computed = r.mps;
     check_close(computed, std::cbrt(volume / (double)nObjects), 1.e-12 * computed,
                 "(V / N)^(1/3) of the bounding box");
-    const Result r = reconstructBox(tracers, {}, c);
     check(r.mps == computed && r.displacement == reconstructBox(tracers, {}, computed, c).displacement,
           "the same result as with that mps given, bit for bit; Result::mps holds it");
     std::vector<double> flat = tracers;
     for (std::size_t i = 0; i < nObjects; ++i) flat[3*i+2] = 1.;
     check(message_contains([&] { reconstructBox(flat, {}, c); }, "span no volume"),
           "tracers in one plane are refused");
+  }
+
+  // The box limits: a lattice cut across x, with one tracer on the lower x
+  // face and one on the upper z face.
+  std::vector<double> boxed = tracers;
+  boxed[0] = -2.;
+  boxed[3*1+2] = 72.;
+  BoxLimits limits;
+  limits.lower = {-2., -2., -2.};
+  limits.upper = {52., 72., 72.};
+  std::vector<std::uint8_t> outside(nObjects, 0);
+  for (std::size_t i = 0; i < nObjects; ++i) outside[i] = boxed[3*i] > 52. ? 1 : 0;
+  const std::size_t nOutside = (std::size_t)std::count(outside.begin(), outside.end(), 1);
+  const std::size_t nInside = nObjects - nOutside;
+  auto in_limits = [&limits] (const double* p) {
+    return p[0] >= limits.lower[0] && p[0] <= limits.upper[0] && p[1] >= limits.lower[1] &&
+           p[1] <= limits.upper[1] && p[2] >= limits.lower[2] && p[2] <= limits.upper[2];
+  };
+
+  group("box limits: the tracers outside are flagged, with NaN rows; drawn randoms fill the limits; "
+        "the faces are inside");
+  {
+    Config c;
+    c.nRealizations = 2;
+    c.seed = 21;
+    c.verbosity = Verbosity::Silent;
+    const Result r = reconstructBox(boxed, {}, c, limits);
+    check(nOutside == 128 && outside[0] == 0 && outside[1] == 0 && r.outsideBox == outside,
+          "outsideBox flags the tracers outside, and not those on a face");
+    check(r.outsideRedshiftCut == std::vector<std::uint8_t>(nObjects, 0) &&
+          r.outsideMask == std::vector<std::uint8_t>(nObjects, 0), "the other flags are all 0");
+    bool rows = true, inside = true;
+    for (std::size_t i = 0; i < nObjects; ++i)
+      for (unsigned rec = 0; rec < 2; ++rec) {
+        const std::size_t d = (std::size_t)rec * nObjects + i;
+        const double* m = &r.matchedRandom[3*d];
+        if (outside[i])
+          rows = rows && r.valid[d] == 0 && std::isnan(r.displacement[3*d]) && std::isnan(m[2]) &&
+                 r.validRealizations[i] == 0 && std::isnan(r.meanDisplacement[3*i+1]) &&
+                 std::isnan(r.lagrangian[3*i]);
+        else
+          rows = rows && r.valid[d] == 1 && r.validRealizations[i] == 2 && std::isfinite(m[0]) &&
+                 r.lagrangian[3*i] == boxed[3*i] + r.meanDisplacement[3*i];
+        if (!outside[i]) inside = inside && in_limits(m);
+      }
+    check(rows, "a flagged tracer has NaN rows and no valid realization; the others are all valid");
+    check(inside, "the drawn randoms lie inside the limits");
+    check(r.tracers == boxed, "Result::tracers holds every tracer given");
+
+    const double volume = (limits.upper[0] - limits.lower[0]) * (limits.upper[1] - limits.lower[1]) *
+                          (limits.upper[2] - limits.lower[2]);
+    check(r.mps == internal::det_pow(volume / (double)nInside, 1./3.),
+          "mps = (V / N)^(1/3), V the volume of the limits, N the tracers inside, bit for bit");
+    check(r.box && r.box->lower == limits.lower && r.box->upper == limits.upper,
+          "Result::box holds the limits");
+    const Result given = reconstructBox(boxed, {}, r.mps, c, limits);
+    check(given.displacement.size() == r.displacement.size() &&
+          std::memcmp(given.displacement.data(), r.displacement.data(),
+                      r.displacement.size() * sizeof(double)) == 0 && given.mps == r.mps,
+          "the same result as with that mps given, bit for bit, NaN rows included");
+    const SelectionCounts& s = r.selection;
+    check(s.boxLimits && s.boxLimits->lower == limits.lower && s.tracers == nObjects &&
+          s.tracersOutsideBox == nOutside && s.randoms == 0 && s.randomsOutsideBox == 0 &&
+          !s.redshiftCut && !s.maskApplied, "the counts, randoms 0 when drawn");
+  }
+
+  group("box limits: given randoms outside them are dropped, the others used");
+  {
+    std::mt19937 rng(31);
+    std::vector<double> randoms(3 * 3000);
+    for (double& v : randoms) v = internal::uniform_real(rng, -10., 80.);
+    std::size_t randomsInside = 0;
+    std::set<std::array<double, 3>> insideSet;
+    for (std::size_t j = 0; j < 3000; ++j)
+      if (in_limits(&randoms[3*j])) {
+        ++randomsInside;
+        insideSet.insert({randoms[3*j], randoms[3*j+1], randoms[3*j+2]});
+      }
+    Config c;
+    c.nRealizations = 2;
+    c.seed = 22;
+    c.verbosity = Verbosity::Silent;
+    const Result r = reconstructBox(boxed, randoms, c, limits);
+    bool used = true;
+    for (std::size_t d = 0; d < 2 * nObjects; ++d)
+      if (!outside[d % nObjects]) {
+        const double* m = &r.matchedRandom[3*d];
+        used = used && insideSet.count({m[0], m[1], m[2]}) == 1;
+      }
+    check(used, "every matched random is a given one inside the limits");
+    check(r.selection.randoms == 3000 && r.selection.randomsOutsideBox == 3000 - randomsInside &&
+          r.outsideBox == outside, "the counts of the randoms given and dropped");
+  }
+
+  group("box limits equal to the tracers' bounding box give the result without limits, bit for bit");
+  {
+    Config c;
+    c.nRealizations = 2;
+    c.seed = 23;
+    c.verbosity = Verbosity::Silent;
+    const BoxLimits bounds = internal::bounding_box(tracers);
+    auto same = [] (const Result& a, const Result& b) {
+      return a.displacement == b.displacement && a.matchedRandom == b.matchedRandom &&
+             a.meanDisplacement == b.meanDisplacement && a.mps == b.mps;
+    };
+    check(same(reconstructBox(tracers, {}, c, bounds), reconstructBox(tracers, {}, c)),
+          "with drawn randoms, mps computed");
+    check(same(reconstructBox(tracers, {}, spacing, c, bounds), reconstructBox(tracers, {}, spacing, c)),
+          "with drawn randoms, mps given");
+    std::mt19937 rng(32);
+    std::vector<double> randoms(3 * 1500);
+    for (std::size_t j = 0; j < 1500; ++j)
+      for (std::size_t k = 0; k < 3; ++k)
+        randoms[3*j+k] = internal::uniform_real(rng, bounds.lower[k], bounds.upper[k]);
+    check(same(reconstructBox(tracers, randoms, c, bounds), reconstructBox(tracers, randoms, c)),
+          "with given randoms, all inside the box");
+  }
+
+  group("box limits: bounds not finite or not ordered, and too few tracers or randoms inside, are "
+        "refused, naming the box");
+  {
+    Config c;
+    c.verbosity = Verbosity::Silent;
+    check(message_contains([&] { reconstructBox(boxed, {}, c, BoxLimits()); },
+                           "the box limits hold a bound of nan on axis x; every bound must be finite"),
+          "the default limits, NaN");
+    BoxLimits infinite = limits;
+    infinite.upper[2] = std::numeric_limits<double>::infinity();
+    check(message_contains([&] { reconstructBox(boxed, {}, c, infinite); }, "of inf on axis z"),
+          "an infinite bound");
+    BoxLimits flat = limits;
+    flat.lower[1] = flat.upper[1];
+    check(message_contains([&] { reconstructBox(boxed, {}, c, flat); },
+                           "the box limits are [72.000000, 72.000000] on axis y; the lower bound "
+                           "must be below the upper one"), "equal bounds");
+    BoxLimits small = limits;
+    small.upper = {12., 12., 12.};
+    check(message_contains([&] { reconstructBox(boxed, {}, c, small); },
+                           "the box [-2.000000, 12.000000] x [-2.000000, 12.000000] x "
+                           "[-2.000000, 12.000000] keeps 7 of 512 tracers (505 dropped); at least "
+                           "114 are required"), "too few tracers inside");
+    std::vector<double> few(3 * 600);
+    std::mt19937 rng(33);
+    for (double& v : few) v = internal::uniform_real(rng, 0., 50.);
+    Config two = c;
+    two.nRealizations = 2;
+    check(message_contains([&] { reconstructBox(boxed, few, two, limits); },
+                           "keeps 600 of 600 randoms (0 dropped), for " + std::to_string(nInside) +
+                           " tracers kept; 2 realizations need " + std::to_string(2 * nInside)),
+          "too few randoms inside, counted for the tracers inside");
+  }
+
+  group("box limits: the report, Normal, Detailed and Silent");
+  {
+    Config c;
+    c.seed = 24;
+    std::ostringstream normal, detailed, silent;
+    c.log = &normal;
+    reconstructBox(boxed, {}, c, limits);
+    const std::string tracerLine = "otswap: kept " + std::to_string(nInside) + " of 512 tracers: " +
+                                   std::to_string(nOutside) +
+                                   " outside the box [-2, 52] x [-2, 72] x [-2, 72]\n";
+    const std::string text = normal.str();
+    check(text.find(tracerLine) == 0 && text.find("otswap: reconstructBox: 1 realization of 512 "
+                                                  "tracers in ") == tracerLine.size() &&
+          text.find("; " + std::to_string(nOutside) + " without a valid displacement\n") != std::string::npos &&
+          std::count(text.begin(), text.end(), '\n') == 2,
+          "drawn randoms: the tracer line, then the call line, which counts the tracers outside: " + text);
+
+    std::mt19937 rng(34);
+    std::vector<double> randoms(3 * 900);
+    for (double& v : randoms) v = internal::uniform_real(rng, -2., 72.);
+    std::size_t randomsOutside = 0;
+    for (std::size_t j = 0; j < 900; ++j) randomsOutside += in_limits(&randoms[3*j]) ? 0 : 1;
+    c.verbosity = Verbosity::Detailed;
+    c.log = &detailed;
+    reconstructBox(boxed, randoms, c, limits);
+    const std::string more = detailed.str();
+    check(more.find(tracerLine + "otswap: kept " + std::to_string(900 - randomsOutside) +
+                    " of 900 randoms: " + std::to_string(randomsOutside) +
+                    " outside the box [-2, 52] x [-2, 72] x [-2, 72]\notswap: mean particle "
+                    "separation ") == 0 &&
+          more.find(" Mpc/h (from the box limits)\notswap: reconstructBox: ") != std::string::npos,
+          "given randoms, Detailed: both lines, then the mps from the box limits: " + more);
+
+    c.verbosity = Verbosity::Silent;
+    c.log = &silent;
+    reconstructBox(boxed, randoms, c, limits);
+    check(silent.str().empty(), "Silent writes nothing");
   }
 
   group("recomputeMeans after an edit of valid: the means of the valid realizations, in order");

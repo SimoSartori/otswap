@@ -180,7 +180,8 @@ namespace {
 
   template <typename G>
   void check_groups (const std::vector<G>& groups, const std::vector<G>& lightconeOnly,
-                     const bool lightcone, const char* const names[])
+                     const bool lightcone, const char* const names[],
+                     const std::vector<G>& boxOnly = {})
   {
     for (std::size_t i = 0; i < groups.size(); ++i) {
       for (std::size_t j = 0; j < i; ++j)
@@ -191,6 +192,11 @@ namespace {
           if (groups[i] == only)
             throw otswap::Error(std::string("the group ") + names[(int)groups[i]] +
                                 " describes a lightcone, and this is a box");
+      if (lightcone)
+        for (const G only : boxOnly)
+          if (groups[i] == only)
+            throw otswap::Error(std::string("the group ") + names[(int)groups[i]] +
+                                " describes a box, and this is a lightcone");
     }
   }
 
@@ -205,13 +211,18 @@ void otswap::io::writeDisplacements (const std::string& file, const Result& resu
 {
   using G = DisplacementGroup;
   static const char* const names[] = {"Index", "TracerSky", "LagrangianSky", "Tracer", "Lagrangian",
-                                      "Displacement", "ValidRealizations", "Selection"};
+                                      "Displacement", "ValidRealizations", "Selection", "OutsideBox"};
   const bool lightcone = result.geometry == Geometry::Lightcone;
-  const std::vector<G> chosen = !groups.empty() ? groups
-    : lightcone ? std::vector<G>{G::TracerSky, G::LagrangianSky, G::Tracer, G::Lagrangian,
-                                 G::Displacement, G::ValidRealizations, G::Selection}
-                : std::vector<G>{G::Tracer, G::Lagrangian, G::Displacement, G::ValidRealizations};
-  check_groups(chosen, {G::TracerSky, G::LagrangianSky, G::Selection}, lightcone, names);
+  std::vector<G> chosen = groups;
+  if (chosen.empty() && lightcone)
+    chosen = {G::TracerSky, G::LagrangianSky, G::Tracer, G::Lagrangian, G::Displacement,
+              G::ValidRealizations, G::Selection};
+  else if (chosen.empty()) {
+    chosen = {G::Tracer, G::Lagrangian, G::Displacement, G::ValidRealizations};
+    if (result.selection.boxLimits) chosen.push_back(G::OutsideBox);
+  }
+  check_groups(chosen, {G::TracerSky, G::LagrangianSky, G::Selection}, lightcone, names,
+               {G::OutsideBox});
   internal::check_flags(result);
 
   const std::size_t n = result.nObjects;
@@ -264,6 +275,14 @@ void otswap::io::writeDisplacements (const std::string& file, const Result& resu
                      [r] (const std::size_t row, double* values, std::int64_t*) {
                        values[0] = r->outsideRedshiftCut.empty() ? 0. : (double)r->outsideRedshiftCut[row];
                        values[1] = r->outsideMask.empty() ? 0. : (double)r->outsideMask[row];
+                     }});
+      break;
+    }
+    case G::OutsideBox: {
+      const Result* r = &result;
+      out.push_back({{column("outsideBox", 'J', "1 if left out of the reconstruction by the box limits")},
+                     [r] (const std::size_t row, double* values, std::int64_t*) {
+                       values[0] = r->outsideBox.empty() ? 0. : (double)r->outsideBox[row];
                      }});
       break;
     }

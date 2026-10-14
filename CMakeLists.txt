@@ -180,6 +180,7 @@ add_library(otswap STATIC
   src/Pixel.cpp
   src/Reconstruct.cpp
   src/RSD.cpp
+  src/Selection.cpp
   src/Support.cpp
   src/Table.cpp
   src/Writers.cpp

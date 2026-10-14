@@ -105,19 +105,20 @@ namespace otswap {
                            const std::string& name,
                            bool allowEmpty = false);
 
-    /// Checks that each flag array of @p result, outsideRedshiftCut and
-    /// outsideMask, is empty or holds nObjects entries, and that tracers,
+    /// Checks that each flag array of @p result, outsideRedshiftCut,
+    /// outsideMask and outsideBox, is empty or holds nObjects entries, and that tracers,
     /// tracersSky, lagrangian and lagrangianSky are each empty or hold
     /// 3 * nObjects.
     void check_flags (const Result& result);
 
     /// True when tracer @p i of @p result took no part in the
-    /// reconstruction: flagged in outsideRedshiftCut or in outsideMask.
-    /// The flags must have passed check_flags.
+    /// reconstruction: flagged in outsideRedshiftCut, outsideMask or
+    /// outsideBox. The flags must have passed check_flags.
     inline bool excluded (const Result& result, const std::size_t i)
     {
       return (!result.outsideRedshiftCut.empty() && result.outsideRedshiftCut[i] != 0) ||
-             (!result.outsideMask.empty() && result.outsideMask[i] != 0);
+             (!result.outsideMask.empty() && result.outsideMask[i] != 0) ||
+             (!result.outsideBox.empty() && result.outsideBox[i] != 0);
     }
 
     /// Check the fields of Config, and resolve seed 0 to a drawn seed.
@@ -158,21 +159,26 @@ namespace otswap {
     ///
     /// @param tracers flat Cartesian, 3*nObjects
     /// @param randoms flat Cartesian, at least 3*nRealizations*nObjects,
-    ///   or empty to draw them in the tracers' bounding box
+    ///   or empty to draw them in @p box, or without it in the tracers'
+    ///   bounding box
     /// @param mps per-object mean particle separation, nObjects entries
     /// @param representativeMps the value the grids are sized from
     /// @param seed already resolved; never 0
+    /// @param box if given, a box holding every tracer and random: the
+    ///   randoms are drawn in it, and the grid extent starts from it
     /// @param sweepCosts if given, receives the mean squared cost after
     ///   each sweep, per realization; its length is the sweep count
     ///
-    /// The grids span the union of the tracers' and the given randoms'
-    /// extents, so a random may lie outside the tracers' bounding box.
+    /// The grids span the union of the tracers' (or the box's) and the
+    /// given randoms' extents, so a random may lie outside the tracers'
+    /// bounding box.
     Result reconstruct (const std::vector<double>& tracers,
                         const std::vector<double>& randoms,
                         const std::vector<double>& mps,
                         double representativeMps,
                         const Config& config,
                         unsigned seed,
+                        const BoxLimits* box = nullptr,
                         std::vector<std::vector<double>>* sweepCosts = nullptr);
 
     /// Set the fields that follow from valid: validRealizations and
@@ -198,10 +204,9 @@ namespace otswap {
                            const DistanceTable& distances,
                            std::vector<double>& sky);
 
-    /// (V / N)^(1/3) of positions (3*N, finite, N > 0), V the volume of their
-    /// bounding box: the mean separation of N objects filling it. 0 when the
-    /// positions span no volume.
-    double bounding_box_separation (const std::vector<double>& positions);
+    /// The bounding box of positions (3*N, finite, N > 0): the smallest and
+    /// largest coordinate on each axis.
+    BoxLimits bounding_box (const std::vector<double>& positions);
 
     /// Sky to Cartesian: x = distance cos(dec) cos(ra),
     /// y = distance cos(dec) sin(ra), z = distance sin(dec).
@@ -235,8 +240,8 @@ namespace otswap {
     double representative (const MpsProfile& profile);
 
     /// Cell side of the grid neighbourAverage searches, for these positions
-    /// (3*N, finite, N > 0): 4 bounding_box_separation(positions). A pure
-    /// function of the positions. It is 0 when the positions span no
+    /// (3*N, finite, N > 0): 4 (V / N)^(1/3), V the volume of their
+    /// bounding box. A pure function of the positions. It is 0 when the positions span no
     /// volume, and the grid then refuses it.
     double neighbour_cell (const std::vector<double>& positions);
 
@@ -251,6 +256,56 @@ namespace otswap {
                                            double cellSize,
                                            std::vector<unsigned>& nNeighbours,
                                            std::vector<unsigned>& nRealizations);
+
+    /// The selections of a reconstruction, evaluated on every object of an
+    /// array: whether it lies outside the closed range of a redshift cut,
+    /// on an unobserved pixel of a mask, or outside the limits of a box.
+    /// Each select fills its own flags and leaves the others nObjects
+    /// zeros. The objects kept are those flagged by none, in increasing
+    /// order.
+    struct Selection {
+      std::vector<std::uint8_t> outsideCut, outsideMask, outsideBox;
+      std::vector<std::size_t> keep;
+      std::size_t nOutsideCut = 0, nOutsideMask = 0, nOutsideBoth = 0, nOutsideBox = 0;
+    };
+
+    /// The cut and, if one is given, the mask, on a sky array.
+    Selection select (const std::vector<double>& sky, const RedshiftCut& cut, const Mask* mask);
+
+    /// The box limits, closed, on a Cartesian array.
+    Selection select (const std::vector<double>& positions, const BoxLimits& limits);
+
+    /// Check the limits: every bound finite, and lower below upper on each
+    /// axis.
+    void check_box (const BoxLimits& limits);
+
+    /// The rows of a flat 3-column array named by keep, in that order.
+    std::vector<double> rows (const std::vector<double>& a, const std::vector<std::size_t>& keep);
+
+    /// The selections named in a message: the box, or the cut, the mask, or
+    /// both.
+    std::string selection_name (const SelectionCounts& counts);
+
+    /// The tracers left by the selections: at least min_objects().
+    void check_kept_tracers (const SelectionCounts& counts, std::size_t keptTracers);
+
+    /// The supply left by the selections, checked with the counts they
+    /// dropped, before anything else is computed: the tracers first, then
+    /// the randoms.
+    void check_kept (const SelectionCounts& counts, std::size_t keptTracers,
+                     std::size_t keptRandoms, unsigned nRealizations);
+
+    /// The tracer side of the selection counts of a lightcone: the cut,
+    /// when a bound is finite, whether a mask applied, and what the
+    /// selection of the tracers left out.
+    SelectionCounts tracer_counts (const RedshiftCut& cut, const Mask* mask, std::size_t nObjects,
+                                   const Selection& selection);
+
+    /// The result of the kept tracers, expanded to one row per input
+    /// tracer: a tracer left out has NaN displacement and matchedRandom
+    /// rows, no valid realization, and its flags set. The fields that
+    /// follow from valid are left to summarize.
+    Result expand (const Result& kept, const Selection& selection, std::size_t nObjects);
 
     /// Check a b(z) table: at least two nodes, equal lengths, redshifts
     /// finite and strictly increasing, bias finite and positive. The

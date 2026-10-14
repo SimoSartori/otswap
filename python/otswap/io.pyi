@@ -173,7 +173,7 @@ def read_bias_table(file: Path, *, delimiter: str = " ", comment: str = "#") -> 
 
 DisplacementGroup: TypeAlias = Literal["index", "tracer_sky", "lagrangian_sky", "tracer",
                                        "lagrangian", "displacement", "valid_realizations",
-                                       "selection"]
+                                       "selection", "outside_box"]
 CatalogGroup: TypeAlias = Literal["index", "sky", "cartesian", "valid_realizations",
                                   "neighbours", "shift", "status"]
 
@@ -197,13 +197,15 @@ def write_displacements(
     - ``"lagrangian"``: lagrX, lagrY, lagrZ, ``Result.lagrangian``;
     - ``"displacement"``: displX, displY, displZ, ``Result.mean_displacement``;
     - ``"valid_realizations"``: nValidRec;
-    - ``"selection"``: outsideRedshiftCut, outsideMask (0 or 1); lightcone only.
+    - ``"selection"``: outsideRedshiftCut, outsideMask (0 or 1); lightcone only;
+    - ``"outside_box"``: outsideBox (0 or 1), ``Result.outside_box``; box only.
 
     Parameters
     ----------
     groups : sequence of DisplacementGroup, optional
         In output order; None for the default, CosmoBolognaLib's columns
-        first: box tracer, lagrangian, displacement, valid_realizations;
+        first: box tracer, lagrangian, displacement, valid_realizations, and
+        outside_box when a ``box`` was given to ``reconstruct_box``;
         lightcone tracer_sky, lagrangian_sky, tracer, lagrangian,
         displacement, valid_realizations, selection.
 

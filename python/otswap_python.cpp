@@ -43,9 +43,11 @@
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -515,6 +517,45 @@ namespace {
     return out;
   }
 
+  /// A corner of a box: three numbers, x, y, z.
+  std::array<double, 3> corner (nb::handle value, const std::string& name)
+  {
+    const std::vector<double> c = column(value, name);
+    if (c.size() != 3)
+      throw otswap::Error(name + " must hold three numbers, x, y, z; it holds " +
+                          std::to_string(c.size()));
+    return {c[0], c[1], c[2]};
+  }
+
+  /// The box limits from None, an otswap.BoxLimits, or a pair of corners
+  /// ((x0, y0, z0), (x1, y1, z1)). The values are checked by the library.
+  std::optional<otswap::BoxLimits> to_box (nb::handle value)
+  {
+    if (value.is_none()) return std::nullopt;
+    if (nb::isinstance<otswap::BoxLimits>(value)) return nb::cast<otswap::BoxLimits>(value);
+    const CArray a = as_float64(value, "box");
+    if (a.ndim() != 2 || a.shape(0) != 2 || a.shape(1) != 3)
+      throw otswap::Error("box must be an otswap.BoxLimits or a pair of corners ((x0, y0, z0), "
+                          "(x1, y1, z1)); it has shape " + shape_of(a));
+    otswap::BoxLimits box;
+    for (std::size_t k = 0; k < 3; ++k) {
+      box.lower[k] = a.data()[k];
+      box.upper[k] = a.data()[3 + k];
+    }
+    return box;
+  }
+
+  nb::object corner_tuple (const std::array<double, 3>& c)
+  {
+    return nb::make_tuple(c[0], c[1], c[2]);
+  }
+
+  nb::object box_or_none (const std::optional<otswap::BoxLimits>& box)
+  {
+    if (!box) return nb::none();
+    return nb::cast(*box);
+  }
+
 }
 
 NB_MODULE(_otswap, m)
@@ -530,23 +571,48 @@ NB_MODULE(_otswap, m)
   if (extrapolation_warning == nullptr) throw nb::python_error();
   m.attr("ExtrapolationWarning") = nb::handle(extrapolation_warning);
 
+  // --------------------------------------------------------------- BoxLimits
+
+  nb::class_<otswap::BoxLimits>(m, "BoxLimits",
+      "The closed limits of a box for reconstruct_box, in Mpc/h. Read-only.")
+    .def("__init__", [] (otswap::BoxLimits* self, nb::handle lower, nb::handle upper) {
+          otswap::BoxLimits box;
+          box.lower = corner(lower, "lower");
+          box.upper = corner(upper, "upper");
+          new (self) otswap::BoxLimits(box);
+        }, "lower"_a.none(), "upper"_a.none(),
+        "The box from its lower and upper corners, (x, y, z) each.")
+    .def_prop_ro("lower", [] (const otswap::BoxLimits& b) { return corner_tuple(b.lower); },
+                 "x, y, z of the lower corner.")
+    .def_prop_ro("upper", [] (const otswap::BoxLimits& b) { return corner_tuple(b.upper); },
+                 "x, y, z of the upper corner.")
+    .def("__repr__", [] (const otswap::BoxLimits& b) {
+        const std::string text = "BoxLimits(lower=" + repr_of(corner_tuple(b.lower)) + ", upper=" +
+                                 repr_of(corner_tuple(b.upper)) + ")";
+        return nb::str(text.c_str());
+      });
+
   // --------------------------------------------------------- SelectionCounts
 
   nb::class_<otswap::SelectionCounts>(m, "SelectionCounts",
-      "What a lightcone reconstruction left out, and why. Read-only.")
+      "What a reconstruction left out, and why. Read-only.")
     .def_prop_ro("redshift_cut", [] (const otswap::SelectionCounts& c) -> nb::object {
         if (!c.redshiftCut) return nb::none();
         return nb::make_tuple(c.redshiftCut->min, c.redshiftCut->max);
       }, "The (min, max) of the redshift cut, or None when no cut was applied.")
     .def_ro("mask_applied", &otswap::SelectionCounts::maskApplied)
+    .def_prop_ro("box_limits", [] (const otswap::SelectionCounts& c) { return box_or_none(c.boxLimits); },
+                 "The box limits given to reconstruct_box, or None when none were.")
     .def_ro("tracers", &otswap::SelectionCounts::tracers)
     .def_ro("tracers_outside_redshift_cut", &otswap::SelectionCounts::tracersOutsideRedshiftCut)
     .def_ro("tracers_outside_mask", &otswap::SelectionCounts::tracersOutsideMask)
     .def_ro("tracers_outside_both", &otswap::SelectionCounts::tracersOutsideBoth)
+    .def_ro("tracers_outside_box", &otswap::SelectionCounts::tracersOutsideBox)
     .def_ro("randoms", &otswap::SelectionCounts::randoms)
     .def_ro("randoms_outside_redshift_cut", &otswap::SelectionCounts::randomsOutsideRedshiftCut)
     .def_ro("randoms_outside_mask", &otswap::SelectionCounts::randomsOutsideMask)
     .def_ro("randoms_outside_both", &otswap::SelectionCounts::randomsOutsideBoth)
+    .def_ro("randoms_outside_box", &otswap::SelectionCounts::randomsOutsideBox)
     .def_prop_ro("max_unobserved_pixels_crossed", [] (const otswap::SelectionCounts& c) -> nb::object {
         if (!c.maxUnobservedPixelsCrossed) return nb::none();
         return nb::int_(*c.maxUnobservedPixelsCrossed);
@@ -590,7 +656,8 @@ NB_MODULE(_otswap, m)
     .def_static("from_arrays",
         [] (nb::handle displacement, nb::handle matchedRandom, nb::handle valid, nb::handle tracers,
             nb::handle tracersSky, nb::handle angleUnit, nb::handle distances,
-            nb::handle outsideRedshiftCut, nb::handle outsideMask, nb::handle seed) {
+            nb::handle outsideRedshiftCut, nb::handle outsideMask, nb::handle outsideBox,
+            nb::handle seed) {
           const CArray d = as_float64(displacement, "displacement");
           if (d.ndim() != 3 || d.shape(2) != 3 || d.shape(0) == 0 || d.shape(1) == 0)
             throw otswap::Error("displacement must have shape (n_realizations, n_objects, 3), neither "
@@ -607,6 +674,11 @@ NB_MODULE(_otswap, m)
             ? std::vector<std::uint8_t>(n, 0) : flags(outsideRedshiftCut, "outside_redshift_cut", {n});
           r.outsideMask = outsideMask.is_none()
             ? std::vector<std::uint8_t>(n, 0) : flags(outsideMask, "outside_mask", {n});
+          if (!outsideBox.is_none() && !tracersSky.is_none())
+            throw otswap::Error("outside_box describes a box result, and tracers_sky a lightcone "
+                                "one; give outside_box without tracers_sky");
+          r.outsideBox = outsideBox.is_none()
+            ? std::vector<std::uint8_t>(n, 0) : flags(outsideBox, "outside_box", {n});
           r.config.nRealizations = (unsigned)nRec;
           r.config.seed = to_unsigned(seed, "seed");
           bool degrees = false;
@@ -627,7 +699,7 @@ NB_MODULE(_otswap, m)
         "displacement"_a.none(), "matched_random"_a.none(), "valid"_a.none(), "tracers"_a.none(),
         nb::kw_only(), "tracers_sky"_a = nb::none(), "angle_unit"_a = nb::none(),
         "distances"_a = nb::none(), "outside_redshift_cut"_a = nb::none(),
-        "outside_mask"_a = nb::none(), "seed"_a.none() = 0,
+        "outside_mask"_a = nb::none(), "outside_box"_a = nb::none(), "seed"_a.none() = 0,
         "Build a result from its arrays, as read back from a file; the means are recomputed.")
     .def_prop_ro("n_objects", [] (ResultHandle self) { return result_of(self).nObjects; })
     .def_prop_ro("n_realizations", [] (ResultHandle self) { return result_of(self).nRealizations; })
@@ -687,6 +759,10 @@ NB_MODULE(_otswap, m)
         const PyResult& r = result_of(self);
         return view<bool>(self, reinterpret_cast<const bool*>(r.outsideMask.data()), {r.nObjects});
       }, "Whether each tracer fell on an unobserved pixel of the mask, shape (n_objects,).")
+    .def_prop_ro("outside_box", [] (ResultHandle self) {
+        const PyResult& r = result_of(self);
+        return view<bool>(self, reinterpret_cast<const bool*>(r.outsideBox.data()), {r.nObjects});
+      }, "Whether each tracer lay outside the box limits, shape (n_objects,).")
     .def_prop_ro("selection", [] (const PyResult& r) -> const otswap::SelectionCounts& {
         return r.selection;
       }, nb::rv_policy::reference_internal, "What the reconstruction left out, and why.")
@@ -700,6 +776,8 @@ NB_MODULE(_otswap, m)
         if (std::isnan(r.mps)) return nb::none();
         return nb::float_(r.mps);
       }, "Box: the mean particle separation used, Mpc/h; None for a lightcone.")
+    .def_prop_ro("box", [] (ResultHandle self) { return box_or_none(result_of(self).box); },
+                 "Box: the box of the reconstruction, a copy; None for a lightcone.")
     .def_prop_ro("mps_profile", [] (const PyResult& r) -> const otswap::MpsProfile* {
         return r.mpsProfile.redshift.empty() ? nullptr : &r.mpsProfile;
       }, nb::rv_policy::reference_internal, "Lightcone: the mps(z) profile; None for a box.")
@@ -839,18 +917,20 @@ NB_MODULE(_otswap, m)
   // ---------------------------------------------------------- Reconstruction
 
   m.def("reconstruct_box",
-      [] (nb::handle tracers, nb::handle randoms, nb::handle mps, nb::handle nRealizations,
-          nb::handle convergence, nb::handle seed, nb::handle cellSize, nb::handle verbosity) {
+      [] (nb::handle tracers, nb::handle randoms, nb::handle mps, nb::handle box,
+          nb::handle nRealizations, nb::handle convergence, nb::handle seed, nb::handle cellSize,
+          nb::handle verbosity) {
         const std::vector<double> t = rows3(tracers, "tracers");
         std::vector<double> r;
         if (!randoms.is_none()) {
           r = rows3(randoms, "randoms");
           if (r.empty())
-            throw otswap::Error("randoms is empty; omit it to have the randoms drawn "
-                                "in the bounding box of the tracers");
+            throw otswap::Error("randoms is empty; omit it to have the randoms drawn in the box "
+                                "limits, or in the bounding box of the tracers");
         }
         const bool computed = mps.is_none();
         const double separation = computed ? 0. : to_double(mps, "mps");
+        const std::optional<otswap::BoxLimits> limits = to_box(box);
         otswap::Config config = make_config(nRealizations, convergence, seed, cellSize);
         config.verbosity = to_verbosity(verbosity);
         std::ostringstream report;
@@ -858,14 +938,14 @@ NB_MODULE(_otswap, m)
         otswap::Result result;
         {
           nb::gil_scoped_release released;
-          result = computed ? otswap::reconstructBox(t, r, config)
-                            : otswap::reconstructBox(t, r, separation, config);
+          result = computed ? otswap::reconstructBox(t, r, config, limits)
+                            : otswap::reconstructBox(t, r, separation, config, limits);
         }
         print_report(report.str());
         return PyResult(std::move(result), false);
       },
       "tracers"_a.none(), "randoms"_a = nb::none(), nb::kw_only(), "mps"_a = nb::none(),
-      "n_realizations"_a.none() = 1, "convergence"_a.none() = 1.e-3, "seed"_a.none() = 0,
+      "box"_a = nb::none(), "n_realizations"_a.none() = 1, "convergence"_a.none() = 1.e-3, "seed"_a.none() = 0,
       "cell_size"_a.none() = 4., "verbosity"_a.none() = "normal",
       "Reconstruct in box geometry, with a constant mean particle separation, given or that of "
       "the tracers' bounding box.");
@@ -1355,7 +1435,8 @@ NB_MODULE(_otswap, m)
           {"lagrangian", otswap::io::DisplacementGroup::Lagrangian},
           {"displacement", otswap::io::DisplacementGroup::Displacement},
           {"valid_realizations", otswap::io::DisplacementGroup::ValidRealizations},
-          {"selection", otswap::io::DisplacementGroup::Selection}};
+          {"selection", otswap::io::DisplacementGroup::Selection},
+          {"outside_box", otswap::io::DisplacementGroup::OutsideBox}};
         const std::vector<otswap::io::DisplacementGroup> chosen = group_list(groups, names);
         nb::gil_scoped_release released;
         otswap::io::writeDisplacements(path, r, chosen);

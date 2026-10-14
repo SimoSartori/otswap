@@ -35,6 +35,7 @@
 #include <limits>
 #include <locale>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -44,6 +45,7 @@
 
 #include <meshsearch/MeshGrid.h>
 
+#include "detmath.h"
 #include "internal.h"
 
 namespace {
@@ -102,6 +104,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
                                               const double representativeMps,
                                               const Config& config,
                                               const unsigned seed,
+                                              const BoxLimits* box,
                                               std::vector<std::vector<double>>* sweepCosts)
 {
   const std::size_t nObjects = tracers.size() / 3;
@@ -126,12 +129,20 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
     tracerZ[i] = tracers[3*i+2];
   }
 
-  const auto xr = std::minmax_element(tracerX.begin(), tracerX.end());
-  const auto yr = std::minmax_element(tracerY.begin(), tracerY.end());
-  const auto zr = std::minmax_element(tracerZ.begin(), tracerZ.end());
-  const double minX = *xr.first, maxX = *xr.second;
-  const double minY = *yr.first, maxY = *yr.second;
-  const double minZ = *zr.first, maxZ = *zr.second;
+  double minX, maxX, minY, maxY, minZ, maxZ;
+  if (box == nullptr) {
+    const auto xr = std::minmax_element(tracerX.begin(), tracerX.end());
+    const auto yr = std::minmax_element(tracerY.begin(), tracerY.end());
+    const auto zr = std::minmax_element(tracerZ.begin(), tracerZ.end());
+    minX = *xr.first; maxX = *xr.second;
+    minY = *yr.first; maxY = *yr.second;
+    minZ = *zr.first; maxZ = *zr.second;
+  }
+  else {
+    minX = box->lower[0]; maxX = box->upper[0];
+    minY = box->lower[1]; maxY = box->upper[1];
+    minZ = box->lower[2]; maxZ = box->upper[2];
+  }
 
   std::vector<std::vector<double>> extent {{minX, maxX}, {minY, maxY}, {minZ, maxZ}};
   for (std::size_t i = 0; i < randoms.size(); ++i) {
@@ -373,6 +384,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
   result.valid.assign((std::size_t)nRealizations * nObjects, 1);
   result.outsideRedshiftCut.assign(nObjects, 0);
   result.outsideMask.assign(nObjects, 0);
+  result.outsideBox.assign(nObjects, 0);
   result.config = config;
   result.config.seed = seed;
   result.tracers = tracers;
@@ -480,9 +492,13 @@ void otswap::recomputeMeans (Result& result)
 
 namespace {
 
-  /// Both box overloads; a null mps is computed from the tracers.
+  /// Both box overloads; a null mps is computed from the box: the limits
+  /// when given, the tracers' bounding box otherwise. With limits, the
+  /// tracers and randoms outside them are left out before anything else
+  /// is computed.
   otswap::Result box (const std::vector<double>& tracers, const std::vector<double>& randoms,
-                      const double* givenMps, const otswap::Config& config)
+                      const double* givenMps, const otswap::Config& config,
+                      const std::optional<otswap::BoxLimits>& limits)
   {
     using namespace otswap;
 
@@ -492,30 +508,74 @@ namespace {
     const std::size_t nObjects = internal::check_coordinates(tracers, "the tracer array");
     const std::size_t nRandoms = internal::check_coordinates(randoms, "the random array", true);
 
-    const double mps = givenMps != nullptr ? *givenMps : internal::bounding_box_separation(tracers);
-    if (givenMps == nullptr && !(mps > 0.))
+    SelectionCounts counts;
+    internal::Selection tracerSelection, randomSelection;
+    if (limits) {
+      internal::check_box(*limits);
+      tracerSelection = internal::select(tracers, *limits);
+      randomSelection = internal::select(randoms, *limits);
+      counts.boxLimits = *limits;
+      counts.tracers = nObjects;
+      counts.tracersOutsideBox = tracerSelection.nOutsideBox;
+      counts.randoms = nRandoms;
+      counts.randomsOutsideBox = randomSelection.nOutsideBox;
+      if (randoms.empty()) internal::check_kept_tracers(counts, tracerSelection.keep.size());
+      else internal::check_kept(counts, tracerSelection.keep.size(), randomSelection.keep.size(),
+                                config.nRealizations);
+    }
+
+    const bool dropTracers = limits && tracerSelection.keep.size() != nObjects;
+    const bool dropRandoms = limits && randomSelection.keep.size() != nRandoms;
+    const std::vector<double> keptTracers = dropTracers ? internal::rows(tracers, tracerSelection.keep)
+                                                        : std::vector<double>();
+    const std::vector<double> keptRandoms = dropRandoms ? internal::rows(randoms, randomSelection.keep)
+                                                        : std::vector<double>();
+    const std::vector<double>& t = dropTracers ? keptTracers : tracers;
+    const std::vector<double>& r = dropRandoms ? keptRandoms : randoms;
+    const std::size_t nKept = t.size() / 3;
+
+    const BoxLimits span = limits ? *limits : internal::bounding_box(tracers);
+
+    double mps;
+    if (givenMps != nullptr) mps = *givenMps;
+    else {
+      const double volume = (span.upper[0] - span.lower[0]) * (span.upper[1] - span.lower[1]) *
+                            (span.upper[2] - span.lower[2]);
+      mps = internal::det_pow(volume / (double)nKept, 1./3.);
+    }
+    if (!limits && givenMps == nullptr && !(mps > 0.))
       throw Error("the tracers span no volume (all of them in one plane, on one line or at one "
                   "point), so their mean particle separation cannot be computed; give it");
     if (!std::isfinite(mps) || mps <= 0.)
       throw Error("the mean particle separation is " + std::to_string(mps) +
                   "; it must be positive");
 
-    if (!randoms.empty())
+    if (!limits && !randoms.empty())
       internal::check_random_supply(nRandoms, nObjects, config.nRealizations);
 
-    const std::vector<double> perObject(nObjects, mps);
+    const std::vector<double> perObject(nKept, mps);
 
-    Result result = internal::reconstruct(tracers, randoms, perObject, mps, config, seed);
+    Result result = internal::reconstruct(t, r, perObject, mps, config, seed,
+                                          limits ? &*limits : nullptr);
+    if (dropTracers) {
+      result = internal::expand(result, tracerSelection, nObjects);
+      result.tracers = tracers;
+      internal::summarize(result);
+    }
     result.mps = mps;
+    result.box = span;
+    result.selection = counts;
     result.elapsedSeconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 
     if (config.log != nullptr && config.verbosity != Verbosity::Silent) {
       std::ostringstream out;
       out.imbue(std::locale::classic());
+      out << result.selection.message();
       if (config.verbosity == Verbosity::Detailed)
         out << "otswap: mean particle separation " << mps << " Mpc/h ("
-            << (givenMps != nullptr ? "given" : "from the tracers' bounding box") << ")\n";
+            << (givenMps != nullptr ? "given" : limits ? "from the box limits"
+                                                       : "from the tracers' bounding box") << ")\n";
       out << internal::reconstruction_line("reconstructBox", result);
       *config.log << out.str() << std::flush;
     }
@@ -532,9 +592,10 @@ namespace {
 otswap::Result otswap::reconstructBox (const std::vector<double>& tracers,
                                        const std::vector<double>& randoms,
                                        const double mps,
-                                       const Config& config)
+                                       const Config& config,
+                                       const std::optional<BoxLimits>& limits)
 {
-  return box(tracers, randoms, &mps, config);
+  return box(tracers, randoms, &mps, config, limits);
 }
 
 
@@ -543,7 +604,8 @@ otswap::Result otswap::reconstructBox (const std::vector<double>& tracers,
 
 otswap::Result otswap::reconstructBox (const std::vector<double>& tracers,
                                        const std::vector<double>& randoms,
-                                       const Config& config)
+                                       const Config& config,
+                                       const std::optional<BoxLimits>& limits)
 {
-  return box(tracers, randoms, nullptr, config);
+  return box(tracers, randoms, nullptr, config, limits);
 }

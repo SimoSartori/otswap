@@ -166,7 +166,7 @@ def result_arrays(result):
 
 def test_exports():
     assert sorted(otswap.__all__) == sorted([
-        "AngleUnit", "BiasTable", "CorrectionStatus", "DistanceTable", "Error", "ExtrapolationWarning", "Mask",
+        "AngleUnit", "BiasTable", "BoxLimits", "CorrectionStatus", "DistanceTable", "Error", "ExtrapolationWarning", "Mask",
         "MpsProfile", "NeighbourAverage", "RealSpaceCatalog", "Result", "SelectionCounts",
         "axis_projection", "measure_mps_profile", "neighbour_average", "radial_projection",
         "real_space_box", "real_space_lightcone", "recompute_means", "reconstruct_box",
@@ -711,6 +711,129 @@ def test_reconstruct_box_computes_the_mps_when_not_given():
 def test_reconstruct_box_errors(args, kwargs):
     with pytest.raises(otswap.Error):
         otswap.reconstruct_box(*args, **kwargs)
+
+
+# Box limits on box_catalogue(): x <= 50 keeps the first five of the eight
+# x slabs, 320 of the 512 tracers.
+LIMITS = ((0.0, 0.0, 0.0), (50.0, 80.0, 80.0))
+
+
+def test_box_limits_class():
+    limits = otswap.BoxLimits(*LIMITS)
+    assert limits.lower == (0.0, 0.0, 0.0) and limits.upper == (50.0, 80.0, 80.0)
+    assert repr(limits) == "BoxLimits(lower=(0.0, 0.0, 0.0), upper=(50.0, 80.0, 80.0))"
+    assert otswap.BoxLimits([0, 0, 0], np.array([1.5, 2, 3])).upper == (1.5, 2.0, 3.0)
+    assert otswap.BoxLimits((np.nan, 0, 0), (1, 1, 1)).lower[0] != 0.0, "values are checked by the call"
+    for lower, upper, match in (((0, 0), (1, 1, 1), "lower must hold three numbers"),
+                                ((0, 0, 0), (1, 1, 1, 1), "upper must hold three numbers"),
+                                ("abc", (1, 1, 1), "lower"), ((0, 0, 0), None, "upper")):
+        with pytest.raises(otswap.Error, match=match):
+            otswap.BoxLimits(lower, upper)
+
+
+def test_reconstruct_box_limits():
+    tracers = box_catalogue()
+    limits = otswap.BoxLimits(*LIMITS)
+    r = otswap.reconstruct_box(tracers, box=limits, n_realizations=2, seed=3, verbosity="silent")
+    outside = tracers[:, 0] > 50.0
+    assert outside.sum() == 192
+    flags = r.outside_box
+    assert flags.dtype == np.bool_ and flags.shape == (512,) and not flags.flags.writeable
+    assert np.array_equal(flags, outside) and not r.outside_mask.any() and not r.outside_redshift_cut.any()
+    assert not r.valid[:, outside].any() and r.valid[:, ~outside].all()
+    assert np.isnan(r.displacement[:, outside]).all() and np.isnan(r.matched_random[:, outside]).all()
+    assert np.isnan(r.mean_displacement[outside]).all() and (r.valid_realizations[outside] == 0).all()
+    assert same_bytes(r.tracers, tracers)
+    drawn = r.matched_random[:, ~outside]
+    assert (drawn >= LIMITS[0]).all() and (drawn <= LIMITS[1]).all(), "drawn randoms fill the limits"
+    assert r.mps == pytest.approx((50.0 * 80.0 * 80.0 / 320) ** (1 / 3), rel=1e-13)
+    assert isinstance(r.box, otswap.BoxLimits) and r.box is not limits
+    assert r.box.lower == limits.lower and r.box.upper == limits.upper
+    s = r.selection
+    assert s.box_limits.lower == limits.lower and s.box_limits.upper == limits.upper
+    assert (s.tracers, s.tracers_outside_box, s.randoms, s.randoms_outside_box) == (512, 192, 0, 0)
+    assert s.redshift_cut is None and not s.mask_applied
+    assert repr(s) == "otswap: kept 320 of 512 tracers: 192 outside the box [0, 50] x [0, 80] x [0, 80]"
+
+    pair = otswap.reconstruct_box(tracers, box=((0, 0, 0), np.array([50.0, 80.0, 80.0])), n_realizations=2,
+                                  seed=3, verbosity="silent")
+    assert same_bytes(pair.displacement, r.displacement), "a pair of corners is the same box"
+    given_mps = otswap.reconstruct_box(tracers, box=limits, mps=r.mps, n_realizations=2, seed=3,
+                                       verbosity="silent")
+    assert same_bytes(given_mps.displacement, r.displacement)
+
+    randoms = np.random.default_rng(5).uniform(-10.0, 90.0, (3000, 3))
+    inside = np.all((randoms >= LIMITS[0]) & (randoms <= LIMITS[1]), axis=1)
+    g = otswap.reconstruct_box(tracers, randoms, box=LIMITS, n_realizations=2, seed=3, verbosity="silent")
+    pool = {tuple(p) for p in randoms[inside]}
+    assert all(tuple(p) in pool for p in g.matched_random[:, ~outside].reshape(-1, 3)), \
+        "only the given randoms inside the limits are used"
+    assert g.selection.randoms == 3000 and g.selection.randoms_outside_box == int((~inside).sum())
+
+
+def test_reconstruct_box_without_limits_records_the_bounding_box():
+    tracers = box_catalogue()
+    for kwargs in (dict(), dict(mps=10.0)):
+        r = otswap.reconstruct_box(tracers, n_realizations=2, seed=3, verbosity="silent", **kwargs)
+        assert r.box.lower == tuple(tracers.min(axis=0)) and r.box.upper == tuple(tracers.max(axis=0))
+        assert not r.outside_box.any() and r.selection.box_limits is None
+        assert r.selection.tracers == 0 and repr(r.selection) == "SelectionCounts(no selection)"
+
+
+@pytest.mark.parametrize("with_randoms", [False, True])
+def test_box_limits_on_the_bounding_box_change_nothing(with_randoms):
+    tracers = box_catalogue()
+    lo, hi = tracers.min(axis=0), tracers.max(axis=0)
+    randoms = np.random.default_rng(8).uniform(lo, hi, (1500, 3)) if with_randoms else None
+    a = otswap.reconstruct_box(tracers, randoms, box=(lo, hi), n_realizations=2, seed=3, verbosity="silent")
+    b = otswap.reconstruct_box(tracers, randoms, n_realizations=2, seed=3, verbosity="silent")
+    for name in ("displacement", "matched_random", "mean_displacement"):
+        assert same_bytes(getattr(a, name), getattr(b, name)), name
+    assert a.mps == b.mps
+
+
+@pytest.mark.parametrize("box, randoms, match", [
+    (((np.nan, 0, 0), (50, 80, 80)), None, "a bound of nan on axis x; every bound must be finite"),
+    (((0, 0, 0), (50, 80, np.inf)), None, "a bound of inf on axis z"),
+    (((0, 0, 0), (50, 0, 80)), None, "are \\[0.000000, 0.000000\\] on axis y; the lower bound must be below"),
+    (((0, 0, 0), (12, 12, 12)), None, "the box \\[0.000000, 12.000000\\] x .* keeps 1 of 512 tracers"),
+    (LIMITS, np.full((600, 3), 10.0), "keeps 600 of 600 randoms \\(0 dropped\\), for 320 tracers kept; "
+                                      "2 realizations need 640"),
+    ("box", None, "box cannot be converted"),
+    (((0, 0), (1, 1)), None, "box must be an otswap.BoxLimits or a pair"),
+    (((0, 0, 0), (1, 1, 1), (2, 2, 2)), None, "box must be an otswap.BoxLimits or a pair"),
+])
+def test_reconstruct_box_limit_errors(box, randoms, match):
+    with pytest.raises(otswap.Error, match=match):
+        otswap.reconstruct_box(box_catalogue(), randoms, box=box, n_realizations=2, verbosity="silent")
+
+
+def test_box_limits_report(capfd):
+    tracers = box_catalogue()
+    r = otswap.reconstruct_box(tracers, box=LIMITS, seed=2)
+    out, err = capfd.readouterr()
+    box = "[0, 50] x [0, 80] x [0, 80]"
+    assert out == (f"otswap: kept 320 of 512 tracers: 192 outside the box {box}\n"
+                   + call_line("reconstructBox", r).replace("1 realizations", "1 realization") + "\n")
+    assert "; 192 without a valid displacement" in out and err == ""
+    randoms = np.random.default_rng(9).uniform(0.0, 100.0, (2000, 3))
+    dropped = int((~np.all((randoms >= LIMITS[0]) & (randoms <= LIMITS[1]), axis=1)).sum())
+    otswap.reconstruct_box(tracers, randoms, box=LIMITS, seed=2, verbosity="detailed")
+    lines = capfd.readouterr()[0].splitlines()
+    assert lines[1] == f"otswap: kept {2000 - dropped} of 2000 randoms: {dropped} outside the box {box}"
+    assert lines[2].endswith(" Mpc/h (from the box limits)") and len(lines) == 4
+    otswap.reconstruct_box(tracers, randoms, box=LIMITS, seed=2, verbosity="silent")
+    assert capfd.readouterr() == ("", "")
+
+
+def test_real_space_box_leaves_out_the_tracers_outside_the_limits(table):
+    r = otswap.reconstruct_box(box_catalogue(), box=LIMITS, n_realizations=2, seed=3, verbosity="silent")
+    c = otswap.real_space_box(r, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=10.0,
+                              verbosity="silent")
+    out = r.outside_box
+    assert (c.status[out] == otswap.CorrectionStatus.LEFT_OUT).all()
+    assert (c.status[~out] != otswap.CorrectionStatus.LEFT_OUT).all()
+    assert np.isnan(c.cartesian[out]).all() and (c.n_neighbours[out] == 0).all()
 
 
 def test_result_views_are_read_only():
@@ -1335,6 +1458,10 @@ def test_reject_mask_crossings_errors(table, lightcone, sieve_mask, full_mask32)
         otswap.reject_mask_crossings(result, sieve_mask)
     with pytest.raises(otswap.Error):
         otswap.reject_mask_crossings("result", otswap.Mask(sieve_mask))
+    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, seed=1, verbosity="silent")
+    with pytest.raises(otswap.Error, match="box geometry; a box has no sky to filter against"):
+        otswap.reject_mask_crossings(box, otswap.Mask(sieve_mask))
+    assert box.valid.all() and box.filtered_nside == 0
 
 
 def test_reject_mask_crossings_with_a_mask_crossed_by_none(table, lightcone, full_mask32):
@@ -1373,7 +1500,12 @@ def test_reconstructions_release_the_gil(table, lightcone, sieve_mask):
     tracers = box_catalogue(n_side=24, spacing=10.0)
     box = lambda: otswap.reconstruct_box(tracers, mps=10.0, n_realizations=4, seed=1)
     cone = lambda: lightcone_result(table, lightcone, n_realizations=3)
-    big = otswap.reconstruct_box(tracers, mps=10.0, n_realizations=4, seed=1)
+    # The mask filter takes a lightcone result: the box field, with the sky
+    # coordinates of its tracers.
+    field = otswap.reconstruct_box(tracers, mps=10.0, n_realizations=4, seed=1)
+    big = otswap.Result.from_arrays(field.displacement, field.matched_random, field.valid, field.tracers,
+                                    tracers_sky=otswap.to_sky(field.tracers, table, angle_unit="deg"),
+                                    angle_unit="deg", distances=table)
     mask = otswap.Mask(sieve_mask)
     crossings = lambda: otswap.reject_mask_crossings(big, mask, max_unobserved_pixels_crossed=1000)
     for call in (box, cone, crossings):
@@ -1769,6 +1901,7 @@ def test_result_from_arrays(table, lightcone, sieve_mask):
                                expected[some] / partial.valid_realizations[some, None], rtol=1e-12)
     assert np.isnan(partial.mean_displacement[5]).all() and np.isnan(partial.lagrangian[5]).all()
     assert otswap.recompute_means(partial) is None
+    assert partial.box is None and not partial.outside_box.any()
     assert same_bytes(partial.mean_displacement, partial.mean_displacement.copy())
 
     d, m, v, t = box.displacement, box.matched_random, box.valid, box.tracers
@@ -1778,11 +1911,21 @@ def test_result_from_arrays(table, lightcone, sieve_mask):
                          ((d, m, v, t), dict(tracers_sky=t, angle_unit="deg")),
                          ((d, m, v, t), dict(tracers_sky=t, distances=table)),
                          ((d, m, v, t), dict(outside_mask=np.zeros(3))),
+                         ((d, m, v, t), dict(outside_box=np.zeros(3))),
+                         ((d, m, v, t), dict(tracers_sky=t, angle_unit="deg", distances=table,
+                                             outside_box=np.zeros(len(t)))),
                          ((d[:, :0], m[:, :0], v[:, :0], t[:0]), {})):
         with pytest.raises(otswap.Error):
             otswap.Result.from_arrays(*args, **kwargs)
     with pytest.raises(otswap.Error):
         otswap.recompute_means("result")
+
+    limited = otswap.reconstruct_box(box_catalogue(), box=LIMITS, n_realizations=2, seed=2, verbosity="silent")
+    back = otswap.Result.from_arrays(limited.displacement, limited.matched_random, limited.valid,
+                                     limited.tracers, outside_box=limited.outside_box.astype(np.uint8))
+    for name in ("mean_displacement", "valid_realizations", "lagrangian", "outside_box"):
+        assert same_bytes(getattr(back, name), getattr(limited, name)), name
+    assert back.box is None and back.selection.box_limits is None
 
 
 def test_catalogue_stores_shift_factor_and_valid_realizations(table, lightcone):
@@ -1842,6 +1985,15 @@ def test_write_displacements(tmp_path, table, lightcone, sieve_mask):
             otswap.io.write_displacements(path, box, groups=groups)
     with pytest.raises(otswap.Error):
         otswap.io.write_displacements(path, "result")
+
+    otswap.io.write_displacements(path, box, groups=["index", "outside_box"])
+    assert not otswap.io.read(path, ["outsideBox"]).values.any(), "written on request, all 0, without limits"
+    with pytest.raises(otswap.Error, match="OutsideBox describes a box"):
+        otswap.io.write_displacements(path, r, groups=["outside_box"])
+    limited = otswap.reconstruct_box(box_catalogue(), box=LIMITS, n_realizations=2, seed=1, verbosity="silent")
+    otswap.io.write_displacements(path, limited)
+    t = otswap.io.read(path, ["tracX"], integer_columns=["nValidRec", "outsideBox"])
+    assert np.array_equal(t.integers[:, 1], limited.outside_box), "the default of a box with limits"
 
 
 @pytest.mark.parametrize("name", ["field.dat", "field.fits"])

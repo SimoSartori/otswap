@@ -259,7 +259,8 @@ namespace otswap {
       Lagrangian,         ///< lagrX, lagrY, lagrZ (Mpc/h): Result::lagrangian
       Displacement,       ///< displX, displY, displZ (Mpc/h): Result::meanDisplacement
       ValidRealizations,  ///< nValidRec (J): Result::validRealizations
-      Selection           ///< outsideRedshiftCut, outsideMask (J, 0 or 1); lightcone only
+      Selection,          ///< outsideRedshiftCut, outsideMask (J, 0 or 1); lightcone only
+      OutsideBox          ///< outsideBox (J, 0 or 1): Result::outsideBox; box only
     };
 
     /**
@@ -269,7 +270,8 @@ namespace otswap {
      *  The default groups, with the columns of CosmoBolognaLib's displacement
      *  file first, in its order, and its random columns named lagr:
      *  - box: Tracer, Lagrangian, Displacement, ValidRealizations (10
-     *    columns);
+     *    columns), and OutsideBox (11) when limits were given to
+     *    reconstructBox;
      *  - lightcone: TracerSky, LagrangianSky, Tracer, Lagrangian,
      *    Displacement, ValidRealizations, Selection (18 columns).
      *
@@ -285,7 +287,8 @@ namespace otswap {
      *  default of the result's geometry.
      *
      *  @exception Error if a group is repeated or does not apply to the
-     *  geometry, if a field a group reads does not have the size of its
+     *  geometry (OutsideBox to a lightcone, or a lightcone group to a box),
+     *  if a field a group reads does not have the size of its
      *  layout, or as io::write.
      */
     void writeDisplacements (const std::string& file, const Result& result,

@@ -398,6 +398,10 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
   const std::size_t nDisplacements = (std::size_t)nRealizations * nObjects;
   const std::size_t expected = 3 * nDisplacements;
 
+  if (result.geometry != Geometry::Lightcone)
+    throw Error("rejectMaskCrossings filters a lightcone result, and this one has box geometry; "
+                "a box has no sky to filter against");
+
   if (nObjects == 0 || nRealizations == 0)
     throw Error("the result is empty");
 
@@ -423,8 +427,8 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
     if (internal::excluded(result, i)) {
       if (result.valid[k] != 0)
         throw Error("the result is malformed: object " + std::to_string(i) + " took no part in the "
-                    "reconstruction (outside the redshift cut or the mask) but has a valid "
-                    "displacement at entry " + std::to_string(k));
+                    "reconstruction (outside the redshift cut, the mask or the box limits) but "
+                    "has a valid displacement at entry " + std::to_string(k));
       continue;
     }
     for (std::size_t c = 0; c < 3; ++c)

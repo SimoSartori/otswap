@@ -88,103 +88,6 @@ namespace {
                           std::to_string(cut.max) + "]; its lower bound exceeds the upper one");
   }
 
-  /// Both selections, evaluated on every object of a sky array: whether its
-  /// redshift lies outside the closed range of the cut, and whether it falls
-  /// on an unobserved pixel of the mask, if one is given. The objects kept
-  /// are those flagged by neither, in increasing order.
-  struct Selection {
-    std::vector<std::uint8_t> outsideCut, outsideMask;
-    std::vector<std::size_t> keep;
-    std::size_t nOutsideCut = 0, nOutsideMask = 0, nOutsideBoth = 0;
-  };
-
-  Selection select (const std::vector<double>& sky, const otswap::RedshiftCut& cut,
-                    const otswap::Mask* mask)
-  {
-    const std::size_t n = sky.size() / 3;
-    Selection s;
-    s.outsideCut.assign(n, 0);
-    s.outsideMask.assign(n, 0);
-    for (std::size_t i = 0; i < n; ++i) {
-      const bool outsideCut = !(sky[3*i+2] >= cut.min && sky[3*i+2] <= cut.max);
-      const bool outsideMask = mask != nullptr && !mask->allows(sky[3*i], sky[3*i+1]);
-      s.outsideCut[i] = outsideCut ? 1 : 0;
-      s.outsideMask[i] = outsideMask ? 1 : 0;
-      s.nOutsideCut += outsideCut ? 1 : 0;
-      s.nOutsideMask += outsideMask ? 1 : 0;
-      s.nOutsideBoth += (outsideCut && outsideMask) ? 1 : 0;
-      if (!outsideCut && !outsideMask) s.keep.push_back(i);
-    }
-    return s;
-  }
-
-  /// The rows of a flat 3-column array named by keep, in that order.
-  std::vector<double> rows (const std::vector<double>& a, const std::vector<std::size_t>& keep)
-  {
-    std::vector<double> out(3 * keep.size());
-    for (std::size_t k = 0; k < keep.size(); ++k)
-      for (std::size_t c = 0; c < 3; ++c) out[3*k+c] = a[3*keep[k]+c];
-    return out;
-  }
-
-  /// The selections named in a message: the cut, the mask, or both.
-  std::string selection_name (const otswap::SelectionCounts& counts,
-                              const otswap::RedshiftCut& redshiftCut)
-  {
-    const std::string cut = "the redshift cut [" + std::to_string(redshiftCut.min) + ", " +
-                            std::to_string(redshiftCut.max) + "]";
-    return !counts.maskApplied ? cut : counts.redshiftCut ? cut + " and the mask" : "the mask";
-  }
-
-  /// The tracers left by the selections: at least min_objects().
-  void check_kept_tracers (const otswap::SelectionCounts& counts,
-                           const otswap::RedshiftCut& redshiftCut, const std::size_t keptTracers)
-  {
-    const std::size_t nTracers = counts.tracers;
-    if (keptTracers < otswap::internal::min_objects())
-      throw otswap::Error(selection_name(counts, redshiftCut) + " keeps " +
-                          std::to_string(keptTracers) + " of " +
-                          std::to_string(nTracers) + " tracers (" +
-                          std::to_string(nTracers - keptTracers) + " dropped); at least " +
-                          std::to_string(otswap::internal::min_objects()) + " are required");
-  }
-
-  /// The supply left by the selections, checked with the counts they
-  /// dropped, before anything else is computed: the tracers first, then the
-  /// randoms.
-  void check_kept (const otswap::SelectionCounts& counts, const otswap::RedshiftCut& redshiftCut,
-                   const std::size_t keptTracers, const std::size_t keptRandoms,
-                   const unsigned nRealizations)
-  {
-    check_kept_tracers(counts, redshiftCut, keptTracers);
-    const std::size_t nRandoms = counts.randoms;
-    const std::size_t needed = (std::size_t)nRealizations * keptTracers;
-    if (keptRandoms < needed)
-      throw otswap::Error(selection_name(counts, redshiftCut) + " keeps " +
-                          std::to_string(keptRandoms) + " of " +
-                          std::to_string(nRandoms) + " randoms (" +
-                          std::to_string(nRandoms - keptRandoms) + " dropped), for " +
-                          std::to_string(keptTracers) + " tracers kept; " +
-                          std::to_string(nRealizations) + " realizations need " +
-                          std::to_string(needed));
-  }
-
-  /// The tracer side of the selection counts: the cut, when a bound is
-  /// finite, whether a mask applied, and what the selection of the tracers
-  /// left out.
-  otswap::SelectionCounts tracer_counts (const otswap::RedshiftCut& cut, const otswap::Mask* mask,
-                                         const std::size_t nObjects, const Selection& selection)
-  {
-    otswap::SelectionCounts counts;
-    if (std::isfinite(cut.min) || std::isfinite(cut.max)) counts.redshiftCut = cut;
-    counts.maskApplied = mask != nullptr;
-    counts.tracers = nObjects;
-    counts.tracersOutsideRedshiftCut = selection.nOutsideCut;
-    counts.tracersOutsideMask = selection.nOutsideMask;
-    counts.tracersOutsideBoth = selection.nOutsideBoth;
-    return counts;
-  }
-
   /// One line of the selection report, for the tracers or the randoms.
   void selection_line (std::ostream& out, const otswap::SelectionCounts& counts, const char* what,
                        const std::size_t given, const std::size_t outsideCut,
@@ -208,43 +111,6 @@ namespace {
     out << "otswap: mps(z) from " << *range.first << " to " << *range.second << " Mpc/h in "
         << p.mps.size() << (p.mps.size() == 1 ? " bin" : " bins") << " over ["
         << p.redshiftMin << ", " << p.redshiftMax << "]\n";
-  }
-
-  /// The result of the kept tracers, expanded to one row per input tracer:
-  /// a tracer left out has NaN displacement and matchedRandom rows, no valid
-  /// realization, and its flags set. The fields that follow from valid are
-  /// left to summarize.
-  otswap::Result expand (const otswap::Result& kept, const Selection& selection,
-                         const std::size_t nObjects)
-  {
-    const std::vector<std::size_t>& keep = selection.keep;
-    const unsigned nRealizations = kept.nRealizations;
-
-    otswap::Result full;
-    full.nObjects = nObjects;
-    full.nRealizations = nRealizations;
-    full.displacement.assign(3 * (std::size_t)nRealizations * nObjects, kNaN);
-    full.matchedRandom.assign(3 * (std::size_t)nRealizations * nObjects, kNaN);
-    full.valid.assign((std::size_t)nRealizations * nObjects, 0);
-    full.outsideRedshiftCut = selection.outsideCut;
-    full.outsideMask = selection.outsideMask;
-    full.filteredNside = kept.filteredNside;
-    full.config = kept.config;
-
-    for (std::size_t k = 0; k < keep.size(); ++k) {
-      const std::size_t i = keep[k];
-      for (unsigned rec = 0; rec < nRealizations; ++rec) {
-        const std::size_t from = (std::size_t)rec * keep.size() + k;
-        const std::size_t to = (std::size_t)rec * nObjects + i;
-        full.valid[to] = kept.valid[from];
-        for (std::size_t c = 0; c < 3; ++c) {
-          full.displacement[3*to+c] = kept.displacement[3*from+c];
-          full.matchedRandom[3*to+c] = kept.matchedRandom[3*from+c];
-        }
-      }
-    }
-
-    return full;
   }
 
 }
@@ -562,10 +428,10 @@ namespace {
     }
 
     check_cut(cut);
-    const Selection tracerSelection = select(tracersSky, cut, mask);
-    const Selection randomSelection = select(randomsSky, cut, mask);
+    const internal::Selection tracerSelection = internal::select(tracersSky, cut, mask);
+    const internal::Selection randomSelection = internal::select(randomsSky, cut, mask);
 
-    SelectionCounts counts = tracer_counts(cut, mask, nObjects, tracerSelection);
+    SelectionCounts counts = internal::tracer_counts(cut, mask, nObjects, tracerSelection);
     counts.randoms = nRandoms;
     counts.randomsOutsideRedshiftCut = randomSelection.nOutsideCut;
     counts.randomsOutsideMask = randomSelection.nOutsideMask;
@@ -576,9 +442,9 @@ namespace {
     const bool dropTracers = keepTracers.size() != nObjects;
     const bool dropRandoms = keepRandoms.size() != nRandoms;
     if (dropTracers || dropRandoms)
-      check_kept(counts, cut, keepTracers.size(), keepRandoms.size(), config.nRealizations);
+      internal::check_kept(counts, keepTracers.size(), keepRandoms.size(), config.nRealizations);
 
-    const std::vector<double> keptTracersSky = dropTracers ? rows(tracersSky, keepTracers) : std::vector<double>();
+    const std::vector<double> keptTracersSky = dropTracers ? internal::rows(tracersSky, keepTracers) : std::vector<double>();
     const std::vector<double>& ts = dropTracers ? keptTracersSky : tracersSky;
     const std::size_t nKept = ts.size() / 3;
 
@@ -589,12 +455,12 @@ namespace {
     std::vector<double> convertedTracers, convertedRandoms, keptTracers, keptRandoms;
     if (tracers == nullptr) {
       convertedTracers = toCartesian(ts, distances);
-      convertedRandoms = dropRandoms ? toCartesian(rows(randomsSky, keepRandoms), distances)
+      convertedRandoms = dropRandoms ? toCartesian(internal::rows(randomsSky, keepRandoms), distances)
                                      : toCartesian(randomsSky, distances);
     }
     else {
-      if (dropTracers) keptTracers = rows(*tracers, keepTracers);
-      if (dropRandoms) keptRandoms = rows(*randoms, keepRandoms);
+      if (dropTracers) keptTracers = internal::rows(*tracers, keepTracers);
+      if (dropRandoms) keptRandoms = internal::rows(*randoms, keepRandoms);
     }
     const std::vector<double>& t = tracers == nullptr ? convertedTracers
                                  : dropTracers ? keptTracers : *tracers;
@@ -606,7 +472,7 @@ namespace {
       mps[i] = profile.at(ts[3*i+2]);
 
     Result result = internal::reconstruct(t, r, mps, profile.representative, config, seed);
-    if (dropTracers) result = expand(result, tracerSelection, nObjects);
+    if (dropTracers) result = internal::expand(result, tracerSelection, nObjects);
 
     if (tracers != nullptr) result.tracers = *tracers;
     else if (!dropTracers) result.tracers = std::move(convertedTracers);
@@ -670,15 +536,15 @@ namespace {
     const std::size_t nObjects = internal::check_sky(tracersSky, "the tracer sky array");
 
     check_cut(cut);
-    const Selection selection = select(tracersSky, cut, mask);
-    const SelectionCounts counts = tracer_counts(cut, mask, nObjects, selection);
+    const internal::Selection selection = internal::select(tracersSky, cut, mask);
+    const SelectionCounts counts = internal::tracer_counts(cut, mask, nObjects, selection);
 
     const std::vector<std::size_t>& keep = selection.keep;
     const bool selected = counts.redshiftCut || counts.maskApplied;
-    if (selected) check_kept_tracers(counts, cut, keep.size());
+    if (selected) internal::check_kept_tracers(counts, keep.size());
 
     const bool dropTracers = keep.size() != nObjects;
-    const std::vector<double> keptSky = dropTracers ? rows(tracersSky, keep) : std::vector<double>();
+    const std::vector<double> keptSky = dropTracers ? internal::rows(tracersSky, keep) : std::vector<double>();
     MpsProfile result = internal::mps_profile(dropTracers ? keptSky : tracersSky, skyAreaDeg2, nBins,
                                               distances);
 
@@ -701,6 +567,23 @@ namespace {
 }
 
 
+namespace {
+
+  /// One line of the selection report of a box with limits, for the
+  /// tracers or the randoms.
+  void box_line (std::ostream& out, const otswap::BoxLimits& box, const char* what,
+                 const std::size_t given, const std::size_t outside)
+  {
+    out << "otswap: kept " << given - outside << " of " << given << " " << what << ": " << outside
+        << " outside the box";
+    for (std::size_t k = 0; k < 3; ++k)
+      out << (k ? " x [" : " [") << box.lower[k] << ", " << box.upper[k] << "]";
+    out << '\n';
+  }
+
+}
+
+
 // ============================================================================
 
 
@@ -708,6 +591,11 @@ std::string otswap::SelectionCounts::message () const
 {
   std::ostringstream out;
   out.imbue(std::locale::classic());
+
+  if (boxLimits) {
+    box_line(out, *boxLimits, "tracers", tracers, tracersOutsideBox);
+    if (randoms > 0) box_line(out, *boxLimits, "randoms", randoms, randomsOutsideBox);
+  }
 
   if (redshiftCut || maskApplied) {
     selection_line(out, *this, "tracers", tracers, tracersOutsideRedshiftCut, tracersOutsideMask,

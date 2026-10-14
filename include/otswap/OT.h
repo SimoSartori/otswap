@@ -30,6 +30,7 @@
 #ifndef OTSWAP_OT_H
 #define OTSWAP_OT_H
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -136,10 +137,12 @@ namespace otswap {
     /// Nothing.
     Silent,
 
-    /// The selection report of a lightcone, when a selection applied
-    /// (SelectionCounts::message), and the extrapolation of b(z), when it
-    /// happened; then one line per call with its time and what was lost:
+    /// The selection report of a lightcone, when a selection applied, and of
+    /// a box, when limits were given (SelectionCounts::message), and the
+    /// extrapolation of b(z), when it happened; then one line per call with
+    /// its time and what was lost:
     ///
+    ///     otswap: reconstructBox: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
     ///     otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
     ///     otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
     ///     otswap: realSpaceLightcone: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
@@ -207,27 +210,51 @@ namespace otswap {
   };
 
   /**
-   *  @brief The objects a lightcone reconstruction left out, and why, and
-   *  the displacements its mask filter rejected.
+   *  @brief The closed limits of a box for reconstructBox: the points with
+   *  lower[k] <= x[k] <= upper[k] on each axis k, in Mpc/h. Each bound must
+   *  be finite, with lower[k] < upper[k]; the default, NaN, is refused.
+   */
+  struct BoxLimits {
+    /// x, y, z of the lower corner.
+    std::array<double, 3> lower {std::numeric_limits<double>::quiet_NaN(),
+                                 std::numeric_limits<double>::quiet_NaN(),
+                                 std::numeric_limits<double>::quiet_NaN()};
+    /// x, y, z of the upper corner.
+    std::array<double, 3> upper {std::numeric_limits<double>::quiet_NaN(),
+                                 std::numeric_limits<double>::quiet_NaN(),
+                                 std::numeric_limits<double>::quiet_NaN()};
+  };
+
+  /**
+   *  @brief The objects a reconstruction left out, and why, and the
+   *  displacements its mask filter rejected.
    *
-   *  The tracers removed are tracersOutsideRedshiftCut + tracersOutsideMask
-   *  - tracersOutsideBoth, and the same for the randoms. All counts are 0,
-   *  and nothing is applied, in a box result.
+   *  In a lightcone result, the tracers removed are
+   *  tracersOutsideRedshiftCut + tracersOutsideMask - tracersOutsideBoth,
+   *  and the same for the randoms. In a box result, the tracers removed are
+   *  tracersOutsideBox, and the randoms removed randomsOutsideBox; these
+   *  and the counts of what was given are set only when limits were given
+   *  to reconstructBox, with randoms 0 when the randoms were drawn. Every
+   *  other count is 0, and nothing else is applied, in a box result; the
+   *  box counts are 0 in a lightcone result.
    */
   struct SelectionCounts {
 
     std::optional<RedshiftCut> redshiftCut;  ///< the cut, when a bound was finite
     bool maskApplied = false;                ///< a Mask was given
+    std::optional<BoxLimits> boxLimits;      ///< the limits, when given to reconstructBox
 
     std::size_t tracers = 0;                    ///< tracers given
     std::size_t tracersOutsideRedshiftCut = 0;  ///< of them, outside the cut
     std::size_t tracersOutsideMask = 0;         ///< of them, on an unobserved pixel
     std::size_t tracersOutsideBoth = 0;         ///< counted in both of the above
+    std::size_t tracersOutsideBox = 0;          ///< of them, outside the box limits
 
     std::size_t randoms = 0;                    ///< randoms given
     std::size_t randomsOutsideRedshiftCut = 0;  ///< of them, outside the cut
     std::size_t randomsOutsideMask = 0;         ///< of them, on an unobserved pixel
     std::size_t randomsOutsideBoth = 0;         ///< counted in both of the above
+    std::size_t randomsOutsideBox = 0;          ///< of them, outside the box limits
 
     /// The threshold of the latest rejectMaskCrossings applied to the
     /// result, by reconstructLightcone or afterwards; empty when none was.
@@ -246,6 +273,12 @@ namespace otswap {
      *      otswap: kept <n> of <N> tracers: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
      *      otswap: kept <m> of <M> randoms: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
      *      otswap: rejected <r> of <D> displacements crossing more than <L> unobserved pixels
+     *
+     *  For a box with limits, the tracer line, and the random line when
+     *  randoms were given:
+     *
+     *      otswap: kept <n> of <N> tracers: <a> outside the box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
+     *      otswap: kept <m> of <M> randoms: <b> outside the box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
      *
      *  @return the report, or an empty string when no selection was
      *  applied.
@@ -383,8 +416,16 @@ namespace otswap {
     /// the flag. An empty field is read as all 0.
     std::vector<std::uint8_t> outsideMask;
 
-    /// What reconstructLightcone left out, and why, and what the mask
-    /// filters rejected; updated by every rejectMaskCrossings.
+    /// Whether each tracer lay outside the limits given to reconstructBox,
+    /// and so took no part in the reconstruction: 1 for such a tracer, 0
+    /// otherwise. Flat, [object]. Size nObjects, all 0 when no limits were
+    /// given and in a lightcone result. A flagged tracer's rows are as for
+    /// outsideRedshiftCut, and no filter changes the flag. An empty field is
+    /// read as all 0.
+    std::vector<std::uint8_t> outsideBox;
+
+    /// What the reconstruction left out, and why, and what the mask filters
+    /// rejected; updated by every rejectMaskCrossings.
     SelectionCounts selection;
 
     /// Mean Lagrangian position of each tracer, tracers + meanDisplacement.
@@ -409,6 +450,11 @@ namespace otswap {
     /// Box: the mean particle separation used, given or computed, Mpc/h.
     /// NaN in a lightcone result, whose separation is mpsProfile.
     double mps = std::numeric_limits<double>::quiet_NaN();
+
+    /// Box: the box of the reconstruction, the limits given to
+    /// reconstructBox or, without them, the bounding box of the tracers,
+    /// also when mps was given. Empty in a lightcone result.
+    std::optional<BoxLimits> box;
 
     /// Lightcone: the mean particle separation profile measured on the
     /// tracers kept. Empty in a box result.
@@ -624,28 +670,38 @@ namespace otswap {
    *  @param tracers Cartesian coordinates, 3 * nObjects entries.
    *
    *  @param randoms Cartesian coordinates of the randoms, or empty. When
-   *  empty, config.nRealizations * nObjects randoms are drawn uniformly
-   *  in the bounding box of the tracers. When given, the array must hold
-   *  at least config.nRealizations * nObjects of them, since each
-   *  realization consumes a disjoint subset; they may lie outside the
-   *  tracers' bounding box.
+   *  empty, config.nRealizations * N randoms are drawn uniformly in the
+   *  box limits, or without them in the bounding box of the tracers, N the
+   *  tracers reconstructed. When given, the array must hold at least
+   *  config.nRealizations * N of them, both counted inside the limits when
+   *  they are given, since each realization consumes a disjoint subset;
+   *  without limits they may lie outside the tracers' bounding box.
    *
    *  @param mps mean particle separation; must be positive.
    *
    *  @param config the parameters of the run; rejectCrossings and
    *  maxUnobservedPixelsCrossed are not read.
    *
+   *  @param limits the box of the reconstruction, or none. Given, the
+   *  tracers outside it take no part in the reconstruction and are flagged
+   *  in Result::outsideBox, the randoms given outside it are dropped, and
+   *  the neighbour grids span it. A point on a face is inside.
+   *
    *  @exception Error if any array has a size that is not a multiple of
    *  three, if the tracer array is empty, if the randoms are too few, if
-   *  any coordinate is not finite, or if mps is not positive. Also, from
+   *  any coordinate is not finite, if a bound of the limits is not finite
+   *  or a lower bound is not below the upper one, if the limits keep too
+   *  few tracers or randoms, or if mps is not positive. Also, from
    *  the neighbour search (see Error), if the grid cannot be built: a cell
    *  of config.cellSize * mps so small against the extent of the tracers
    *  and randoms that the grid would need more cells than it can count.
    *
-   *  @return the displacement field; every entry of valid is 1,
-   *  validRealizations is uniformly config.nRealizations, and
-   *  meanDisplacement is the mean over all realizations. Result::mps is
-   *  mps.
+   *  @return the displacement field, one row per tracer given; every entry
+   *  of valid is 1 and validRealizations is config.nRealizations, but for
+   *  the tracers outside the limits, whose rows are as for
+   *  Result::outsideBox, and meanDisplacement is the mean over all
+   *  realizations. Result::mps is mps, and Result::box the limits or,
+   *  without them, the bounding box of the tracers.
    *
    *  @note The box is not periodic: nothing flows through its faces, so
    *  modes on the scale of the box itself cannot be reconstructed.
@@ -659,21 +715,24 @@ namespace otswap {
   Result reconstructBox (const std::vector<double>& tracers,
                          const std::vector<double>& randoms,
                          double mps,
-                         const Config& config);
+                         const Config& config,
+                         const std::optional<BoxLimits>& limits = std::nullopt);
 
   /**
    *  @brief Reconstruct in box geometry, with the mean particle separation
-   *  of the tracers: mps = (V / N)^(1/3), V the volume of their bounding
-   *  box, the box that drawn randoms fill, and N their number. The value
-   *  used is Result::mps.
+   *  of the tracers: mps = (V / N)^(1/3), V the volume of the box limits,
+   *  or without them of the tracers' bounding box, the box that drawn
+   *  randoms fill, and N the tracers inside it. The value used is
+   *  Result::mps.
    *
-   *  @exception Error as above, from the neighbour search included, and if
-   *  the tracers span no volume (all of them in one plane, on one line or
-   *  at one point).
+   *  @exception Error as above, from the neighbour search included, and,
+   *  without limits, if the tracers span no volume (all of them in one
+   *  plane, on one line or at one point).
    */
   Result reconstructBox (const std::vector<double>& tracers,
                          const std::vector<double>& randoms,
-                         const Config& config);
+                         const Config& config,
+                         const std::optional<BoxLimits>& limits = std::nullopt);
 
   /**
    *  @brief Convert sky coordinates to Cartesian comoving coordinates.
@@ -1045,7 +1104,8 @@ namespace otswap {
    *  the first filter applied to the result, and displacementsCrossingMask
    *  those rejected by every filter so far.
    *
-   *  @param result a lightcone result, updated in place.
+   *  @param result a lightcone result, updated in place; a box result is
+   *  refused, so a Result built by hand must set Result::geometry.
    *  @param mask the mask whose unobserved pixels are counted.
    *  @param maxUnobservedPixelsCrossed distinct unobserved pixels tolerated
    *  along the arc, the endpoint pixels excluded.
@@ -1059,7 +1119,8 @@ namespace otswap {
    *  and its entries of valid must be 0. Every other displacement must be
    *  finite.
    *
-   *  @exception Error if the result is malformed (including a NaN outside
+   *  @exception Error if the result is a box result, which has no sky to
+   *  filter against; if the result is malformed (including a NaN outside
    *  the flagged tracers' rows, a flagged tracer with a valid entry, or a
    *  flag, tracers, tracersSky, lagrangian or lagrangianSky array whose
    *  size is neither 0 nor the one of its layout), if an entry of valid is

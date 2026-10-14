@@ -24,7 +24,7 @@ whole chain; the four steps are also available on their own.
 """
 
 from enum import IntEnum
-from typing import Literal, NamedTuple, Optional
+from typing import Literal, NamedTuple, Optional, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -97,6 +97,7 @@ class Result:
         distances: Optional["DistanceTable"] = None,
         outside_redshift_cut: Optional[ArrayLike] = None,
         outside_mask: Optional[ArrayLike] = None,
+        outside_box: Optional[ArrayLike] = None,
         seed: int = 0,
     ) -> "Result":
         """Build a result from its arrays, as read back from a file.
@@ -115,6 +116,9 @@ class Result:
             result, and neither may be given.
         outside_redshift_cut, outside_mask : array_like, shape (n_objects,), optional
             0 or 1; all 0 when omitted.
+        outside_box : array_like, shape (n_objects,), optional
+            0 or 1; all 0 when omitted. For a box result only: raises with
+            ``tracers_sky``.
         seed : int, optional
             The seed to record.
 
@@ -123,8 +127,8 @@ class Result:
         ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
         ``lagrangian_sky`` are computed as ``recompute_means`` computes them,
         so arrays read back exactly give the reconstruction's values, bit for
-        bit. The profile, the mps and the selection counts are not
-        reconstructed: ``mps`` and ``mps_profile`` are None.
+        bit. The profile, the mps, the box and the selection counts are not
+        reconstructed: ``mps``, ``mps_profile`` and ``box`` are None.
         """
 
     @property
@@ -171,6 +175,12 @@ class Result:
     def mps(self) -> Optional[float]:
         """Box: the mean particle separation used, given or computed, in
         Mpc/h. None for a lightcone, whose separation is ``mps_profile``."""
+
+    @property
+    def box(self) -> Optional["BoxLimits"]:
+        """Box: the box of the reconstruction, the ``box`` given to
+        ``reconstruct_box`` or, without it, the bounding box of the tracers,
+        also when ``mps`` was given; a copy. None for a lightcone."""
 
     @property
     def mps_profile(self) -> Optional["MpsProfile"]:
@@ -227,9 +237,16 @@ class Result:
         tracer's rows are as for a cut one."""
 
     @property
+    def outside_box(self) -> NDArray[np.bool_]:
+        """Whether each tracer lay outside the ``box`` given to
+        ``reconstruct_box`` and took no part in the reconstruction, shape
+        (n_objects,). All false without a box and for a lightcone. A flagged
+        tracer's rows are as for a cut one."""
+
+    @property
     def selection(self) -> "SelectionCounts":
-        """What ``reconstruct_lightcone`` left out, and why. Keeps this
-        result alive."""
+        """What the reconstruction left out, and why. Keeps this result
+        alive."""
 
     @property
     def lagrangian_sky(self) -> Optional[NDArray[np.float64]]:
@@ -281,12 +298,18 @@ class MpsProfile:
 
 
 class SelectionCounts:
-    """What a lightcone reconstruction left out, and why. Read-only.
+    """What a reconstruction left out, and why. Read-only.
 
-    The tracers removed are ``tracers_outside_redshift_cut +
-    tracers_outside_mask - tracers_outside_both``, and the same for the
-    randoms. All counts are 0, and nothing is applied, for ``reconstruct_box``.
-    ``repr`` gives the report ``reconstruct_lightcone`` prints.
+    For ``reconstruct_lightcone``, the tracers removed are
+    ``tracers_outside_redshift_cut + tracers_outside_mask -
+    tracers_outside_both``, and the same for the randoms. For
+    ``reconstruct_box``, the tracers removed are ``tracers_outside_box``, and
+    the randoms removed ``randoms_outside_box``; these, ``tracers`` and
+    ``randoms`` are set only when a ``box`` was given, ``randoms`` 0 when the
+    randoms were drawn. Every other count is 0, and nothing else is applied,
+    for ``reconstruct_box``; the box counts are 0 for
+    ``reconstruct_lightcone``. ``repr`` gives the report the reconstruction
+    prints.
     """
 
     @property
@@ -296,6 +319,10 @@ class SelectionCounts:
     @property
     def mask_applied(self) -> bool:
         """Whether a mask was given."""
+
+    @property
+    def box_limits(self) -> Optional["BoxLimits"]:
+        """The ``box`` given to ``reconstruct_box``; None when none was."""
 
     @property
     def tracers(self) -> int:
@@ -312,6 +339,10 @@ class SelectionCounts:
         """Tracers counted in both of the two above."""
 
     @property
+    def tracers_outside_box(self) -> int:
+        """Tracers outside the box limits."""
+
+    @property
     def randoms(self) -> int:
         """Randoms given."""
 
@@ -324,6 +355,10 @@ class SelectionCounts:
     @property
     def randoms_outside_both(self) -> int:
         """Randoms counted in both of the two above."""
+
+    @property
+    def randoms_outside_box(self) -> int:
+        """Randoms given outside the box limits."""
 
     @property
     def max_unobserved_pixels_crossed(self) -> Optional[int]:
@@ -500,11 +535,37 @@ class Mask:
 # Reconstruction
 # ---------------------------------------------------------------------------
 
+class BoxLimits:
+    """The closed limits of a box for ``reconstruct_box``: the points with
+    ``lower[k] <= x[k] <= upper[k]`` on each axis k, in Mpc/h. Read-only.
+
+    Parameters
+    ----------
+    lower, upper : array_like, shape (3,)
+        x, y, z of the lower and of the upper corner. Only their shape is
+        checked here; ``reconstruct_box`` checks that each bound is finite and
+        that ``lower[k] < upper[k]``.
+    """
+
+    def __init__(self, lower: ArrayLike, upper: ArrayLike) -> None: ...
+
+    @property
+    def lower(self) -> tuple[float, float, float]:
+        """x, y, z of the lower corner."""
+
+    @property
+    def upper(self) -> tuple[float, float, float]:
+        """x, y, z of the upper corner."""
+
+    def __repr__(self) -> str: ...
+
+
 def reconstruct_box(
     tracers: ArrayLike,
     randoms: Optional[ArrayLike] = None,
     *,
     mps: Optional[float] = None,
+    box: Optional[Union[BoxLimits, tuple[ArrayLike, ArrayLike]]] = None,
     n_realizations: int = 1,
     convergence: float = 1e-3,
     seed: int = 0,
@@ -518,14 +579,21 @@ def reconstruct_box(
     tracers : array_like, shape (N, 3)
         Cartesian coordinates.
     randoms : array_like, shape (M, 3), optional
-        Cartesian coordinates, M >= n_realizations * N; each realization uses
-        a disjoint subset. If omitted, n_realizations * N randoms are drawn
-        uniformly in the bounding box of the tracers.
+        Cartesian coordinates, M >= n_realizations * N, both counted inside
+        ``box`` when it is given; each realization uses a disjoint subset. If
+        omitted, n_realizations * N randoms are drawn uniformly in ``box``, or
+        without it in the bounding box of the tracers.
     mps : float, optional
         Mean particle separation, in the units of the coordinates. If
-        omitted, (V / N)^(1/3), with V the volume of the tracers' bounding
-        box, the box drawn randoms fill; it is ``Result.mps``. Raises if the
-        tracers span no volume.
+        omitted, (V / N)^(1/3), with V the volume of ``box``, or without it of
+        the tracers' bounding box, the box drawn randoms fill, and N the
+        tracers inside it; it is ``Result.mps``. Without ``box``, raises if
+        the tracers span no volume.
+    box : BoxLimits or ((x0, y0, z0), (x1, y1, z1)), optional
+        The box of the reconstruction, closed: a point on a face is inside.
+        The tracers outside it take no part in the reconstruction and are
+        flagged in ``Result.outside_box``, the randoms given outside it are
+        dropped, and the neighbour grids span it. ``Result.box`` holds it.
     n_realizations : int, optional
         Independent reconstructions to run.
     convergence : float, optional
@@ -538,10 +606,20 @@ def reconstruct_box(
         Grid cell size in units of the mps. Affects speed only.
     verbosity : Verbosity, optional
         What the call prints; see ``Verbosity``. ``"normal"`` prints one
-        line, ``"detailed"`` the mps and its source before it.
+        line, ``"detailed"`` the mps and its source before it. With ``box``,
+        ``"normal"`` prints first what the box left out::
+
+            otswap: kept <n> of <N> tracers: <a> outside the box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
+            otswap: kept <m> of <M> randoms: <b> outside the box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
+
+        the second line only when randoms are given.
 
     Raises
     ------
+    Error
+        If a bound of ``box`` is not finite or a lower bound is not below the
+        upper one, or if ``box`` keeps too few tracers or randoms; the
+        message names the box.
     Error
         From the neighbour search, with a message starting
         ``"meshsearch: "``, if its grid cannot be built: a cell of
@@ -746,7 +824,8 @@ def reject_mask_crossings(
     of its matched random. The pixels containing the two endpoints are not
     tested. The count depends on NSIDE. Updates ``result`` in place; it only
     ever marks displacements invalid, and raises if ``result`` was already
-    filtered against a mask of a different NSIDE. Tracers flagged in
+    filtered against a mask of a different NSIDE, or if ``result`` is a box
+    result, which has no sky to filter against. Tracers flagged in
     ``outside_redshift_cut`` or ``outside_mask`` are left as they are.
     ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
     ``lagrangian_sky`` are recomputed, and ``result.selection`` records the
@@ -796,7 +875,7 @@ class CorrectionStatus(IntEnum):
     NO_VALID_NEIGHBOUR = 2
     """No valid tracer within 3 sigma (with sigma = 0: no valid realization); not moved."""
     LEFT_OUT = 3
-    """Outside the reconstruction's redshift cut or mask; not moved."""
+    """Outside the reconstruction's redshift cut, mask or box limits; not moved."""
 
 
 class RealSpaceCatalog:
@@ -849,8 +928,8 @@ class RealSpaceCatalog:
         corrected, 1 moved with the average of its neighbours (it had no
         valid realization), 2 not moved, with no valid tracer within 3 sigma
         (with sigma = 0: no valid realization), 3 not moved, left out of the
-        reconstruction by its redshift cut or mask (``Result.outside_*`` say
-        which). See ``CorrectionStatus``."""
+        reconstruction by its redshift cut, mask or box limits
+        (``Result.outside_*`` say which). See ``CorrectionStatus``."""
 
     @property
     def valid_realizations(self) -> NDArray[np.uint32]:
@@ -1083,7 +1162,9 @@ def real_space_box(
     without periodic wrapping.
 
     The box is not periodic: nothing flows through its faces, so modes on the
-    scale of the box itself cannot be reconstructed.
+    scale of the box itself cannot be reconstructed. Tracers outside the
+    reconstruction's box limits are not corrected, take no part in any
+    average, and have status 3.
 
     Raises
     ------

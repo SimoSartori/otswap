@@ -12,6 +12,14 @@ their bounding box: {cpp:func}`otswap::reconstructBox`,
 the tracers' bounding box. Use it for any catalogue in comoving Cartesian
 coordinates whose density is about constant, cubic or not.
 
+The box may be given instead, as closed limits on each axis
+({cpp:struct}`otswap::BoxLimits`, {py:class}`otswap.BoxLimits`, or in Python a
+pair of corners): the tracers outside it are left out, the randoms given
+outside it are dropped, drawn randoms fill it, and the mps is computed from its
+volume and the tracers inside. Use it when the volume of the sample is known,
+such as a simulation box, rather than inferred from its outermost tracers. The
+result records the box used, the limits or the tracers' bounding box.
+
 The box is not periodic: nothing flows through its faces, so modes on the
 scale of the box itself cannot be reconstructed, and the displacements are
 least reliable near the faces. A box cut from a periodic simulation is treated
@@ -68,7 +76,8 @@ as the reconstruction computes them.
 Tracers left out of a lightcone reconstruction, by its redshift cut or its
 mask, keep their row: they are flagged in `outsideRedshiftCut` and
 `outsideMask` (`outside_redshift_cut`, `outside_mask`), with NaN
-displacements and no valid realization. Every output keeps one row per input
+displacements and no valid realization. Tracers outside the limits of a box
+are flagged in the same way, in `outsideBox` (`outside_box`). Every output keeps one row per input
 object, in input order.
 
 ## The mask
@@ -124,7 +133,7 @@ Each call reports, as `verbosity` says ({cpp:enum}`otswap::Verbosity`,
 
 - **silent:** nothing;
 - **normal:** the selection report of a lightcone, when a selection applied,
-  and in C++ the extrapolation of b(z), when it happened; then one line per
+  or of a box, when limits were given, and in C++ the extrapolation of b(z), when it happened; then one line per
   call with its time and what was lost;
 - **detailed:** as normal, with the lines that explain it: the mps of a box
   and its source, the mps(z) profile of a lightcone, the breakdown of the

@@ -252,7 +252,7 @@ namespace otswap {
     Corrected         = 0,  ///< had a valid realization; moved
     MovedByNeighbours = 1,  ///< had no valid realization; moved with its neighbours' average
     NoValidNeighbour  = 2,  ///< no valid tracer within 3 sigma (with sigma = 0: no valid realization); not moved
-    LeftOut           = 3   ///< outside the reconstruction's redshift cut or mask; not moved
+    LeftOut           = 3   ///< outside the reconstruction's redshift cut, mask or box limits; not moved
   };
 
   /**
@@ -376,6 +376,9 @@ namespace otswap {
    *  The box is not periodic, here or in reconstructBox: nothing flows
    *  through its faces, so modes on the scale of the box itself cannot be
    *  reconstructed.
+   *
+   *  Tracers flagged in result.outsideBox are left out, as in
+   *  realSpaceLightcone, with the status LeftOut.
    *
    *  @param result a box reconstruction, with its tracers.
    *  @param axis the line of sight: 0, 1 or 2.

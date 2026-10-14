@@ -127,8 +127,8 @@ namespace {
     for (std::size_t i = 0; i < n; ++i) {
       if (otswap::internal::excluded(result, i) && result.validRealizations[i] != 0)
         throw otswap::Error("the result is malformed: object " + std::to_string(i) + " took no part "
-                            "in the reconstruction (outside the redshift cut or the mask) but has "
-                            "valid realizations");
+                            "in the reconstruction (outside the redshift cut, the mask or the box "
+                            "limits) but has valid realizations");
       if (result.validRealizations[i] > 0)
         for (std::size_t c = 0; c < 3; ++c)
           if (!std::isfinite(result.meanDisplacement[3*i+c]))
@@ -138,7 +138,7 @@ namespace {
   }
 
   /// Indices, increasing, of the tracers the correction works on: all but
-  /// those outside the result's redshift cut or mask.
+  /// those outside the result's redshift cut, mask or box limits.
   std::vector<std::size_t> kept_tracers (const otswap::Result& result, const std::size_t n)
   {
     std::vector<std::size_t> keep;
@@ -314,7 +314,11 @@ std::vector<double> otswap::axisProjection (const std::vector<double>& displacem
 
 double otswap::internal::neighbour_cell (const std::vector<double>& positions)
 {
-  return kCellInSeparations * bounding_box_separation(positions);
+  const std::size_t n = positions.size() / 3;
+  const BoxLimits box = bounding_box(positions);
+  const double volume = (box.upper[0] - box.lower[0]) * (box.upper[1] - box.lower[1]) *
+                        (box.upper[2] - box.lower[2]);
+  return kCellInSeparations * det_pow(volume / (double)n, 1./3.);
 }
 
 

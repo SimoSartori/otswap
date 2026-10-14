@@ -33,6 +33,7 @@ from numpy.typing import NDArray
 
 from ._otswap import (
     BiasTable,
+    BoxLimits,
     DistanceTable,
     Error,
     ExtrapolationWarning,
@@ -85,6 +86,7 @@ class NeighbourAverage(NamedTuple):
 __all__ = [
     "AngleUnit",
     "BiasTable",
+    "BoxLimits",
     "CorrectionStatus",
     "DistanceTable",
     "Error",

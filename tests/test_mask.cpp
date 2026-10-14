@@ -168,6 +168,7 @@ namespace {
   Result result_of (const std::vector<double>& eulerian, const std::vector<double>& lagrangian)
   {
     Result r;
+    r.geometry = Geometry::Lightcone;
     r.nObjects = eulerian.size() / 3;
     r.nRealizations = 1;
     r.matchedRandom = lagrangian;
@@ -998,9 +999,11 @@ int main ()
     const Mask mask(file);
 
     Result empty;
+    empty.geometry = Geometry::Lightcone;
     check_throws([&] { rejectMaskCrossings(empty, mask); }, "an empty result raises");
 
     Result ragged;
+    ragged.geometry = Geometry::Lightcone;
     ragged.nObjects = 2;
     ragged.nRealizations = 1;
     ragged.displacement.resize(3);
@@ -1024,6 +1027,26 @@ int main ()
     filtered.filteredNside = kNside * 2;
     check_throws([&] { rejectMaskCrossings(filtered, mask); },
                  "a result filtered against a different NSIDE raises");
+  }
+
+  group("a box result is refused, unchanged: a box has no sky to filter against");
+  {
+    const Mask mask(file);
+    std::vector<double> e, l;
+    add_arc(e, l, 1.0, -0.6, 1.0, 0.6);
+    const Result lightcone = result_of(e, l);
+    Result box = lightcone;
+    box.geometry = Geometry::Box;
+    bool named = false;
+    try {
+      rejectMaskCrossings(box, mask);
+    }
+    catch (const Error& x) {
+      named = std::string(x.what()).find("box geometry") != std::string::npos;
+    }
+    check(named, "the error names the geometry");
+    check(box.valid == lightcone.valid && box.filteredNside == 0 && !box.selection.maxUnobservedPixelsCrossed,
+          "and the result is left as it was");
   }
 
   group("the filter only clears entries, records its mask, and is idempotent");

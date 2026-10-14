@@ -160,6 +160,7 @@ void otswap::internal::check_flags (const Result& result)
   };
   check(result.outsideRedshiftCut, "outsideRedshiftCut");
   check(result.outsideMask, "outsideMask");
+  check(result.outsideBox, "outsideBox");
 
   auto check3 = [&result] (const std::vector<double>& rows, const std::string& name) {
     if (!rows.empty() && rows.size() != 3 * result.nObjects)
@@ -176,22 +177,22 @@ void otswap::internal::check_flags (const Result& result)
 // ============================================================================
 
 
-double otswap::internal::bounding_box_separation (const std::vector<double>& positions)
+otswap::BoxLimits otswap::internal::bounding_box (const std::vector<double>& positions)
 {
   const std::size_t n = positions.size() / 3;
 
-  double side[3];
+  BoxLimits box;
   for (int k = 0; k < 3; ++k) {
     double lo = positions[(std::size_t)k], hi = lo;
     for (std::size_t i = 1; i < n; ++i) {
       lo = std::min(lo, positions[3*i+k]);
       hi = std::max(hi, positions[3*i+k]);
     }
-    side[k] = hi - lo;
+    box.lower[(std::size_t)k] = lo;
+    box.upper[(std::size_t)k] = hi;
   }
 
-  const double volume = side[0] * side[1] * side[2];
-  return det_pow(volume / (double)n, 1./3.);
+  return box;
 }
 
 

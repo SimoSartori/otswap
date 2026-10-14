@@ -524,6 +524,46 @@ int main ()
     check(light.nNeighbours == box.nNeighbours, "with the same neighbours");
   }
 
+  group("realSpaceBox leaves out the tracers outside the box limits: status LeftOut, not moved, never a "
+        "neighbour");
+  {
+    const DistanceTable table = linear_table(1.5, 0.8);
+    std::mt19937 rng(515);
+    const std::size_t m = 600;
+    std::vector<double> cart(3 * m);
+    for (double& v : cart) v = internal::uniform_real(rng, 0., 100.);
+    BoxLimits limits;
+    limits.lower = {0., 0., 0.};
+    limits.upper = {60., 100., 100.};
+    Config quietBox;
+    quietBox.seed = 9;
+    quietBox.verbosity = Verbosity::Silent;
+    const Result r = reconstructBox(cart, {}, quietBox, limits);
+    CorrectionConfig quiet;
+    quiet.verbosity = Verbosity::Silent;
+    const RealSpaceCatalog c = realSpaceBox(r, 2, 0.5, table, 1.5, 10., quiet);
+    bool leftOut = true, corrected = true;
+    std::size_t nLeftOut = 0;
+    for (std::size_t i = 0; i < m; ++i) {
+      if (r.outsideBox[i]) {
+        ++nLeftOut;
+        leftOut = leftOut && c.status[i] == CorrectionStatus::LeftOut && c.nNeighbours[i] == 0 &&
+                  std::isnan(c.cartesian[3*i+2]);
+      }
+      else corrected = corrected && c.status[i] != CorrectionStatus::LeftOut && c.nNeighbours[i] > 0 &&
+                       std::isfinite(c.cartesian[3*i+2]);
+    }
+    check(nLeftOut > 0 && leftOut, "the tracers outside: LeftOut, not moved, diagnostics 0");
+    check(corrected, "the tracers inside are corrected");
+    Result notLeftOut = r;
+    std::size_t anOutside = 0;
+    while (!r.outsideBox[anOutside]) ++anOutside;
+    notLeftOut.validRealizations[anOutside] = 1;
+    check(throws_naming([&] { realSpaceBox(notLeftOut, 2, 0.5, table, 1.5, 10., quiet); },
+                        "outside the redshift cut, the mask or the box limits"),
+          "a tracer outside the box with valid realizations is malformed");
+  }
+
   group("the whole chain: right ascension folded and declination kept, uncorrected only without valid "
         "neighbours, the status of each tracer");
   {
@@ -1228,7 +1268,7 @@ int main ()
       if (expectMask[i] && !expectCut[i]) aMasked = i;
     Result validMasked = masked;
     validMasked.valid[aMasked] = 1;
-    check(throws_naming([&] { rejectMaskCrossings(validMasked, mask); }, "outside the redshift cut or the mask"),
+    check(throws_naming([&] { rejectMaskCrossings(validMasked, mask); }, "outside the redshift cut, the mask or the box limits"),
           "a masked tracer with a valid entry is malformed");
     Result badMask = masked;
     badMask.outsideMask.pop_back();
@@ -1256,7 +1296,7 @@ int main ()
     Result maskedHasValid = plain;
     maskedHasValid.validRealizations[aMasked] = 1;
     check(throws_naming([&] { realSpaceLightcone(maskedHasValid, table, BiasTable{zb, b}, 10.); },
-                        "outside the redshift cut or the mask"),
+                        "outside the redshift cut, the mask or the box limits"),
           "a masked tracer with valid realizations is malformed");
 
     group("lagrangianSky: toSky of the tracer plus meanDisplacement, NaN rows for the flagged and those "

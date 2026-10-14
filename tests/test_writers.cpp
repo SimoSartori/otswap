@@ -26,6 +26,7 @@
  *  displacement field.
  */
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -212,6 +213,25 @@ int main ()
     noLagrangian.lagrangian.clear();
     check(throws_naming([&] { io::writeDisplacements(boxFile, noLagrangian); }, "cannot write lagrangian"),
           "a field of the wrong size is refused, before anything is written");
+
+    BoxLimits half = *box.box;
+    half.upper[0] = 0.5 * (half.lower[0] + half.upper[0]);
+    const Result limited = reconstructBox(toCartesian(sky, table), {}, config, half);
+    io::writeDisplacements(boxFile, limited);
+    const io::Table flagged = io::read(boxFile, {"tracX"}, {"outsideBox"});
+    bool same = flagged.nRows == n;
+    for (std::size_t i = 0; same && i < n; ++i) same = flagged.integers[i] == limited.outsideBox[i];
+    check(names_of(boxFile) == "tracX tracY tracZ lagrX lagrY lagrZ displX displY displZ nValidRec outsideBox" &&
+          same && std::count(limited.outsideBox.begin(), limited.outsideBox.end(), 1) > 0,
+          "a box with limits: outsideBox appended to the default, as in the result");
+    io::writeDisplacements(boxFile, box, {io::DisplacementGroup::Index, io::DisplacementGroup::OutsideBox});
+    const io::Table zeros = io::read(boxFile, {"outsideBox"});
+    bool allZero = zeros.nRows == n;
+    for (std::size_t i = 0; allZero && i < n; ++i) allZero = zeros.values[i] == 0.;
+    check(names_of(boxFile) == "index outsideBox" && allZero,
+          "a box without limits: OutsideBox written on request, all 0");
+    check(throws_naming([&] { io::writeDisplacements(file, lc, {io::DisplacementGroup::OutsideBox}); },
+                        "OutsideBox describes a box"), "OutsideBox on a lightcone is refused");
     std::remove(file.c_str());
     std::remove(boxFile.c_str());
   }
