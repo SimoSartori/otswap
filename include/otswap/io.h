@@ -66,12 +66,14 @@
  *
  *  The writers of a Result, a RealSpaceCatalog and an MpsProfile write one
  *  row per input object, in input order, tracers left out of the
- *  reconstruction included, with NaN where nothing was computed, so a row's
- *  index is the object's index in the input. Angles are in degrees, right
- *  ascension in [0, 360). Each column has a description and a unit, and the
- *  header carries keywords: PRODUCT, what the file holds; OTSWAPV, the
- *  library version; GEOMETRY, box or lightcone; NOBJECTS; and those of the
- *  product, listed with each writer.
+ *  reconstruction included, with NaN where nothing was computed, so row i
+ *  of a file describes object i of the input. The id column, where written,
+ *  holds the object's ID (Result::ids, RealSpaceCatalog::ids), or i when no
+ *  IDs were set. Angles are in degrees, right ascension in [0, 360). Each
+ *  column has a description and a unit, and the header carries keywords:
+ *  PRODUCT, what the file holds; OTSWAPV, the library version; GEOMETRY,
+ *  box or lightcone; NOBJECTS; and those of the product, listed with each
+ *  writer.
  */
 
 #ifndef OTSWAP_IO_H
@@ -252,7 +254,7 @@ namespace otswap {
 
     /// The column groups of writeDisplacements.
     enum class DisplacementGroup {
-      Index,              ///< index (K): the row of the tracer in the input, from 0
+      Id,                 ///< id (K): Result::ids, or the row of the tracer in the input, from 0, when it is empty
       TracerSky,          ///< tracRA, tracDec (deg), tracRed: the observed tracer; lightcone only
       LagrangianSky,      ///< lagrRA, lagrDec (deg), lagrRed: Result::lagrangianSky; lightcone only
       Tracer,             ///< tracX, tracY, tracZ (Mpc/h): Result::tracers
@@ -273,7 +275,8 @@ namespace otswap {
      *    columns), and OutsideBox (11) when limits were given to
      *    reconstructBox;
      *  - lightcone: TracerSky, LagrangianSky, Tracer, Lagrangian,
-     *    Displacement, ValidRealizations, Selection (18 columns).
+     *    Displacement, ValidRealizations, Selection (18 columns);
+     *  - Id first (one more column) when Result::ids is not empty.
      *
      *  'D' values are written with 9 significant digits in ASCII. Keywords:
      *  NREC, SEED (the seed used), CONVERG; MPS for a box; ZCUTMIN and
@@ -289,7 +292,8 @@ namespace otswap {
      *  @exception Error if a group is repeated or does not apply to the
      *  geometry (OutsideBox to a lightcone, or a lightcone group to a box),
      *  if a field a group reads does not have the size of its
-     *  layout, or as io::write.
+     *  layout, if ids is neither empty nor one per object or holds a value
+     *  twice, whatever the groups, or as io::write.
      */
     void writeDisplacements (const std::string& file, const Result& result,
                              const std::vector<DisplacementGroup>& groups = {});
@@ -299,7 +303,8 @@ namespace otswap {
      *  realization and tracer, ordered [realization][object], the order of
      *  Result::displacement.
      *
-     *  Columns: realization (J, from 0), index (K), tracX..tracZ
+     *  Columns: realization (J, from 0), id (K, the object's ID as in
+     *  writeDisplacements, repeated in every realization), tracX..tracZ
      *  (Result::tracers, repeated in every realization), lagrX..lagrZ
      *  (Result::matchedRandom), displX..displZ (Result::displacement), valid
      *  (J), outsideRedshiftCut, outsideMask (J, repeated). Keywords as
@@ -314,13 +319,14 @@ namespace otswap {
      *  bit, as the reconstruction computes it.
      *
      *  @exception Error if a field read does not have the size of its
-     *  layout, or as io::write.
+     *  layout, if ids is neither empty nor one per object or holds a value
+     *  twice, or as io::write.
      */
     void writeDisplacementField (const std::string& file, const Result& result);
 
     /// The column groups of writeRealSpaceCatalog.
     enum class CatalogGroup {
-      Index,              ///< index (K): the row of the tracer in the input, from 0
+      Id,                 ///< id (K): RealSpaceCatalog::ids, or the row of the tracer in the input, from 0, when it is empty
       Sky,                ///< tracRA, tracDec (deg), tracRed: RealSpaceCatalog::sky; lightcone only
       Cartesian,          ///< tracX, tracY, tracZ (Mpc/h): RealSpaceCatalog::cartesian
       ValidRealizations,  ///< nValidRec (J)
@@ -335,7 +341,8 @@ namespace otswap {
      *  The default groups, CosmoBolognaLib's reconstructed catalogue first:
      *  - lightcone: Sky, Cartesian, ValidRealizations, Neighbours, Status
      *    (10 columns);
-     *  - box: Cartesian, ValidRealizations, Neighbours, Status (7 columns).
+     *  - box: Cartesian, ValidRealizations, Neighbours, Status (7 columns);
+     *  - Id first (one more column) when RealSpaceCatalog::ids is not empty.
      *
      *  'D' values are written with 9 significant digits in ASCII. Keywords:
      *  SIGMA, WEIGHTED (0 or 1); NEXTRAP for a lightcone; AXIS, ZBOX and BIAS

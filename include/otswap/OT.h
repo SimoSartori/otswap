@@ -347,6 +347,16 @@ namespace otswap {
     /// redshift-space correction follow.
     Geometry geometry = Geometry::Box;
 
+    /// The ID of each object, as the caller sets it: any 64-bit integer,
+    /// negative ones included, each object its own. Empty means no IDs, and
+    /// the writers then write object i's row in the input, i, from 0. Flat,
+    /// [object]; size nObjects or 0. The reconstruction functions leave it
+    /// empty, and no computation reads it: realSpaceBox and
+    /// realSpaceLightcone copy it into RealSpaceCatalog::ids, and the writers
+    /// write it as the id column, among their default columns when it is not
+    /// empty.
+    std::vector<std::int64_t> ids;
+
     /// The configuration the reconstruction ran with. seed is the one used:
     /// the drawn one when 0 was given, so that the result can be
     /// reproduced.

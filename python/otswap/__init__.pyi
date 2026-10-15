@@ -74,11 +74,12 @@ class Result:
     its reconstructed (Lagrangian) position, which is the position of the
     random it is matched to.
 
-    Every array attribute is read-only. The sky arrays (``tracers_sky``,
-    ``lagrangian_sky``) are in the ``angle_unit`` of the call that made the
-    result; in degrees they are converted once, on first access, and kept.
-    Every other array is a view on memory owned by this object, and keeps it
-    alive. Use ``.copy()`` to obtain a writable array. Filtering with
+    Every array attribute is read-only, and only ``ids`` can be assigned.
+    The sky arrays (``tracers_sky``, ``lagrangian_sky``) are in the
+    ``angle_unit`` of the call that made the result; in degrees they are
+    converted once, on first access, and kept. ``ids`` is a new copy on each
+    access. Every other array is a view on memory owned by this object, and
+    keeps it alive. Use ``.copy()`` to obtain a writable array. Filtering with
     ``reject_mask_crossings`` updates ``valid``, ``valid_realizations``,
     ``mean_displacement`` and ``lagrangian`` in place, so views taken earlier
     reflect it; ``lagrangian_sky`` is recomputed, and an array taken from it
@@ -98,6 +99,7 @@ class Result:
         outside_redshift_cut: Optional[ArrayLike] = None,
         outside_mask: Optional[ArrayLike] = None,
         outside_box: Optional[ArrayLike] = None,
+        ids: Optional[ArrayLike] = None,
         seed: int = 0,
     ) -> "Result":
         """Build a result from its arrays, as read back from a file.
@@ -119,6 +121,9 @@ class Result:
         outside_box : array_like, shape (n_objects,), optional
             0 or 1; all 0 when omitted. For a box result only: raises with
             ``tracers_sky``.
+        ids : array_like, shape (n_objects,), optional
+            The IDs, checked and stored as by assigning ``Result.ids``; none
+            when omitted.
         seed : int, optional
             The seed to record.
 
@@ -149,6 +154,29 @@ class Result:
     def seed(self) -> int:
         """The seed used: the one drawn when ``seed=0`` was given, so that the
         result can be reproduced."""
+
+    @property
+    def ids(self) -> NDArray[np.int64]:
+        """The ID of each object, shape (n_objects,), read-only; when none
+        were set, 0..n_objects-1, the row of each object in the input.
+
+        Assignable, before writing or correcting the result: one 64-bit
+        integer per object, negative ones allowed, no value twice; a float
+        array is accepted when every entry is an integer. None, an empty
+        array or exactly 0..n_objects-1 set no IDs. Any other value raises
+        ``Error``, naming the first repeated value and its two entries, and
+        leaves the IDs unchanged.
+
+        The writers write them as the id column, among their default
+        columns when IDs were set; ``real_space_box`` and
+        ``real_space_lightcone`` copy them into the ``RealSpaceCatalog``. No
+        computation reads them, and the reconstruction sets none.
+
+        Each access returns a new copy, so store it once (``ids =
+        result.ids``) before indexing it in a loop."""
+
+    @ids.setter
+    def ids(self, value: Optional[ArrayLike]) -> None: ...
 
     @property
     def tracers(self) -> NDArray[np.float64]:
@@ -882,14 +910,22 @@ class RealSpaceCatalog:
     """A catalogue moved to real space; row i describes input tracer i.
 
     Every array attribute is read-only; ``sky`` is in the ``angle_unit`` of
-    the result corrected, converted once and kept, and every other array is a
-    view on memory owned by this object, as for Result."""
+    the result corrected, converted once and kept, ``ids`` is a new copy on
+    each access, and every other array is a view on memory owned by this
+    object, as for Result."""
 
     @property
     def n_objects(self) -> int: ...
 
     @property
     def geometry(self) -> Literal["box", "lightcone"]: ...
+
+    @property
+    def ids(self) -> NDArray[np.int64]:
+        """The IDs of the objects, copied from the ``Result`` corrected,
+        shape (n_objects,), read-only; 0..n_objects-1 when it had none. Each
+        access returns a new copy, so store it once (``ids = catalog.ids``)
+        before indexing it in a loop."""
 
     @property
     def angle_unit(self) -> Optional[AngleUnit]:
@@ -1140,7 +1176,8 @@ def real_space_lightcone(
     Notes
     -----
     Tracers outside the reconstruction's redshift cut or mask are not
-    corrected, take no part in any average, and have status 3.
+    corrected, take no part in any average, and have status 3. The catalogue
+    carries the result's ``ids``.
     """
 
 
@@ -1164,7 +1201,7 @@ def real_space_box(
     The box is not periodic: nothing flows through its faces, so modes on the
     scale of the box itself cannot be reconstructed. Tracers outside the
     reconstruction's box limits are not corrected, take no part in any
-    average, and have status 3.
+    average, and have status 3. The catalogue carries the result's ``ids``.
 
     Raises
     ------

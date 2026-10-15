@@ -80,6 +80,12 @@ displacements and no valid realization. Tracers outside the limits of a box
 are flagged in the same way, in `outsideBox` (`outside_box`). Every output keeps one row per input
 object, in input order.
 
+To carry the catalogue's own IDs into the files, set them on the result
+before writing or correcting it: `Result::ids` (`result.ids = ...`), one
+64-bit integer per object, no value twice. The writers then add an `id`
+column to their default columns, and the real-space catalogue copies them.
+Without IDs, an `id` column, where written, holds each object's row, from 0.
+
 ## The mask
 
 A HEALPix map, from a FITS file or from an array in memory. A pixel is

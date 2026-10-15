@@ -27,8 +27,10 @@ descriptions in TCOMMn, units in TUNITn, keywords in the header of HDU 2.
 
 The writers of a ``Result``, a ``RealSpaceCatalog`` and an ``MpsProfile``
 write one row per input object, in input order, tracers left out of the
-reconstruction included, with NaN where nothing was computed, so a row's
-index is the object's index in the input. Angles are in degrees, right
+reconstruction included, with NaN where nothing was computed, so row i of a
+file describes object i of the input. The id column, where written, holds
+the object's ID (``Result.ids``, ``RealSpaceCatalog.ids``), or i when no IDs
+were set. Angles are in degrees, right
 ascension in [0, 360). Each column has a description and a unit, and the
 header carries keywords: PRODUCT, what the file holds; OTSWAPV, the library
 version; GEOMETRY, box or lightcone; NOBJECTS; and those of the product,
@@ -171,10 +173,10 @@ def read_bias_table(file: Path, *, delimiter: str = " ", comment: str = "#") -> 
     message names the file and the row."""
 
 
-DisplacementGroup: TypeAlias = Literal["index", "tracer_sky", "lagrangian_sky", "tracer",
+DisplacementGroup: TypeAlias = Literal["id", "tracer_sky", "lagrangian_sky", "tracer",
                                        "lagrangian", "displacement", "valid_realizations",
                                        "selection", "outside_box"]
-CatalogGroup: TypeAlias = Literal["index", "sky", "cartesian", "valid_realizations",
+CatalogGroup: TypeAlias = Literal["id", "sky", "cartesian", "valid_realizations",
                                   "neighbours", "shift", "status"]
 
 
@@ -188,7 +190,8 @@ def write_displacements(
 
     The groups and their columns:
 
-    - ``"index"``: index (64-bit integer), the row of the tracer in the input;
+    - ``"id"``: id (64-bit integer), ``Result.ids``: the row of the tracer in
+      the input when no IDs were set;
     - ``"tracer_sky"``: tracRA, tracDec (degrees), tracRed, the observed
       tracer; lightcone only;
     - ``"lagrangian_sky"``: lagrRA, lagrDec, lagrRed, ``Result.lagrangian_sky``;
@@ -207,7 +210,8 @@ def write_displacements(
         first: box tracer, lagrangian, displacement, valid_realizations, and
         outside_box when a ``box`` was given to ``reconstruct_box``;
         lightcone tracer_sky, lagrangian_sky, tracer, lagrangian,
-        displacement, valid_realizations, selection.
+        displacement, valid_realizations, selection; id first when IDs were
+        set.
 
     Notes
     -----
@@ -215,7 +219,9 @@ def write_displacements(
     NREC, SEED (the seed used), CONVERG; MPS for a box; ZCUTMIN and ZCUTMAX
     for the finite bounds of a redshift cut, MASK = 1 when a mask selected
     the objects, FILTNSID and MAXPIXCR when a mask filter was applied.
-    Raises for a repeated group, or one that does not apply to the geometry.
+    Raises for a repeated group, or one that does not apply to the geometry,
+    and, whatever the groups, for ``ids`` that are neither empty nor one per
+    object or hold a value twice.
     """
 
 
@@ -223,7 +229,8 @@ def write_displacement_field(file: Path, result: Result) -> None:
     """Write every realization of a result, losslessly: one row per
     realization and tracer, ordered [realization][object].
 
-    Columns: realization, index, tracX..tracZ (``Result.tracers``, repeated),
+    Columns: realization, id (``Result.ids`` as in ``write_displacements``,
+    repeated), tracX..tracZ (``Result.tracers``, repeated),
     lagrX..lagrZ (``Result.matched_random``), displX..displZ
     (``Result.displacement``), valid, outsideRedshiftCut, outsideMask.
     Keywords as ``write_displacements``.
@@ -232,7 +239,7 @@ def write_displacement_field(file: Path, result: Result) -> None:
     they are in FITS, so every value reads back identical, NaN included, in
     both formats; ``Result.from_arrays`` on the arrays read back gives the
     reconstruction's means bit for bit. displX..displZ equal lagr - trac bit
-    for bit.
+    for bit. Raises for ``ids`` as ``write_displacements``.
     """
 
 
@@ -246,7 +253,7 @@ def write_real_space_catalog(
 
     The groups and their columns:
 
-    - ``"index"``: index (64-bit integer);
+    - ``"id"``: id (64-bit integer), ``RealSpaceCatalog.ids``;
     - ``"sky"``: tracRA, tracDec (degrees), tracRed, ``RealSpaceCatalog.sky``;
       lightcone only;
     - ``"cartesian"``: tracX, tracY, tracZ (Mpc/h), ``RealSpaceCatalog.cartesian``;
@@ -260,13 +267,13 @@ def write_real_space_catalog(
     groups : sequence of CatalogGroup, optional
         In output order; None for the default, CosmoBolognaLib's columns
         first: lightcone sky, cartesian, valid_realizations, neighbours,
-        status; box the same without sky.
+        status; box the same without sky; id first when IDs were set.
 
     Notes
     -----
     Floating values are written with 9 significant digits in ASCII.
     Keywords: SIGMA, WEIGHTED; NEXTRAP for a lightcone; AXIS, ZBOX and BIAS
-    for a box.
+    for a box. Raises as ``write_displacements``.
     """
 
 

@@ -279,6 +279,8 @@ endif()
 #
 # The extension module otswap._otswap, installed into the otswap package of
 # python/otswap. Built by pip through scikit-build-core (see pyproject.toml).
+# src/ is on its include path for internal::check_ids, so that the Python
+# check of Result.ids is the library's own.
 # ---------------------------------------------------------------------------
 
 if (OTSWAP_BUILD_PYTHON)
@@ -289,6 +291,7 @@ if (OTSWAP_BUILD_PYTHON)
 
   nanobind_add_module(otswap_python NB_STATIC python/otswap_python.cpp)
   set_target_properties(otswap_python PROPERTIES OUTPUT_NAME _otswap)
+  target_include_directories(otswap_python PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(otswap_python PRIVATE otswap)
   install(TARGETS otswap_python LIBRARY DESTINATION otswap)
 endif()

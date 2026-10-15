@@ -200,10 +200,10 @@ int main ()
     check(text_of(boxFile).find("## MPS = ") != std::string::npos &&
           text_of(boxFile).find("## ZCUTMIN") == std::string::npos, "MPS in a box, no cut");
 
-    io::writeDisplacements(boxFile, box, {io::DisplacementGroup::Index, io::DisplacementGroup::Displacement});
-    const io::Table chosen = io::read(boxFile, {"displZ"}, {"index"});
-    check(names_of(boxFile) == "index displX displY displZ" && chosen.integers[7] == 7,
-          "groups in the order given; index the row");
+    io::writeDisplacements(boxFile, box, {io::DisplacementGroup::Id, io::DisplacementGroup::Displacement});
+    const io::Table chosen = io::read(boxFile, {"displZ"}, {"id"});
+    check(names_of(boxFile) == "id displX displY displZ" && chosen.integers[7] == 7,
+          "groups in the order given; without IDs, id the row");
     check(throws_naming([&] { io::writeDisplacements(boxFile, box, {io::DisplacementGroup::TracerSky}); },
                         "TracerSky describes a lightcone"), "a sky group on a box is refused");
     check(throws_naming([&] { io::writeDisplacements(boxFile, box, {io::DisplacementGroup::Tracer,
@@ -224,11 +224,11 @@ int main ()
     check(names_of(boxFile) == "tracX tracY tracZ lagrX lagrY lagrZ displX displY displZ nValidRec outsideBox" &&
           same && std::count(limited.outsideBox.begin(), limited.outsideBox.end(), 1) > 0,
           "a box with limits: outsideBox appended to the default, as in the result");
-    io::writeDisplacements(boxFile, box, {io::DisplacementGroup::Index, io::DisplacementGroup::OutsideBox});
+    io::writeDisplacements(boxFile, box, {io::DisplacementGroup::Id, io::DisplacementGroup::OutsideBox});
     const io::Table zeros = io::read(boxFile, {"outsideBox"});
     bool allZero = zeros.nRows == n;
     for (std::size_t i = 0; allZero && i < n; ++i) allZero = zeros.values[i] == 0.;
-    check(names_of(boxFile) == "index outsideBox" && allZero,
+    check(names_of(boxFile) == "id outsideBox" && allZero,
           "a box without limits: OutsideBox written on request, all 0");
     check(throws_naming([&] { io::writeDisplacements(file, lc, {io::DisplacementGroup::OutsideBox}); },
                         "OutsideBox describes a box"), "OutsideBox on a lightcone is refused");
@@ -258,11 +258,11 @@ int main ()
       const std::string file = temporary(name);
       io::writeDisplacementField(file, lc);
       if (name == "field.dat")
-        check(names_of(file) == "realization index tracX tracY tracZ lagrX lagrY lagrZ displX displY displZ "
+        check(names_of(file) == "realization id tracX tracY tracZ lagrX lagrY lagrZ displX displY displZ "
                                 "valid outsideRedshiftCut outsideMask", "the columns: " + names_of(file));
       const io::Table t = io::read(file, {"tracX", "tracY", "tracZ", "lagrX", "lagrY", "lagrZ",
                                           "displX", "displY", "displZ"},
-                                   {"realization", "index", "valid", "outsideRedshiftCut", "outsideMask"});
+                                   {"realization", "id", "valid", "outsideRedshiftCut", "outsideMask"});
       check(t.nRows == 3 * n, name + ": one row per realization and tracer");
       Result back;
       back.nObjects = n;
@@ -330,6 +330,8 @@ int main ()
 
     const std::string boxFile = temporary("catalogue_box.fits");
     io::writeRealSpaceCatalog(boxFile, boxCatalog);
+    check(fits_keyword(boxFile, "TCOMM7") == "'0 corrected, 1 moved by neighbours, 2 no valid neighbour, 3 left out'",
+          "the status description in TCOMMn, whole: " + fits_keyword(boxFile, "TCOMM7"));
     check(fits_keyword(boxFile, "AXIS") == "2" && fits_keyword(boxFile, "ZBOX") == "0.5" &&
           fits_keyword(boxFile, "BIAS") == "1.5" && fits_keyword(boxFile, "SIGMA") == "8",
           "box keywords in FITS");
@@ -339,14 +341,118 @@ int main ()
             for (std::size_t i = 0; i < n; ++i) z[i] = boxCatalog.cartesian[3*i+2];
             return z; }()), "the corrected box positions, exactly");
 
-    io::writeRealSpaceCatalog(boxFile, boxCatalog, {io::CatalogGroup::Index, io::CatalogGroup::Shift});
-    const io::Table s = io::read(boxFile, {"shift", "rsdFactor"}, {"index"});
+    io::writeRealSpaceCatalog(boxFile, boxCatalog, {io::CatalogGroup::Id, io::CatalogGroup::Shift});
+    const io::Table s = io::read(boxFile, {"shift", "rsdFactor"}, {"id"});
     check(s.values[2*5] == boxCatalog.shift[5] && s.values[2*5+1] == boxCatalog.factor[5] && s.integers[5] == 5,
           "the Shift group");
     check(throws_naming([&] { io::writeRealSpaceCatalog(boxFile, boxCatalog, {io::CatalogGroup::Sky}); },
                         "Sky describes a lightcone"), "Sky on a box is refused");
     std::remove(file.c_str());
     std::remove(boxFile.c_str());
+  }
+
+  group("IDs: the id column holds the IDs, or the row without them, in the three writers and both formats");
+  {
+    std::vector<std::int64_t> ids(n);
+    for (std::size_t i = 0; i < n; ++i)
+      ids[i] = (i % 2 == 0 ? 1 : -1) * (std::int64_t)(9007199254740993ULL + 2 * i);
+    ids[0] = std::numeric_limits<std::int64_t>::min();
+    ids[1] = std::numeric_limits<std::int64_t>::max();
+    Result lcIds = lc, boxIds = box;
+    lcIds.ids = ids;
+    boxIds.ids = ids;
+    const RealSpaceCatalog lcCatalogIds = realSpaceLightcone(lcIds, table, bias, 10., quiet);
+    const RealSpaceCatalog boxCatalogIds = realSpaceBox(boxIds, 2, 0.5, table, 1.5, 8., quiet);
+    std::vector<std::int64_t> rows(n);
+    for (std::size_t i = 0; i < n; ++i) rows[i] = (std::int64_t)i;
+
+    // The id column of a file, read as 64-bit integers.
+    auto read_ids = [] (const std::string& file) {
+      const io::Table t = io::read(file, {"tracX"}, {"id"});
+      return t.integers;
+    };
+    for (const std::string extension : {".dat", ".fits"}) {
+      const std::string file = temporary("ids" + extension);
+      io::writeDisplacements(file, lcIds);
+      check(read_ids(file) == ids, extension + ": writeDisplacements, lightcone, the IDs exactly");
+      io::writeDisplacements(file, boxIds);
+      check(read_ids(file) == ids, extension + ": writeDisplacements, box, the IDs exactly");
+      io::writeRealSpaceCatalog(file, lcCatalogIds);
+      check(read_ids(file) == ids, extension + ": writeRealSpaceCatalog, lightcone, the IDs exactly");
+      io::writeRealSpaceCatalog(file, boxCatalogIds);
+      check(read_ids(file) == ids, extension + ": writeRealSpaceCatalog, box, the IDs exactly");
+      io::writeRealSpaceCatalog(file, boxCatalog, {io::CatalogGroup::Id, io::CatalogGroup::Cartesian});
+      check(read_ids(file) == rows, extension + ": writeRealSpaceCatalog without IDs, the rows");
+      io::writeDisplacementField(file, lcIds);
+      const std::vector<std::int64_t> field = read_ids(file);
+      bool repeated = field.size() == 3 * n;
+      for (std::size_t r = 0; repeated && r < field.size(); ++r) repeated = field[r] == ids[r % n];
+      check(repeated, extension + ": writeDisplacementField, the IDs in every realization");
+      io::writeDisplacementField(file, lc);
+      const std::vector<std::int64_t> fieldRows = read_ids(file);
+      bool counted = fieldRows.size() == 3 * n;
+      for (std::size_t r = 0; counted && r < fieldRows.size(); ++r) counted = fieldRows[r] == (std::int64_t)(r % n);
+      check(counted, extension + ": writeDisplacementField without IDs, the rows");
+      if (extension == ".fits")
+        check(fits_keyword(file, "TCOMM2") == "'tracer ID; its input row, from 0, when no IDs were set'",
+              "the description in TCOMMn, whole: " + fits_keyword(file, "TCOMM2"));
+      std::remove(file.c_str());
+    }
+
+    const std::string file = temporary("ids.dat");
+    io::writeDisplacements(file, lcIds);
+    check(names_of(file) == "id tracRA tracDec tracRed lagrRA lagrDec lagrRed tracX tracY tracZ lagrX lagrY "
+                            "lagrZ displX displY displZ nValidRec outsideRedshiftCut outsideMask",
+          "with IDs, id first in the lightcone default: " + names_of(file));
+    const std::string header = text_of(file);
+    const std::size_t idLine = header.find("\n# id ");
+    const std::string line = idLine == std::string::npos ? ""
+      : header.substr(idLine + 1, header.find('\n', idLine + 1) - idLine - 1);
+    const std::string description = "tracer ID; its input row, from 0, when no IDs were set";
+    check(line.size() > description.size() &&
+          line.compare(line.size() - description.size(), description.size(), description) == 0,
+          "the description in ASCII: " + line);
+    io::writeDisplacements(file, boxIds);
+    check(names_of(file) == "id tracX tracY tracZ lagrX lagrY lagrZ displX displY displZ nValidRec",
+          "with IDs, id first in the box default: " + names_of(file));
+    io::writeDisplacements(file, boxIds, {io::DisplacementGroup::Displacement, io::DisplacementGroup::Id});
+    check(names_of(file) == "displX displY displZ id", "with IDs, id requested goes where it is given");
+    io::writeDisplacements(file, boxIds, {io::DisplacementGroup::Displacement});
+    check(names_of(file) == "displX displY displZ", "with IDs, groups given are written as given");
+    io::writeRealSpaceCatalog(file, lcCatalogIds);
+    check(names_of(file) == "id tracRA tracDec tracRed tracX tracY tracZ nValidRec nNeighbours "
+                            "nRealizationsAveraged status",
+          "with IDs, id first in the lightcone catalogue default: " + names_of(file));
+    io::writeRealSpaceCatalog(file, boxCatalogIds);
+    check(names_of(file) == "id tracX tracY tracZ nValidRec nNeighbours nRealizationsAveraged status",
+          "with IDs, id first in the box catalogue default: " + names_of(file));
+
+    const std::string length = "ids holds 3 entries for 900 objects; give one per object, or none";
+    Result shortIds = box;
+    shortIds.ids = {4, 5, 6};
+    check(throws_naming([&] { io::writeDisplacements(file, shortIds); }, length) &&
+          throws_naming([&] { io::writeDisplacements(file, shortIds, {io::DisplacementGroup::Displacement}); },
+                        length) &&
+          throws_naming([&] { io::writeDisplacementField(file, shortIds); }, length),
+          "IDs of the wrong length are refused, whatever the groups");
+    std::vector<std::int64_t> twice = rows;
+    twice[300] = twice[10];
+    twice[200] = twice[50];
+    Result twiceIds = box;
+    twiceIds.ids = twice;
+    const std::string duplicate = "ids holds 50 twice, at entries 50 and 200; each object needs its own ID";
+    check(throws_naming([&] { io::writeDisplacements(file, twiceIds); }, duplicate) &&
+          throws_naming([&] { io::writeDisplacements(file, twiceIds, {io::DisplacementGroup::Displacement}); },
+                        duplicate) &&
+          throws_naming([&] { io::writeDisplacementField(file, twiceIds); }, duplicate),
+          "a repeated ID is refused, the first one named, whatever the groups");
+    RealSpaceCatalog shortCatalog = boxCatalog, twiceCatalog = boxCatalog;
+    shortCatalog.ids = {4, 5, 6};
+    twiceCatalog.ids = twice;
+    check(throws_naming([&] { io::writeRealSpaceCatalog(file, shortCatalog); }, length) &&
+          throws_naming([&] { io::writeRealSpaceCatalog(file, twiceCatalog, {io::CatalogGroup::Shift}); },
+                        duplicate), "writeRealSpaceCatalog refuses the same IDs");
+    std::remove(file.c_str());
   }
 
   group("writeMpsProfile: one row per bin, and the profile's keywords");

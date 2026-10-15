@@ -152,11 +152,24 @@ namespace {
   const char* const kMpc[3] = {"Mpc/h", "Mpc/h", "Mpc/h"};
   const char* const kDeg[3] = {"deg", "deg", ""};
 
-  Group index_group ()
+  /// The id column, with its description, shared by the three writers.
+  Column id_column ()
   {
-    return {{column("index", 'K', "row of the tracer in the input catalogue, from 0")},
-            [] (const std::size_t row, double*, std::int64_t* integers) {
-              integers[0] = (std::int64_t)row;
+    return column("id", 'K', "tracer ID; its input row, from 0, when no IDs were set");
+  }
+
+  /// The ID of object i: ids[i], or i when ids is empty.
+  std::int64_t id_of (const std::vector<std::int64_t>& ids, const std::size_t i)
+  {
+    return ids.empty() ? (std::int64_t)i : ids[i];
+  }
+
+  Group id_group (const std::vector<std::int64_t>& ids)
+  {
+    const std::vector<std::int64_t>* source = &ids;
+    return {{id_column()},
+            [source] (const std::size_t row, double*, std::int64_t* integers) {
+              integers[0] = id_of(*source, row);
             }};
   }
 
@@ -210,7 +223,7 @@ void otswap::io::writeDisplacements (const std::string& file, const Result& resu
                                      const std::vector<DisplacementGroup>& groups)
 {
   using G = DisplacementGroup;
-  static const char* const names[] = {"Index", "TracerSky", "LagrangianSky", "Tracer", "Lagrangian",
+  static const char* const names[] = {"Id", "TracerSky", "LagrangianSky", "Tracer", "Lagrangian",
                                       "Displacement", "ValidRealizations", "Selection", "OutsideBox"};
   const bool lightcone = result.geometry == Geometry::Lightcone;
   std::vector<G> chosen = groups;
@@ -221,16 +234,18 @@ void otswap::io::writeDisplacements (const std::string& file, const Result& resu
     chosen = {G::Tracer, G::Lagrangian, G::Displacement, G::ValidRealizations};
     if (result.selection.boxLimits) chosen.push_back(G::OutsideBox);
   }
+  if (groups.empty() && !result.ids.empty()) chosen.insert(chosen.begin(), G::Id);
   check_groups(chosen, {G::TracerSky, G::LagrangianSky, G::Selection}, lightcone, names,
                {G::OutsideBox});
   internal::check_flags(result);
+  internal::check_ids(result.ids, result.nObjects);
 
   const std::size_t n = result.nObjects;
   std::vector<Group> out;
   for (const G g : chosen) {
     switch (g) {
-    case G::Index:
-      out.push_back(index_group());
+    case G::Id:
+      out.push_back(id_group(result.ids));
       break;
     case G::TracerSky:
       check_size(result.tracersSky.size(), 3 * n, "tracersSky");
@@ -308,11 +323,12 @@ void otswap::io::writeDisplacementField (const std::string& file, const Result& 
   check_size(result.matchedRandom.size(), 3 * rows, "matchedRandom");
   check_size(result.valid.size(), rows, "valid");
   internal::check_flags(result);
+  internal::check_ids(result.ids, n);
 
   const Result* r = &result;
   const std::vector<Column> columns {
     column("realization", 'J', "realization, from 0"),
-    column("index", 'K', "row of the tracer in the input catalogue, from 0"),
+    id_column(),
     column("tracX", 'D', "comoving position of the tracer", "Mpc/h"),
     column("tracY", 'D', "comoving position of the tracer", "Mpc/h"),
     column("tracZ", 'D', "comoving position of the tracer", "Mpc/h"),
@@ -333,7 +349,7 @@ void otswap::io::writeDisplacementField (const std::string& file, const Result& 
         [r, n] (const std::size_t row, std::vector<double>& values, std::vector<std::int64_t>& integers) {
           const std::size_t i = row % n;
           values[0] = (double)(row / n);
-          integers[1] = (std::int64_t)i;
+          integers[1] = id_of(r->ids, i);
           for (std::size_t c = 0; c < 3; ++c) {
             values[2+c] = r->tracers[3*i+c];
             values[5+c] = r->matchedRandom[3*row+c];
@@ -353,21 +369,25 @@ void otswap::io::writeRealSpaceCatalog (const std::string& file, const RealSpace
                                         const std::vector<CatalogGroup>& groups)
 {
   using G = CatalogGroup;
-  static const char* const names[] = {"Index", "Sky", "Cartesian", "ValidRealizations", "Neighbours",
+  static const char* const names[] = {"Id", "Sky", "Cartesian", "ValidRealizations", "Neighbours",
                                       "Shift", "Status"};
   const bool lightcone = catalog.geometry == Geometry::Lightcone;
-  const std::vector<G> chosen = !groups.empty() ? groups
-    : lightcone ? std::vector<G>{G::Sky, G::Cartesian, G::ValidRealizations, G::Neighbours, G::Status}
-                : std::vector<G>{G::Cartesian, G::ValidRealizations, G::Neighbours, G::Status};
+  std::vector<G> chosen = groups;
+  if (chosen.empty()) {
+    chosen = lightcone ? std::vector<G>{G::Sky, G::Cartesian, G::ValidRealizations, G::Neighbours, G::Status}
+                       : std::vector<G>{G::Cartesian, G::ValidRealizations, G::Neighbours, G::Status};
+    if (!catalog.ids.empty()) chosen.insert(chosen.begin(), G::Id);
+  }
   check_groups(chosen, {G::Sky}, lightcone, names);
+  internal::check_ids(catalog.ids, catalog.nObjects);
 
   const std::size_t n = catalog.nObjects;
   const RealSpaceCatalog* c = &catalog;
   std::vector<Group> out;
   for (const G g : chosen) {
     switch (g) {
-    case G::Index:
-      out.push_back(index_group());
+    case G::Id:
+      out.push_back(id_group(catalog.ids));
       break;
     case G::Sky:
       check_size(catalog.sky.size(), 3 * n, "sky");
@@ -409,9 +429,8 @@ void otswap::io::writeRealSpaceCatalog (const std::string& file, const RealSpace
       break;
     case G::Status:
       check_size(catalog.status.size(), n, "status");
-      out.push_back({{column("status", 'J', "0 corrected, 1 moved by its neighbours (no valid "
-                                            "realization), 2 no valid tracer within 3 sigma, 3 left "
-                                            "out of the reconstruction")},
+      out.push_back({{column("status", 'J', "0 corrected, 1 moved by neighbours, 2 no valid neighbour, "
+                                            "3 left out")},
                      [c] (const std::size_t row, double* values, std::int64_t*) {
                        values[0] = (double)(int)c->status[row];
                      }});

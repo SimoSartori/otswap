@@ -62,6 +62,7 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 | C++ | Python | Notes |
 |---|---|---|
 | `Result` fields, camelCase | `Result` properties, snake_case | read-only views in Python |
+| `Result::ids`, empty without IDs | `Result.ids`, 0..n_objects-1 without IDs | settable in Python, checked on assignment; a new copy on each access |
 | `Result::config` | `Result.seed` | the seed used; the other parameters are those of the call |
 | `Result::distances` | — | kept inside the Python result |
 | — | `Result.angle_unit` | the unit of `tracers_sky` and `lagrangian_sky` |
@@ -84,6 +85,7 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 | `shiftRadially`, `shiftAlongAxis` | `shift_radially`, `shift_along_axis` | |
 | `BiasTable` | `BiasTable` | Python checks the table when it is built |
 | `RealSpaceCatalog` | `RealSpaceCatalog` | `sky` in the result's `angle_unit` in Python; `axis`, `box_redshift`, `box_bias` None in a lightcone |
+| `RealSpaceCatalog::ids` | `RealSpaceCatalog.ids` | read-only in Python, as `Result.ids` |
 | `CorrectionStatus` | `CorrectionStatus` | an `IntEnum`; `MovedByNeighbours` is `MOVED_BY_NEIGHBOURS` |
 
 ## Tables

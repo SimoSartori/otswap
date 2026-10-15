@@ -266,6 +266,10 @@ namespace otswap {
     /// The geometry of the reconstruction corrected.
     Geometry geometry = Geometry::Box;
 
+    /// The IDs of the objects, copied from Result::ids of the result
+    /// corrected: empty, or nObjects entries. Written as the id column.
+    std::vector<std::int64_t> ids;
+
     /// Lightcone: right ascension, folded into [0, 2 pi), and declination of
     /// the tracer, and its corrected redshift; radians. Flat, [object][3]. NaN
     /// rows for the tracers not moved. Empty in a box.
@@ -349,7 +353,8 @@ namespace otswap {
    *  @param config the weighting, and what the call reports.
    *
    *  @exception Error if result is not a lightcone result, is malformed or
-   *  lacks its tracers or tracersSky, if a tracer kept is not finite or is
+   *  lacks its tracers or tracersSky, if its ids are neither empty nor one
+   *  per object or hold a value twice, if a tracer kept is not finite or is
    *  at the origin, if the table carries no growth rate, if the bias table
    *  is malformed or extrapolates to a bias that is not positive, or if a
    *  corrected comoving distance is not positive or lies outside the
@@ -389,7 +394,8 @@ namespace otswap {
    *  @param config the weighting, and what the call reports.
    *
    *  @exception Error if result is not a box result, is malformed or lacks
-   *  its tracers, if the axis is not 0, 1 or 2, or as rsdFactorBox.
+   *  its tracers, if its ids are neither empty nor one per object or hold a
+   *  value twice, if the axis is not 0, 1 or 2, or as rsdFactorBox.
    *  @exception Error from the neighbour search, as neighbourAverage, for
    *  the tracers corrected.
    */

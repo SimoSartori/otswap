@@ -101,7 +101,8 @@ namespace {
 
   /// The fields of a Result the correction reads: its geometry, its
   /// tracers (and their sky coordinates in a lightcone), the mean
-  /// displacements and the counts of valid realizations.
+  /// displacements and the counts of valid realizations; and its ids, which
+  /// the catalogue copies.
   void check_result (const otswap::Result& result, const otswap::Geometry geometry,
                      const std::string& function)
   {
@@ -124,6 +125,7 @@ namespace {
                           std::to_string(result.validRealizations.size()) + " entries for " +
                           std::to_string(n) + " objects");
     otswap::internal::check_flags(result);
+    otswap::internal::check_ids(result.ids, n);
     for (std::size_t i = 0; i < n; ++i) {
       if (otswap::internal::excluded(result, i) && result.validRealizations[i] != 0)
         throw otswap::Error("the result is malformed: object " + std::to_string(i) + " took no part "
@@ -212,16 +214,17 @@ namespace {
     return f / (bz + 3. * f / 5.);
   }
 
-  /// A catalogue of the objects of result, nothing moved: every position,
-  /// shift and factor NaN, every diagnostic 0, the status LeftOut for the
-  /// tracers left out of the reconstruction and NoValidNeighbour for the
-  /// others.
+  /// A catalogue of the objects of result, with their ids, nothing moved:
+  /// every position, shift and factor NaN, every diagnostic 0, the status
+  /// LeftOut for the tracers left out of the reconstruction and
+  /// NoValidNeighbour for the others.
   otswap::RealSpaceCatalog empty_catalog (const otswap::Result& result)
   {
     const std::size_t n = result.nObjects;
     otswap::RealSpaceCatalog catalog;
     catalog.nObjects = n;
     catalog.geometry = result.geometry;
+    catalog.ids = result.ids;
     if (result.geometry == otswap::Geometry::Lightcone) catalog.sky.assign(3 * n, kNaN);
     catalog.cartesian.assign(3 * n, kNaN);
     catalog.shift.assign(n, kNaN);

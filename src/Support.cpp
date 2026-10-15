@@ -32,6 +32,7 @@
 #include <exception>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <meshsearch/MeshGrid.h>
@@ -171,6 +172,33 @@ void otswap::internal::check_flags (const Result& result)
   check3(result.tracersSky, "tracersSky");
   check3(result.lagrangian, "lagrangian");
   check3(result.lagrangianSky, "lagrangianSky");
+}
+
+
+// ============================================================================
+
+
+void otswap::internal::check_ids (const std::vector<std::int64_t>& ids, const std::size_t nObjects)
+{
+  if (ids.empty()) return;
+  if (ids.size() != nObjects)
+    throw Error("ids holds " + std::to_string(ids.size()) + " entries for " + std::to_string(nObjects) +
+                " objects; give one per object, or none");
+
+  std::vector<std::pair<std::int64_t, std::size_t>> sorted(ids.size());
+  for (std::size_t i = 0; i < ids.size(); ++i) sorted[i] = {ids[i], i};
+  std::sort(sorted.begin(), sorted.end());
+  std::size_t start = 0, first = 0, second = ids.size();
+  for (std::size_t k = 1; k < sorted.size(); ++k) {
+    if (sorted[k].first != sorted[k-1].first) start = k;
+    else if (k == start + 1 && sorted[k].second < second) {
+      first = sorted[start].second;
+      second = sorted[k].second;
+    }
+  }
+  if (second < ids.size())
+    throw Error("ids holds " + std::to_string(ids[first]) + " twice, at entries " + std::to_string(first) +
+                " and " + std::to_string(second) + "; each object needs its own ID");
 }
 
 

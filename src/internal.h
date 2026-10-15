@@ -111,6 +111,10 @@ namespace otswap {
     /// 3 * nObjects.
     void check_flags (const Result& result);
 
+    /// Checks that @p ids is empty or holds @p nObjects entries, and that no
+    /// value appears twice. Any 64-bit value is accepted.
+    void check_ids (const std::vector<std::int64_t>& ids, std::size_t nObjects);
+
     /// True when tracer @p i of @p result took no part in the
     /// reconstruction: flagged in outsideRedshiftCut, outsideMask or
     /// outsideBox. The flags must have passed check_flags.

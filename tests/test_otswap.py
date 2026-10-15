@@ -1975,8 +1975,8 @@ def test_write_displacements(tmp_path, table, lightcone, sieve_mask):
     assert np.array_equal(t.integers[:, 0], r.valid_realizations)
     assert np.array_equal(t.integers[:, 1], r.outside_redshift_cut)
 
-    otswap.io.write_displacements(path, r, groups=["index", "displacement"])
-    assert otswap.io.read(path, ["displZ"], integer_columns=["index"]).integers[:, 0].tolist() == \
+    otswap.io.write_displacements(path, r, groups=["id", "displacement"])
+    assert otswap.io.read(path, ["displZ"], integer_columns=["id"]).integers[:, 0].tolist() == \
         list(range(r.n_objects))
     box = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
     for groups, match in ((["tracer_sky"], "describes a lightcone"), (["tracer", "tracer"], "twice"),
@@ -1986,7 +1986,7 @@ def test_write_displacements(tmp_path, table, lightcone, sieve_mask):
     with pytest.raises(otswap.Error):
         otswap.io.write_displacements(path, "result")
 
-    otswap.io.write_displacements(path, box, groups=["index", "outside_box"])
+    otswap.io.write_displacements(path, box, groups=["id", "outside_box"])
     assert not otswap.io.read(path, ["outsideBox"]).values.any(), "written on request, all 0, without limits"
     with pytest.raises(otswap.Error, match="OutsideBox describes a box"):
         otswap.io.write_displacements(path, r, groups=["outside_box"])
@@ -2003,7 +2003,7 @@ def test_write_displacement_field_round_trip(tmp_path, table, lightcone, sieve_m
     path = tmp_path / name
     otswap.io.write_displacement_field(path, r)
     cols = ["tracX", "tracY", "tracZ", "lagrX", "lagrY", "lagrZ", "displX", "displY", "displZ"]
-    t = otswap.io.read(path, cols, integer_columns=["realization", "index", "valid",
+    t = otswap.io.read(path, cols, integer_columns=["realization", "id", "valid",
                                                     "outsideRedshiftCut", "outsideMask"])
     nrec, n = r.n_realizations, r.n_objects
     v = t.values.reshape(nrec, n, 9)
@@ -2024,9 +2024,9 @@ def test_write_catalogue_and_profile(tmp_path, table, lightcone):
     c = otswap.real_space_lightcone(r, distances=table, bias=otswap.BiasTable([0.3, 0.6], [1.2, 1.6]),
                                     sigma=10.0, verbosity="silent")
     path = tmp_path / "c.fits"
-    otswap.io.write_real_space_catalog(path, c, groups=["index", "sky", "shift", "status"])
+    otswap.io.write_real_space_catalog(path, c, groups=["id", "sky", "shift", "status"])
     t = otswap.io.read(path, ["tracRA", "tracDec", "tracRed", "shift", "rsdFactor"],
-                       integer_columns=["index", "status"])
+                       integer_columns=["id", "status"])
     np.testing.assert_allclose(t.values[:, :3], c.sky, rtol=1e-15)
     assert same_bytes(t.values[:, 3], c.shift) and same_bytes(t.values[:, 4], c.factor)
     assert np.array_equal(t.integers[:, 1], c.status)
@@ -2051,6 +2051,117 @@ def test_write_catalogue_and_profile(tmp_path, table, lightcone):
     otswap.io.write_real_space_catalog(tmp_path / "b.dat", b)
     text = (tmp_path / "b.dat").read_text()
     assert "## AXIS = 1 /" in text and "###   tracX   tracY   tracZ   nValidRec   nNeighbours" in text
+
+
+# Result.ids: 0..n-1 without IDs, a new read-only copy on each access; the
+# setter's conversion, checks and messages; None, empty and 0..n-1 store none.
+def test_result_ids():
+    r = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
+    n = r.n_objects
+    ids = r.ids
+    assert ids.dtype == np.int64 and np.array_equal(ids, np.arange(n)), "the reconstruction sets none"
+    assert not ids.flags.writeable and r.ids is not ids
+    with pytest.raises(ValueError):
+        ids[0] = 5
+
+    given = (np.arange(n, dtype=np.int64) - n // 2) * 3_000_000_000_000_000
+    given[0], given[1] = np.iinfo(np.int64).min, np.iinfo(np.int64).max
+    r.ids = given
+    first = r.ids
+    assert np.array_equal(first, given) and not first.flags.writeable
+    given[2] = 77
+    assert first[2] != 77 and r.ids[2] == first[2], "the setter stores a copy"
+
+    r.ids = np.arange(n, dtype=float) + 10.0
+    assert np.array_equal(r.ids, np.arange(n) + 10), "a float array of integers is accepted"
+    with pytest.raises(otswap.Error, match=r"ids holds 0\.500000 at entry 0; every entry must be a 64-bit integer"):
+        r.ids = np.arange(n) + 0.5
+    with pytest.raises(otswap.Error, match="ids must hold integers"):
+        r.ids = ["a"] * n
+    with pytest.raises(otswap.Error, match="ids must be one-dimensional"):
+        r.ids = np.arange(n).reshape(1, n)
+    with pytest.raises(otswap.Error,
+                       match=f"^ids holds 3 entries for {n} objects; give one per object, or none$"):
+        r.ids = [1, 2, 3]
+    twice = np.arange(n) + 100
+    twice[300], twice[200] = twice[10], twice[50]
+    with pytest.raises(otswap.Error,
+                       match="^ids holds 150 twice, at entries 50 and 200; each object needs its own ID$"):
+        r.ids = twice
+    assert np.array_equal(r.ids, np.arange(n) + 10), "a refused value leaves the IDs unchanged"
+
+    for none in (None, [], np.arange(n), np.arange(n, dtype=np.int32)):
+        r.ids = np.arange(n) + 10
+        r.ids = none
+        assert np.array_equal(r.ids, np.arange(n))
+    r.ids = [n - 1 - i for i in range(n)]
+    assert np.array_equal(r.ids, np.arange(n)[::-1]), "a permutation of 0..n-1 is kept"
+
+
+# The id column: the IDs set, or the rows; among the default columns only
+# when IDs are set; the real-space catalogue copies them, read-only.
+def test_ids_in_files_and_catalogues(tmp_path, table):
+    r = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
+    n = r.n_objects
+    path = tmp_path / "d.dat"
+    otswap.io.write_displacements(path, r)
+    default = path.read_text()
+    assert "###   tracX" in default and " id\n" not in default, "no IDs: the 0.1.0 default"
+    r.ids = np.arange(n)
+    otswap.io.write_displacements(path, r)
+    assert path.read_text() == default, "0..n-1 stores no IDs: the same file"
+
+    ids = -(np.arange(n, dtype=np.int64) * 7 + 2**53 + 1)
+    r.ids = ids
+    for suffix in (".dat", ".fits"):
+        out = path.with_suffix(suffix)
+        otswap.io.write_displacements(out, r)
+        assert np.array_equal(otswap.io.read(out, ["tracX"], integer_columns=["id"]).integers[:, 0], ids)
+        otswap.io.write_displacement_field(out, r)
+        assert np.array_equal(otswap.io.read(out, ["tracX"], integer_columns=["id"]).integers[:, 0],
+                              np.tile(ids, r.n_realizations))
+    otswap.io.write_displacements(path, r)
+    assert "###   id   tracX" in path.read_text(), "with IDs, id first in the default"
+    otswap.io.write_displacements(path, r, groups=["displacement"])
+    assert " id" not in path.read_text().split("###")[-1].splitlines()[0], "groups given, as given"
+
+    c = otswap.real_space_box(r, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=8.0,
+                              verbosity="silent")
+    assert np.array_equal(c.ids, ids) and not c.ids.flags.writeable and c.ids is not c.ids
+    with pytest.raises(AttributeError):
+        c.ids = ids
+    otswap.io.write_real_space_catalog(path, c)
+    t = otswap.io.read(path, ["tracX"], integer_columns=["status", "id"])
+    assert np.array_equal(t.integers[:, 1], ids), "with IDs, id first in the catalogue default"
+    assert "###   id   tracX" in path.read_text()
+    otswap.io.write_displacements(path, r, groups=["displacement", "id"])
+    assert "###   displX   displY   displZ   id\n" in path.read_text(), "id requested goes where it is given"
+    r.ids = None
+    c = otswap.real_space_box(r, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=8.0,
+                              verbosity="silent")
+    assert np.array_equal(c.ids, np.arange(n))
+    otswap.io.write_real_space_catalog(path, c, groups=["id", "cartesian"])
+    assert np.array_equal(otswap.io.read(path, ["tracX"], integer_columns=["id"]).integers[:, 0], np.arange(n))
+
+    for writer, value in ((otswap.io.write_displacements, r), (otswap.io.write_real_space_catalog, c)):
+        with pytest.raises(otswap.Error, match="unknown group 'index'; the groups are id, "):
+            writer(path, value, groups=["index"])
+
+
+# Result.from_arrays(ids=): the setter's conversion, checks and storage.
+def test_from_arrays_ids():
+    r = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
+    n = r.n_objects
+    arrays = (r.displacement, r.matched_random, r.valid, r.tracers)
+    assert np.array_equal(otswap.Result.from_arrays(*arrays).ids, np.arange(n))
+    assert np.array_equal(otswap.Result.from_arrays(*arrays, ids=None).ids, np.arange(n))
+    ids = np.arange(n) * -5 - 1
+    back = otswap.Result.from_arrays(*arrays, ids=ids.astype(float), seed=3)
+    assert np.array_equal(back.ids, ids) and back.seed == 3
+    with pytest.raises(otswap.Error, match=f"^ids holds 2 entries for {n} objects; give one per object, or none$"):
+        otswap.Result.from_arrays(*arrays, ids=[1, 2])
+    with pytest.raises(otswap.Error, match="^ids holds -1 twice, at entries 0 and 4; each object needs its own ID$"):
+        otswap.Result.from_arrays(*arrays, ids=np.r_[-1, 1, 2, 3, -1, np.arange(5, n)])
 
 
 @needs_cpp

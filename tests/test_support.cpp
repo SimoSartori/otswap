@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <numeric>
 #include <set>
 #include <string>
@@ -181,6 +182,34 @@ int main ()
     check_throws([] { internal::check_random_supply(10, 10, 2); },
                  "fewer randoms than nRealizations * nObjects raises");
     internal::check_random_supply(20, 10, 2);
+  }
+
+  group("check_ids: empty or one per object, any 64-bit value, no value twice; the first repeat named");
+  {
+    auto message = [] (const std::vector<std::int64_t>& ids, const std::size_t n) {
+      try {
+        internal::check_ids(ids, n);
+      }
+      catch (const Error& e) {
+        return std::string(e.what());
+      }
+      return std::string();
+    };
+    const std::int64_t lowest = std::numeric_limits<std::int64_t>::min();
+    const std::int64_t highest = std::numeric_limits<std::int64_t>::max();
+    check(message({}, 5).empty() && message({}, 0).empty(), "empty IDs are accepted for any count");
+    check(message({lowest, -1, 0, highest, 9007199254740993}, 5).empty(),
+          "negative and extreme values are accepted");
+    check(message({1, 2, 3}, 4) == "ids holds 3 entries for 4 objects; give one per object, or none" &&
+          message({1}, 0) == "ids holds 1 entries for 0 objects; give one per object, or none",
+          "a wrong length is refused, with both counts");
+    check(message({7, 3, 9, 3, 7, 3}, 6) == "ids holds 3 twice, at entries 1 and 3; each object needs its own ID",
+          "the repeat with the smallest second entry is named, with the first entry holding its value");
+    check(message({lowest, 5, 6, 5, lowest}, 5) ==
+            "ids holds 5 twice, at entries 1 and 3; each object needs its own ID" &&
+          message({highest, 2, highest}, 3) ==
+            "ids holds 9223372036854775807 twice, at entries 0 and 2; each object needs its own ID",
+          "the order of the values does not decide which repeat is named");
   }
 
   group("the sky and Cartesian conversions invert each other");

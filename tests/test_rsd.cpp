@@ -1452,6 +1452,40 @@ int main ()
       check(cartesianRight, "cartesian: shiftRadially of the tracer by its shift, bit for bit; NaN rows elsewhere");
     }
 
+    group("IDs: the reconstructions set none; realSpaceLightcone and realSpaceBox copy them, compute the "
+          "same, and refuse malformed ones");
+    {
+      check(masked.ids.empty() && plain.ids.empty() && cartesian.ids.empty() && box.ids.empty(),
+            "the reconstruction functions leave ids empty");
+      std::vector<std::int64_t> ids(n);
+      for (std::size_t i = 0; i < n; ++i) ids[i] = 1000 - 3 * (std::int64_t)i;
+      Result withIds = plain, boxWithIds = box;
+      withIds.ids = ids;
+      boxWithIds.ids = ids;
+      const RealSpaceCatalog c = realSpaceLightcone(withIds, table, BiasTable{zb, b}, 10.);
+      const RealSpaceCatalog without = realSpaceLightcone(plain, table, BiasTable{zb, b}, 10.);
+      check(c.ids == ids && without.ids.empty(), "realSpaceLightcone copies the IDs, or none");
+      check(same_bits(c.cartesian, without.cartesian) && same_bits(c.sky, without.sky) &&
+            same_bits(c.shift, without.shift) && c.status == without.status,
+            "realSpaceLightcone computes the same with and without IDs");
+      const RealSpaceCatalog cb = realSpaceBox(boxWithIds, 2, 0.5, table, 1.5, 10.);
+      const RealSpaceCatalog withoutB = realSpaceBox(box, 2, 0.5, table, 1.5, 10.);
+      check(cb.ids == ids && withoutB.ids.empty() && same_bits(cb.cartesian, withoutB.cartesian),
+            "realSpaceBox copies the IDs, and computes the same");
+      Result shortIds = plain, boxTwice = box;
+      shortIds.ids = {1, 2};
+      boxTwice.ids = ids;
+      boxTwice.ids[7] = boxTwice.ids[3];
+      check(throws_naming([&] { realSpaceLightcone(shortIds, table, BiasTable{zb, b}, 10.); },
+                          "ids holds 2 entries for " + std::to_string(n) +
+                          " objects; give one per object, or none"),
+            "realSpaceLightcone refuses IDs of the wrong length");
+      check(throws_naming([&] { realSpaceBox(boxTwice, 2, 0.5, table, 1.5, 10.); },
+                          "ids holds " + std::to_string(ids[3]) + " twice, at entries 3 and 7; each object "
+                          "needs its own ID"),
+            "realSpaceBox refuses a repeated ID");
+    }
+
     group("the correction's report: b(z) extrapolated, then the line of the call; Detailed adds the "
           "breakdown; Silent nothing");
     {

@@ -34,7 +34,8 @@
  *  converted from degrees here, so the library only ever sees radians; a
  *  Result records the angle unit of its call, and returns its sky arrays in
  *  it, converted once and kept. The other Result arrays are read-only views
- *  on the C++ result, kept alive by the Python object that holds it. The
+ *  on the C++ result, kept alive by the Python object that holds it, but
+ *  for ids, a new copy on each access, since assigning ids replaces them. The
  *  report of a call is written by the library into a string, and printed
  *  from Python, to sys.stdout, which a notebook shows, rather than by the
  *  library to the process's stderr; the extrapolation of b(z) is an
@@ -47,6 +48,7 @@
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
+#include <numeric>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -57,6 +59,8 @@
 #include <nanobind/ndarray.h>
 
 #include "otswap/OT.h"
+
+#include "internal.h"
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -411,6 +415,32 @@ namespace {
     return nb::ndarray<nb::numpy, const T>(data, shape, owner);
   }
 
+  /// The IDs to store for n objects, checked as the library checks them:
+  /// none for None, an empty array or exactly 0..n-1, else the values.
+  std::vector<std::int64_t> ids_value (nb::handle value, const std::size_t n)
+  {
+    if (value.is_none()) return {};
+    std::vector<std::int64_t> ids = int64_column(value, "ids");
+    otswap::internal::check_ids(ids, n);
+    for (std::size_t i = 0; i < ids.size(); ++i)
+      if (ids[i] != (std::int64_t)i) return ids;
+    return {};
+  }
+
+  /// A new read-only array of the IDs of n objects: a copy of ids, or 0..n-1
+  /// when it is empty.
+  nb::ndarray<nb::numpy, const std::int64_t> ids_array (const std::vector<std::int64_t>& ids,
+                                                         const std::size_t n)
+  {
+    auto* held = new std::vector<std::int64_t>(ids);
+    if (held->empty()) {
+      held->resize(n);
+      std::iota(held->begin(), held->end(), std::int64_t(0));
+    }
+    nb::capsule owner(held, [] (void* p) noexcept { delete static_cast<std::vector<std::int64_t>*>(p); });
+    return nb::ndarray<nb::numpy, const std::int64_t>(held->data(), {n}, owner);
+  }
+
   // ------------------------------------------------------------- warnings
 
   /// otswap.ExtrapolationWarning, created with the module.
@@ -657,7 +687,7 @@ NB_MODULE(_otswap, m)
         [] (nb::handle displacement, nb::handle matchedRandom, nb::handle valid, nb::handle tracers,
             nb::handle tracersSky, nb::handle angleUnit, nb::handle distances,
             nb::handle outsideRedshiftCut, nb::handle outsideMask, nb::handle outsideBox,
-            nb::handle seed) {
+            nb::handle ids, nb::handle seed) {
           const CArray d = as_float64(displacement, "displacement");
           if (d.ndim() != 3 || d.shape(2) != 3 || d.shape(0) == 0 || d.shape(1) == 0)
             throw otswap::Error("displacement must have shape (n_realizations, n_objects, 3), neither "
@@ -679,6 +709,7 @@ NB_MODULE(_otswap, m)
                                 "one; give outside_box without tracers_sky");
           r.outsideBox = outsideBox.is_none()
             ? std::vector<std::uint8_t>(n, 0) : flags(outsideBox, "outside_box", {n});
+          r.ids = ids_value(ids, n);
           r.config.nRealizations = (unsigned)nRec;
           r.config.seed = to_unsigned(seed, "seed");
           bool degrees = false;
@@ -699,7 +730,8 @@ NB_MODULE(_otswap, m)
         "displacement"_a.none(), "matched_random"_a.none(), "valid"_a.none(), "tracers"_a.none(),
         nb::kw_only(), "tracers_sky"_a = nb::none(), "angle_unit"_a = nb::none(),
         "distances"_a = nb::none(), "outside_redshift_cut"_a = nb::none(),
-        "outside_mask"_a = nb::none(), "outside_box"_a = nb::none(), "seed"_a.none() = 0,
+        "outside_mask"_a = nb::none(), "outside_box"_a = nb::none(), "ids"_a = nb::none(),
+        "seed"_a.none() = 0,
         "Build a result from its arrays, as read back from a file; the means are recomputed.")
     .def_prop_ro("n_objects", [] (ResultHandle self) { return result_of(self).nObjects; })
     .def_prop_ro("n_realizations", [] (ResultHandle self) { return result_of(self).nRealizations; })
@@ -713,6 +745,13 @@ NB_MODULE(_otswap, m)
       }, "The angle_unit of the sky arrays, that of the call; None for a box.")
     .def_prop_ro("seed", [] (ResultHandle self) { return result_of(self).config.seed; },
                  "The seed used: the drawn one when 0 was given.")
+    .def_prop_rw("ids",
+        [] (const PyResult& r) { return ids_array(r.ids, r.nObjects); },
+        [] (PyResult& r, nb::handle value) { r.ids = ids_value(value, r.nObjects); },
+        nb::for_getter(nb::rv_policy::reference), nb::for_setter(nb::arg("value").none()),
+        "The ID of each object, shape (n_objects,), a new read-only copy on each access; "
+        "0..n_objects-1 when none were set. Settable: one 64-bit integer per object, no value twice, "
+        "or None.")
     .def_prop_ro("displacement", [] (ResultHandle self) {
         const PyResult& r = result_of(self);
         return view<double>(self, r.displacement.data(), {r.nRealizations, r.nObjects, 3});
@@ -1097,6 +1136,10 @@ NB_MODULE(_otswap, m)
     .def_prop_ro("geometry", [] (const PyCatalog& c) {
         return nb::str(c.geometry == otswap::Geometry::Box ? "box" : "lightcone");
       }, "\"box\" or \"lightcone\".")
+    .def_prop_ro("ids", [] (const PyCatalog& c) { return ids_array(c.ids, c.nObjects); },
+                 nb::rv_policy::reference,
+                 "The IDs of the objects, copied from the Result corrected, shape (n_objects,), a new "
+                 "read-only copy on each access; 0..n_objects-1 when it had none.")
     .def_prop_ro("angle_unit", [] (const PyCatalog& c) -> nb::object {
         if (c.geometry == otswap::Geometry::Box) return nb::none();
         return nb::str(c.degrees ? "deg" : "rad");
@@ -1428,7 +1471,7 @@ NB_MODULE(_otswap, m)
         const std::string path = to_path(file, "file");
         const PyResult& r = instance<PyResult>(result, "result", "Result");
         static const std::vector<std::pair<std::string, otswap::io::DisplacementGroup>> names {
-          {"index", otswap::io::DisplacementGroup::Index},
+          {"id", otswap::io::DisplacementGroup::Id},
           {"tracer_sky", otswap::io::DisplacementGroup::TracerSky},
           {"lagrangian_sky", otswap::io::DisplacementGroup::LagrangianSky},
           {"tracer", otswap::io::DisplacementGroup::Tracer},
@@ -1459,7 +1502,7 @@ NB_MODULE(_otswap, m)
         const std::string path = to_path(file, "file");
         const PyCatalog& c = instance<PyCatalog>(catalog, "catalog", "RealSpaceCatalog");
         static const std::vector<std::pair<std::string, otswap::io::CatalogGroup>> names {
-          {"index", otswap::io::CatalogGroup::Index},
+          {"id", otswap::io::CatalogGroup::Id},
           {"sky", otswap::io::CatalogGroup::Sky},
           {"cartesian", otswap::io::CatalogGroup::Cartesian},
           {"valid_realizations", otswap::io::CatalogGroup::ValidRealizations},
