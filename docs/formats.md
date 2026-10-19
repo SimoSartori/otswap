@@ -51,8 +51,8 @@ columns and the keywords are listed with each.
 
 | C++ | Python | Writes |
 |---|---|---|
-| `io::writeDisplacements` | `io.write_displacements` | the mean displacement of each tracer |
-| `io::writeDisplacementField` | `io.write_displacement_field` | every realization, losslessly |
+| `io::writeDisplacementMean` | `io.write_displacement_mean` | the mean displacement of each tracer |
+| `io::writeDisplacementComplete` | `io.write_displacement_complete` | every realization, losslessly, with what a reader needs |
 | `io::writeRealSpaceCatalog` | `io.write_real_space_catalog` | a catalogue moved to real space |
 | `io::writeMpsProfile` | `io.write_mps_profile` | a mean particle separation profile |
 
@@ -61,15 +61,15 @@ In Python the groups are strings, the C++ names in snake case
 
 ### Displacements
 
-```{doxygenfunction} otswap::io::writeDisplacements
+```{doxygenfunction} otswap::io::writeDisplacementMean
 ```
 
 ```{doxygenenum} otswap::io::DisplacementGroup
 ```
 
-### Displacement field
+### Complete displacements
 
-```{doxygenfunction} otswap::io::writeDisplacementField
+```{doxygenfunction} otswap::io::writeDisplacementComplete
 ```
 
 ### Real-space catalogue

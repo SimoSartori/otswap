@@ -34,6 +34,7 @@
 #include <locale>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "internal.h"
@@ -47,6 +48,15 @@ namespace {
   /// lossless one.
   constexpr int kPrecision = 9;
   constexpr int kLossless = 17;
+
+  /// The EXTNAME of the main table of both displacement writers, and of
+  /// the parts of the complete file.
+  const char* const kMainExtname = "DISPLACEMENTS";
+  const char* const kProfileExtname = "MPSPROF";
+  const char* const kTableExtname = "DISTANCE";
+
+  /// Radians to degrees, as skyToDegrees converts.
+  constexpr double kRadToDeg = 180. / 3.14159265358979323846;
 
   /// A set of columns and the function that fills their entries of a row,
   /// from the given offset of the two buffers.
@@ -102,16 +112,37 @@ namespace {
             {"NOBJECTS", integer(nObjects), "rows: one per input object"}};
   }
 
-  /// The keywords of a reconstruction.
+  const char* verbosity_name (const otswap::Verbosity v)
+  {
+    return v == otswap::Verbosity::Silent ? "silent" : v == otswap::Verbosity::Normal ? "normal" : "detailed";
+  }
+
+  /// The keywords of a reconstruction, shared by both displacement
+  /// writers.
   std::vector<Keyword> result_keywords (const std::string& product, const otswap::Result& r)
   {
     std::vector<Keyword> k = common(product, r.geometry, r.nObjects);
     k.push_back({"NREC", integer(r.nRealizations), "realizations"});
     k.push_back({"SEED", integer(r.config.seed), "seed of the random streams"});
     k.push_back({"CONVERG", number(r.config.convergence), "convergence threshold of the swap loop"});
+    k.push_back({"CELLSIZE", number(r.config.cellSize), "grid cell size, in units of the mps"});
+    k.push_back({"REJCROSS", r.config.rejectCrossings ? "1" : "0", "config: reject mask crossings"});
+    k.push_back({"CFMAXPIX", integer(r.config.maxUnobservedPixelsCrossed),
+                 "config: unobserved pixels a crossing may cross"});
+    k.push_back({"VERBOSE", verbosity_name(r.config.verbosity), "what the call reported"});
     if (r.geometry == otswap::Geometry::Box && !std::isnan(r.mps))
       k.push_back({"MPS", number(r.mps), "mean particle separation, Mpc/h"});
+    if (r.box) {
+      static const char* const axis[3] = {"X", "Y", "Z"};
+      for (int c = 0; c < 3; ++c) {
+        k.push_back({std::string("BOX") + axis[c] + "LO", number(r.box->lower[c]),
+                     std::string("lower ") + (char)('x' + c) + " of the box, Mpc/h"});
+        k.push_back({std::string("BOX") + axis[c] + "HI", number(r.box->upper[c]),
+                     std::string("upper ") + (char)('x' + c) + " of the box, Mpc/h"});
+      }
+    }
     const otswap::SelectionCounts& s = r.selection;
+    if (s.boxLimits) k.push_back({"BOXLIM", "1", "the box is the limits given"});
     if (s.redshiftCut && std::isfinite(s.redshiftCut->min))
       k.push_back({"ZCUTMIN", number(s.redshiftCut->min), "lower bound of the redshift cut"});
     if (s.redshiftCut && std::isfinite(s.redshiftCut->max))
@@ -122,7 +153,38 @@ namespace {
     if (s.maxUnobservedPixelsCrossed)
       k.push_back({"MAXPIXCR", integer(*s.maxUnobservedPixelsCrossed),
                    "unobserved pixels a displacement may cross"});
+    const std::pair<const char*, std::pair<std::size_t, const char*>> counts[] = {
+      {"NTRAC",   {s.tracers, "tracers given"}},
+      {"NTRCUT",  {s.tracersOutsideRedshiftCut, "of them, outside the redshift cut"}},
+      {"NTRMASK", {s.tracersOutsideMask, "of them, on an unobserved pixel"}},
+      {"NTRBOTH", {s.tracersOutsideBoth, "of them, outside both"}},
+      {"NTRBOX",  {s.tracersOutsideBox, "of them, outside the box limits"}},
+      {"NRAND",   {s.randoms, "randoms given"}},
+      {"NRNCUT",  {s.randomsOutsideRedshiftCut, "of them, outside the redshift cut"}},
+      {"NRNMASK", {s.randomsOutsideMask, "of them, on an unobserved pixel"}},
+      {"NRNBOTH", {s.randomsOutsideBoth, "of them, outside both"}},
+      {"NRNBOX",  {s.randomsOutsideBox, "of them, outside the box limits"}},
+      {"NDISPL",  {s.displacements, "valid displacements before the filters"}},
+      {"NDISPCR", {s.displacementsCrossingMask, "of them, rejected as crossing the mask"}}};
+    for (const auto& c : counts)
+      if (c.second.first != 0) k.push_back({c.first, integer(c.second.first), c.second.second});
     return k;
+  }
+
+  /// The checks of both displacement writers on the reconstruction as a
+  /// whole, which the keywords record.
+  void check_result (const otswap::Result& r)
+  {
+    if (r.nRealizations != r.config.nRealizations)
+      throw otswap::Error("the result holds nRealizations = " + std::to_string(r.nRealizations) +
+                          " and config.nRealizations = " + std::to_string(r.config.nRealizations) +
+                          "; they must be equal");
+    if (r.selection.boxLimits && !r.box)
+      throw otswap::Error("the result holds selection.boxLimits and no box; box must equal the limits");
+    if (r.selection.boxLimits && (r.selection.boxLimits->lower != r.box->lower ||
+                                  r.selection.boxLimits->upper != r.box->upper))
+      throw otswap::Error("the result holds selection.boxLimits different from its box; they must be "
+                          "equal");
   }
 
   /// A 3-column group over a flat [object][3] array; angles converted to
@@ -173,9 +235,11 @@ namespace {
             }};
   }
 
-  /// Write the groups, nRows rows.
+  /// Write the groups, nRows rows; in FITS, in an HDU of that extname when
+  /// it is not empty.
   void write_groups (const std::string& file, const std::vector<Group>& groups,
-                     const std::size_t nRows, const otswap::io::WriteOptions& options)
+                     const std::size_t nRows, const otswap::io::WriteOptions& options,
+                     const std::string& extname = "")
   {
     std::vector<Column> columns;
     std::vector<std::size_t> offset;
@@ -183,12 +247,12 @@ namespace {
       offset.push_back(columns.size());
       columns.insert(columns.end(), g.columns.begin(), g.columns.end());
     }
-    otswap::io::write(file, columns, nRows,
-                      [&groups, &offset] (const std::size_t row, std::vector<double>& values,
-                                          std::vector<std::int64_t>& integers) {
-                        for (std::size_t k = 0; k < groups.size(); ++k)
-                          groups[k].fill(row, values.data() + offset[k], integers.data() + offset[k]);
-                      }, options);
+    otswap::internal::write_parts(file, {{extname, "", columns, nRows,
+      [&groups, &offset] (const std::size_t row, std::vector<double>& values,
+                          std::vector<std::int64_t>& integers) {
+        for (std::size_t k = 0; k < groups.size(); ++k)
+          groups[k].fill(row, values.data() + offset[k], integers.data() + offset[k]);
+      }, options}});
   }
 
   template <typename G>
@@ -219,8 +283,8 @@ namespace {
 // ============================================================================
 
 
-void otswap::io::writeDisplacements (const std::string& file, const Result& result,
-                                     const std::vector<DisplacementGroup>& groups)
+void otswap::io::writeDisplacementMean (const std::string& file, const Result& result,
+                                        const std::vector<DisplacementGroup>& groups)
 {
   using G = DisplacementGroup;
   static const char* const names[] = {"Id", "TracerSky", "LagrangianSky", "Tracer", "Lagrangian",
@@ -237,6 +301,7 @@ void otswap::io::writeDisplacements (const std::string& file, const Result& resu
   if (groups.empty() && !result.ids.empty()) chosen.insert(chosen.begin(), G::Id);
   check_groups(chosen, {G::TracerSky, G::LagrangianSky, G::Selection}, lightcone, names,
                {G::OutsideBox});
+  check_result(result);
   internal::check_flags(result);
   internal::check_ids(result.ids, result.nObjects);
 
@@ -307,58 +372,135 @@ void otswap::io::writeDisplacements (const std::string& file, const Result& resu
   WriteOptions options;
   options.precision = kPrecision;
   options.keywords = result_keywords("displacements", result);
-  write_groups(file, out, n, options);
+  write_groups(file, out, n, options, kMainExtname);
 }
 
 
 // ============================================================================
 
 
-void otswap::io::writeDisplacementField (const std::string& file, const Result& result)
+void otswap::io::writeDisplacementComplete (const std::string& file, const Result& result,
+                                            const bool lightconeTables)
 {
   const std::size_t n = result.nObjects;
   const std::size_t rows = (std::size_t)result.nRealizations * n;
+  const bool lightcone = result.geometry == Geometry::Lightcone;
+  check_result(result);
   check_size(result.tracers.size(), 3 * n, "tracers");
+  if (lightcone) check_size(result.tracersSky.size(), 3 * n, "tracersSky");
   check_size(result.displacement.size(), 3 * rows, "displacement");
   check_size(result.matchedRandom.size(), 3 * rows, "matchedRandom");
   check_size(result.valid.size(), rows, "valid");
   internal::check_flags(result);
   internal::check_ids(result.ids, n);
 
-  const Result* r = &result;
-  const std::vector<Column> columns {
-    column("realization", 'J', "realization, from 0"),
-    id_column(),
-    column("tracX", 'D', "comoving position of the tracer", "Mpc/h"),
-    column("tracY", 'D', "comoving position of the tracer", "Mpc/h"),
-    column("tracZ", 'D', "comoving position of the tracer", "Mpc/h"),
-    column("lagrX", 'D', "the random matched in this realization", "Mpc/h"),
-    column("lagrY", 'D', "the random matched in this realization", "Mpc/h"),
-    column("lagrZ", 'D', "the random matched in this realization", "Mpc/h"),
-    column("displX", 'D', "displacement in this realization, lagr - trac", "Mpc/h"),
-    column("displY", 'D', "displacement in this realization, lagr - trac", "Mpc/h"),
-    column("displZ", 'D', "displacement in this realization, lagr - trac", "Mpc/h"),
-    column("valid", 'J', "1 valid, 0 rejected by a filter or left out"),
-    column("outsideRedshiftCut", 'J', "1 if left out of the reconstruction by the redshift cut"),
-    column("outsideMask", 'J', "1 if left out of the reconstruction by the mask")};
+  const MpsProfile& profile = result.mpsProfile;
+  const bool writeProfile = lightconeTables && lightcone && !profile.redshift.empty();
+  const bool writeTable = lightconeTables && lightcone && result.distances != nullptr;
+  if (writeProfile) {
+    check_size(profile.mps.size(), profile.redshift.size(), "the mps of the profile");
+    check_size(profile.count.size(), profile.redshift.size(), "the counts of the profile");
+  }
 
-  WriteOptions options;
-  options.precision = kLossless;
-  options.keywords = result_keywords("displacement field", result);
-  write(file, columns, rows,
-        [r, n] (const std::size_t row, std::vector<double>& values, std::vector<std::int64_t>& integers) {
-          const std::size_t i = row % n;
-          values[0] = (double)(row / n);
-          integers[1] = id_of(r->ids, i);
-          for (std::size_t c = 0; c < 3; ++c) {
-            values[2+c] = r->tracers[3*i+c];
-            values[5+c] = r->matchedRandom[3*row+c];
-            values[8+c] = r->displacement[3*row+c];
-          }
-          values[11] = (double)r->valid[row];
-          values[12] = r->outsideRedshiftCut.empty() ? 0. : (double)r->outsideRedshiftCut[i];
-          values[13] = r->outsideMask.empty() ? 0. : (double)r->outsideMask[i];
-        }, options);
+  std::vector<Column> columns {column("realization", 'J', "realization, from 0"), id_column()};
+  if (lightcone) {
+    columns.push_back(column("tracRA", 'D', "observed right ascension of the tracer, as given", "deg"));
+    columns.push_back(column("tracDec", 'D', "observed declination of the tracer", "deg"));
+    columns.push_back(column("tracRed", 'D', "observed redshift of the tracer"));
+  }
+  const std::size_t xyz = columns.size();
+  for (const char* c : kXyz) columns.push_back(column(std::string("trac") + c, 'D',
+                                                      "comoving position of the tracer", "Mpc/h"));
+  for (const char* c : kXyz) columns.push_back(column(std::string("lagr") + c, 'D',
+                                                      "the random matched in this realization", "Mpc/h"));
+  for (const char* c : kXyz)
+    columns.push_back(column(std::string("displ") + c, 'D', "displacement in this realization, lagr - trac",
+                             "Mpc/h"));
+  columns.push_back(column("valid", 'J', "1 valid, 0 rejected by a filter or left out"));
+  columns.push_back(column("outsideRedshiftCut", 'J', "1 if left out of the reconstruction by the redshift cut"));
+  columns.push_back(column("outsideMask", 'J', "1 if left out of the reconstruction by the mask"));
+  columns.push_back(column("outsideBox", 'J', "1 if left out of the reconstruction by the box limits"));
+
+  internal::TablePart primary;
+  primary.extname = kMainExtname;
+  primary.columns = std::move(columns);
+  primary.nRows = rows;
+  primary.options.precision = kLossless;
+  primary.options.keywords = result_keywords("complete displacements", result);
+  if (writeProfile) primary.options.keywords.push_back({"MPSPART", "1", "the mps(z) profile is written"});
+  if (writeTable) primary.options.keywords.push_back({"DISTPART", "1", "the distance table is written"});
+  const Result* r = &result;
+  primary.fillRow = [r, n, lightcone, xyz] (const std::size_t row, std::vector<double>& values,
+                                            std::vector<std::int64_t>& integers) {
+    const std::size_t i = row % n;
+    values[0] = (double)(row / n);
+    integers[1] = id_of(r->ids, i);
+    if (lightcone) {
+      values[2] = r->tracersSky[3*i] * kRadToDeg;
+      values[3] = r->tracersSky[3*i+1] * kRadToDeg;
+      values[4] = r->tracersSky[3*i+2];
+    }
+    for (std::size_t c = 0; c < 3; ++c) {
+      values[xyz+c] = r->tracers[3*i+c];
+      values[xyz+3+c] = r->matchedRandom[3*row+c];
+      values[xyz+6+c] = r->displacement[3*row+c];
+    }
+    values[xyz+9] = (double)r->valid[row];
+    values[xyz+10] = r->outsideRedshiftCut.empty() ? 0. : (double)r->outsideRedshiftCut[i];
+    values[xyz+11] = r->outsideMask.empty() ? 0. : (double)r->outsideMask[i];
+    values[xyz+12] = r->outsideBox.empty() ? 0. : (double)r->outsideBox[i];
+  };
+
+  std::vector<internal::TablePart> parts {primary};
+  if (writeProfile) {
+    internal::TablePart part;
+    part.extname = kProfileExtname;
+    part.twin = "mps";
+    part.columns = {column("redshift", 'D', "centre of the redshift bin"),
+                    column("MPS", 'D', "mean particle separation in the bin", "Mpc/h"),
+                    column("nTracers", 'J', "tracers in the bin")};
+    part.nRows = profile.redshift.size();
+    part.options.precision = kLossless;
+    part.options.keywords = {{"PRODUCT", "complete displacements mps profile", "what the table holds"},
+                             {"OTSWAPV", OTSWAP_VERSION, "otswap version"},
+                             {"ZMIN", number(profile.redshiftMin), "lowest redshift binned"},
+                             {"ZMAX", number(profile.redshiftMax), "highest redshift binned"},
+                             {"MPSREPR", number(profile.representative),
+                              "representative mps, the count-weighted median, Mpc/h"}};
+    const MpsProfile* p = &profile;
+    part.fillRow = [p] (const std::size_t row, std::vector<double>& values, std::vector<std::int64_t>&) {
+      values[0] = p->redshift[row];
+      values[1] = p->mps[row];
+      values[2] = (double)p->count[row];
+    };
+    parts.push_back(part);
+  }
+
+  if (writeTable) {
+    const DistanceTable* t = result.distances.get();
+    const bool growth = t->hasGrowthRate();
+    internal::TablePart part;
+    part.extname = kTableExtname;
+    part.twin = "distances";
+    part.columns = {column("redshift", 'D', "sampled redshift"),
+                    column("distance", 'D', "comoving distance", "Mpc/h")};
+    if (growth) part.columns.push_back(column("growthRate", 'D', "linear growth rate f"));
+    part.nRows = t->redshift().size();
+    part.options.precision = kLossless;
+    part.options.keywords = {{"PRODUCT", "complete displacements distance table", "what the table holds"},
+                             {"OTSWAPV", OTSWAP_VERSION, "otswap version"},
+                             {"ZMIN", number(t->minRedshift()), "lowest redshift of the table"},
+                             {"ZMAX", number(t->maxRedshift()), "highest redshift of the table"}};
+    part.fillRow = [t, growth] (const std::size_t row, std::vector<double>& values,
+                                std::vector<std::int64_t>&) {
+      values[0] = t->redshift()[row];
+      values[1] = t->distance()[row];
+      if (growth) values[2] = t->growthRate()[row];
+    };
+    parts.push_back(part);
+  }
+
+  internal::write_parts(file, parts);
 }
 
 

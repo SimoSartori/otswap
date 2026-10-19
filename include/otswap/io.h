@@ -62,15 +62,19 @@
  *
  *  FITS: a new file, its table in HDU 2 as a binary table of 1D, 1J and 1K
  *  columns; descriptions in TCOMMn, units in TUNITn, keywords in the header
- *  of HDU 2.
+ *  of HDU 2. The displacement writers name that table DISPLACEMENTS
+ *  (EXTNAME); the complete displacement file adds one HDU per further
+ *  table, each named by its EXTNAME, which an ASCII file writes as twin
+ *  files of its own.
  *
  *  The writers of a Result, a RealSpaceCatalog and an MpsProfile write one
  *  row per input object, in input order, tracers left out of the
  *  reconstruction included, with NaN where nothing was computed, so row i
  *  of a file describes object i of the input. The id column, where written,
  *  holds the object's ID (Result::ids, RealSpaceCatalog::ids), or i when no
- *  IDs were set. Angles are in degrees, right ascension in [0, 360). Each
- *  column has a description and a unit, and the header carries keywords:
+ *  IDs were set. Angles are in degrees, right ascension in [0, 360) but in
+ *  the complete displacement file, which keeps it as given. Each column
+ *  has a description and a unit, and the header carries keywords:
  *  PRODUCT, what the file holds; OTSWAPV, the library version; GEOMETRY,
  *  box or lightcone; NOBJECTS; and those of the product, listed with each
  *  writer.
@@ -252,7 +256,7 @@ namespace otswap {
     // Writers
     // ========================================================================
 
-    /// The column groups of writeDisplacements.
+    /// The column groups of writeDisplacementMean.
     enum class DisplacementGroup {
       Id,                 ///< id (K): Result::ids, or the row of the tracer in the input, from 0, when it is empty
       TracerSky,          ///< tracRA, tracDec (deg), tracRed: the observed tracer; lightcone only
@@ -279,10 +283,8 @@ namespace otswap {
      *  - Id first (one more column) when Result::ids is not empty.
      *
      *  'D' values are written with 9 significant digits in ASCII. Keywords:
-     *  NREC, SEED (the seed used), CONVERG; MPS for a box; ZCUTMIN and
-     *  ZCUTMAX for the finite bounds of a redshift cut, MASK = 1 when a mask
-     *  selected the objects, FILTNSID and MAXPIXCR when a mask filter was
-     *  applied.
+     *  those of the reconstruction, listed with writeDisplacementComplete.
+     *  In FITS the table is named DISPLACEMENTS.
      *
      *  @param file the file to write; its extension sets the format.
      *  @param result a box or lightcone result.
@@ -292,23 +294,28 @@ namespace otswap {
      *  @exception Error if a group is repeated or does not apply to the
      *  geometry (OutsideBox to a lightcone, or a lightcone group to a box),
      *  if a field a group reads does not have the size of its
-     *  layout, if ids is neither empty nor one per object or holds a value
-     *  twice, whatever the groups, or as io::write.
+     *  layout, whatever the groups: if ids is neither empty nor one per
+     *  object or holds a value twice, if result.nRealizations and
+     *  result.config.nRealizations differ, or if selection.boxLimits is set
+     *  and box is empty or differs from it; or as io::write.
      */
-    void writeDisplacements (const std::string& file, const Result& result,
-                             const std::vector<DisplacementGroup>& groups = {});
+    void writeDisplacementMean (const std::string& file, const Result& result,
+                                const std::vector<DisplacementGroup>& groups = {});
 
     /**
-     *  @brief Write every realization of a result, losslessly: one row per
-     *  realization and tracer, ordered [realization][object], the order of
-     *  Result::displacement.
+     *  @brief Write every realization of a result, losslessly, with what a
+     *  reader needs to rebuild it: one row per realization and tracer,
+     *  ordered [realization][object], the order of Result::displacement;
+     *  and, for a lightcone, its mps(z) profile and its distance table.
      *
-     *  Columns: realization (J, from 0), id (K, the object's ID as in
-     *  writeDisplacements, repeated in every realization), tracX..tracZ
-     *  (Result::tracers, repeated in every realization), lagrX..lagrZ
-     *  (Result::matchedRandom), displX..displZ (Result::displacement), valid
-     *  (J), outsideRedshiftCut, outsideMask (J, repeated). Keywords as
-     *  writeDisplacements.
+     *  Columns: realization (J, from 0); id (K, the object's ID as in
+     *  writeDisplacementMean); for a lightcone, tracRA, tracDec (deg) and
+     *  tracRed (Result::tracersSky, the right ascension as given, not
+     *  folded into [0, 360)); tracX..tracZ (Result::tracers); lagrX..lagrZ
+     *  (Result::matchedRandom); displX..displZ (Result::displacement); valid
+     *  (J); outsideRedshiftCut, outsideMask, outsideBox (J, 0 or 1, in both
+     *  geometries). The columns of the tracer, id and flags are repeated in
+     *  every realization.
      *
      *  'D' values are written with 17 significant digits in ASCII, and as
      *  they are in FITS, so every double reads back identical, NaN rows as
@@ -318,11 +325,52 @@ namespace otswap {
      *  given the distance table. displacement also equals lagr - trac bit for
      *  bit, as the reconstruction computes it.
      *
+     *  Keywords, those of writeDisplacementMean too: NREC, SEED (the seed
+     *  used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE
+     *  (silent, normal or detailed): the configuration; MPS for a box;
+     *  BOXXLO, BOXXHI, BOXYLO, BOXYHI, BOXZLO, BOXZHI, Result::box when it
+     *  is set, and BOXLIM = 1 when it holds the limits given to
+     *  reconstructBox; ZCUTMIN and ZCUTMAX for the finite bounds of a
+     *  redshift cut, MASK = 1 when a mask selected the objects, FILTNSID and
+     *  MAXPIXCR when a mask filter was applied; NTRAC, NTRCUT, NTRMASK,
+     *  NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NDISPL and
+     *  NDISPCR, the counts of Result::selection, each when it is not 0.
+     *  Doubles are written as the shortest decimal that reads back as the
+     *  same value. Then, in this file only, MPSPART = 1 and DISTPART = 1
+     *  when the profile and the table are written.
+     *
+     *  The profile, columns redshift, MPS (Mpc/h) and nTracers (J), with the
+     *  keywords ZMIN, ZMAX and MPSREPR of writeMpsProfile, and the table,
+     *  columns redshift, distance (Mpc/h) and, when the table has one,
+     *  growthRate, with the keywords ZMIN and ZMAX, its ends, are written
+     *  with 17 digits in ASCII, each with its own PRODUCT, complete
+     *  displacements mps profile and complete displacements distance table.
+     *  In FITS they are the HDUs MPSPROF and DISTANCE, after the main table
+     *  DISPLACEMENTS. In ASCII they are twin files next to the file, the
+     *  name with .mps and .distances inserted before the text after its
+     *  last '.' (run.dat gives run.mps.dat and run.distances.dat), or
+     *  appended when the name has no '.'. A file renamed needs its twins renamed
+     *  by the same rule. Existing files of those names are overwritten: the
+     *  twin run.mps.dat replaces a writeMpsProfile file of that name, and is
+     *  replaced by it when that is written later. Each is written when
+     *  lightconeTables is true, the result is a lightcone and holds it: the
+     *  profile when mpsProfile is not empty, the table when distances is not
+     *  null.
+     *
+     *  @param file the file to write; its extension sets the format.
+     *  @param result a box or lightcone result.
+     *  @param lightconeTables false to leave out the profile and the table
+     *  of a lightcone result; no effect on a box result, which has neither.
+     *
      *  @exception Error if a field read does not have the size of its
-     *  layout, if ids is neither empty nor one per object or holds a value
-     *  twice, or as io::write.
+     *  layout (tracersSky included, for a lightcone), if ids is neither empty
+     *  nor one per object or holds a value twice, if result.nRealizations
+     *  and result.config.nRealizations differ, if selection.boxLimits is set
+     *  and box is empty or differs from it, if the profile written does not
+     *  have one mps and one count per redshift, or as io::write.
      */
-    void writeDisplacementField (const std::string& file, const Result& result);
+    void writeDisplacementComplete (const std::string& file, const Result& result,
+                                    bool lightconeTables = true);
 
     /// The column groups of writeRealSpaceCatalog.
     enum class CatalogGroup {
@@ -353,7 +401,7 @@ namespace otswap {
      *  @param groups the groups to write, in this order; empty for the
      *  default of the catalogue's geometry.
      *
-     *  @exception Error as writeDisplacements.
+     *  @exception Error as writeDisplacementMean.
      */
     void writeRealSpaceCatalog (const std::string& file, const RealSpaceCatalog& catalog,
                                 const std::vector<CatalogGroup>& groups = {});

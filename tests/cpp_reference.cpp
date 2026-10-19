@@ -37,7 +37,8 @@
  *                      cell_size=X out=P [mask=FITS max_unobserved_pixels_crossed=N]
  *
  *  With write=1, a reconstruction also writes P.displacements.dat,
- *  P.field.fits and, for a lightcone, P.mps.dat with the io writers.
+ *  P.complete.fits, P.complete.dat (with its twins, for a lightcone) and,
+ *  for a lightcone, P.mps.dat with the io writers.
  *
  *  A lightcone with sky_area_deg2 is filtered with rejectMaskCrossings
  *  afterwards when a mask is given; without it, the mask overload is called,
@@ -153,8 +154,9 @@ namespace {
     write("valid_realizations", result.validRealizations);
     if (!result.lagrangianSky.empty()) write("lagrangian_sky", result.lagrangianSky);
     if (has("write")) {
-      otswap::io::writeDisplacements(arg("out") + ".displacements.dat", result);
-      otswap::io::writeDisplacementField(arg("out") + ".field.fits", result);
+      otswap::io::writeDisplacementMean(arg("out") + ".displacements.dat", result);
+      otswap::io::writeDisplacementComplete(arg("out") + ".complete.fits", result);
+      otswap::io::writeDisplacementComplete(arg("out") + ".complete.dat", result);
       if (!result.mpsProfile.redshift.empty())
         otswap::io::writeMpsProfile(arg("out") + ".mps.dat", result.mpsProfile);
     }

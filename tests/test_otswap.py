@@ -252,6 +252,25 @@ def test_from_table():
         plain.growth_rate_at(0.5)
 
 
+def test_table_arrays(table):
+    z = np.linspace(0.0, 2.0, 201)
+    t = otswap.DistanceTable.from_table(z, 3000.0 * z, 0.5 + 0.1 * z)
+    assert same_bytes(t.redshift, z) and same_bytes(t.distance, 3000.0 * z)
+    assert same_bytes(t.growth_rate, 0.5 + 0.1 * z)
+    assert otswap.DistanceTable.from_table(z, 3000.0 * z).growth_rate is None
+    for a in (t.redshift, t.distance, t.growth_rate):
+        assert not a.flags.writeable
+        with pytest.raises(ValueError):
+            a[0] = 1.0
+    view = otswap.DistanceTable.flat(0.3, 0.7, z_max=3.0, n_samples=3000).redshift
+    assert view.shape == (3000,) and view[-1] == 3.0, "a view outlives its table"
+    rebuilt = otswap.DistanceTable.from_table(table.redshift, table.distance, table.growth_rate)
+    zs = np.linspace(table.min_redshift, table.max_redshift, 10001)
+    d = table.distance_at(zs)
+    assert same_bytes(rebuilt.distance_at(zs), d) and same_bytes(rebuilt.redshift_at(d), table.redshift_at(d))
+    assert same_bytes(rebuilt.growth_rate_at(zs), table.growth_rate_at(zs))
+
+
 @pytest.mark.parametrize("call", [
     lambda: otswap.DistanceTable.flat(-0.1, 0.7),
     lambda: otswap.DistanceTable.flat(0.3, 0.7, z_min=2.0, z_max=1.0),
@@ -1784,11 +1803,11 @@ def test_io_stub_lists_the_module():
     with open(stub) as f:
         text = f.read()
     for line in ("class Column:", "class Table:", "def read(", "def write(", "def read_bias_table(",
-                 "def write_displacements(", "def write_displacement_field(",
+                 "def write_displacement_mean(", "def write_displacement_complete(",
                  "def write_real_space_catalog(", "def write_mps_profile("):
         assert line in text, line
     assert sorted(otswap.io.__all__) == ["Column", "Table", "read", "read_bias_table", "write",
-                                         "write_displacement_field", "write_displacements",
+                                         "write_displacement_complete", "write_displacement_mean",
                                          "write_mps_profile", "write_real_space_catalog"]
 
 
@@ -1958,10 +1977,10 @@ def test_catalogue_stores_shift_factor_and_valid_realizations(table, lightcone):
 # the writers
 
 
-def test_write_displacements(tmp_path, table, lightcone, sieve_mask):
+def test_write_displacement_mean(tmp_path, table, lightcone, sieve_mask):
     r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
     path = tmp_path / "d.dat"
-    otswap.io.write_displacements(path, r)
+    otswap.io.write_displacement_mean(path, r)
     text = path.read_text()
     assert text.startswith("## PRODUCT = displacements / what the file holds\n## OTSWAPV = 0.1.0")
     assert "## SEED = 5 /" in text and "## ZCUTMIN = 0.35 /" in text
@@ -1975,48 +1994,97 @@ def test_write_displacements(tmp_path, table, lightcone, sieve_mask):
     assert np.array_equal(t.integers[:, 0], r.valid_realizations)
     assert np.array_equal(t.integers[:, 1], r.outside_redshift_cut)
 
-    otswap.io.write_displacements(path, r, groups=["id", "displacement"])
+    otswap.io.write_displacement_mean(path, r, groups=["id", "displacement"])
     assert otswap.io.read(path, ["displZ"], integer_columns=["id"]).integers[:, 0].tolist() == \
         list(range(r.n_objects))
     box = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
     for groups, match in ((["tracer_sky"], "describes a lightcone"), (["tracer", "tracer"], "twice"),
                           (["nothing"], "unknown group"), ([], "empty"), ("tracer", "sequence")):
         with pytest.raises(otswap.Error, match=match):
-            otswap.io.write_displacements(path, box, groups=groups)
+            otswap.io.write_displacement_mean(path, box, groups=groups)
     with pytest.raises(otswap.Error):
-        otswap.io.write_displacements(path, "result")
+        otswap.io.write_displacement_mean(path, "result")
 
-    otswap.io.write_displacements(path, box, groups=["id", "outside_box"])
+    otswap.io.write_displacement_mean(path, box, groups=["id", "outside_box"])
     assert not otswap.io.read(path, ["outsideBox"]).values.any(), "written on request, all 0, without limits"
     with pytest.raises(otswap.Error, match="OutsideBox describes a box"):
-        otswap.io.write_displacements(path, r, groups=["outside_box"])
+        otswap.io.write_displacement_mean(path, r, groups=["outside_box"])
     limited = otswap.reconstruct_box(box_catalogue(), box=LIMITS, n_realizations=2, seed=1, verbosity="silent")
-    otswap.io.write_displacements(path, limited)
+    otswap.io.write_displacement_mean(path, limited)
     t = otswap.io.read(path, ["tracX"], integer_columns=["nValidRec", "outsideBox"])
     assert np.array_equal(t.integers[:, 1], limited.outside_box), "the default of a box with limits"
 
 
-@pytest.mark.parametrize("name", ["field.dat", "field.fits"])
-def test_write_displacement_field_round_trip(tmp_path, table, lightcone, sieve_mask, name):
+@pytest.mark.parametrize("name", ["complete.dat", "complete.fits"])
+def test_write_displacement_complete_round_trip(tmp_path, table, lightcone, sieve_mask, name):
     r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
     otswap.reject_mask_crossings(r, otswap.Mask(sieve_mask))
     path = tmp_path / name
-    otswap.io.write_displacement_field(path, r)
-    cols = ["tracX", "tracY", "tracZ", "lagrX", "lagrY", "lagrZ", "displX", "displY", "displZ"]
+    otswap.io.write_displacement_complete(path, r)
+    if name.endswith(".dat"):
+        assert path.read_text().startswith("## PRODUCT = complete displacements / what the file holds\n")
+    cols = ["tracX", "tracY", "tracZ", "lagrX", "lagrY", "lagrZ", "displX", "displY", "displZ",
+            "tracRA", "tracDec", "tracRed"]
     t = otswap.io.read(path, cols, integer_columns=["realization", "id", "valid",
-                                                    "outsideRedshiftCut", "outsideMask"])
+                                                    "outsideRedshiftCut", "outsideMask", "outsideBox"])
     nrec, n = r.n_realizations, r.n_objects
-    v = t.values.reshape(nrec, n, 9)
-    k = t.integers.reshape(nrec, n, 5)
+    v = t.values.reshape(nrec, n, 12)
+    k = t.integers.reshape(nrec, n, 6)
     assert (k[:, :, 0] == np.arange(nrec)[:, None]).all() and (k[:, :, 1] == np.arange(n)).all()
+    assert not k[:, :, 5].any(), "outsideBox, 0 in a lightcone"
+    np.testing.assert_allclose(v[0, :, 9:12], r.tracers_sky, rtol=1e-15, atol=0)
     back = otswap.Result.from_arrays(v[:, :, 6:9], v[:, :, 3:6], k[:, :, 2], v[0, :, 0:3],
-                                     tracers_sky=r.tracers_sky, angle_unit="deg", distances=table,
+                                     tracers_sky=v[0, :, 9:12], angle_unit="deg", distances=table,
                                      outside_redshift_cut=k[0, :, 3], outside_mask=k[0, :, 4], seed=r.seed)
     for field in ("displacement", "matched_random", "valid", "tracers", "mean_displacement",
                   "valid_realizations", "lagrangian", "lagrangian_sky"):
         assert same_bytes(getattr(back, field), getattr(r, field)), field
     finite = ~np.isnan(v[:, :, 6])
     assert np.array_equal(v[:, :, 6][finite], (v[:, :, 3] - v[:, :, 0])[finite])
+
+
+# The parts of a lightcone's complete file: twin files in ASCII, HDUs in FITS,
+# each declared and with its own PRODUCT; lightcone_tables=False leaves them
+# out; the keywords of the reconstruction, in both displacement files.
+def test_write_displacement_complete_parts(tmp_path, table, lightcone):
+    r = lightcone_result(table, lightcone, n_bins=2, verbosity="silent")
+    path = tmp_path / "run.dat"
+    otswap.io.write_displacement_complete(path, r)
+    text = path.read_text()
+    assert "## MPSPART = 1 /" in text and "## DISTPART = 1 /" in text
+    assert "## CELLSIZE = 4 /" in text and "## VERBOSE = silent /" in text and "## NTRAC = " in text
+    mps, distances = tmp_path / "run.mps.dat", tmp_path / "run.distances.dat"
+    assert mps.read_text().startswith("## PRODUCT = complete displacements mps profile /")
+    assert distances.read_text().startswith("## PRODUCT = complete displacements distance table /")
+    t = otswap.io.read(mps, ["redshift", "MPS"], integer_columns=["nTracers"])
+    assert same_bytes(t.values[:, 0], r.mps_profile.redshift) and same_bytes(t.values[:, 1], r.mps_profile.mps)
+    t = otswap.io.read(distances, ["redshift", "distance", "growthRate"])
+    assert same_bytes(t.values[:, 0], table.redshift) and same_bytes(t.values[:, 2], table.growth_rate)
+
+    mps.unlink()
+    distances.unlink()
+    otswap.io.write_displacement_complete(path, r, lightcone_tables=False)
+    assert not mps.exists() and not distances.exists() and "MPSPART" not in path.read_text()
+    with pytest.raises(TypeError):
+        otswap.io.write_displacement_complete(path, r, False)
+    with pytest.raises(otswap.Error, match="lightcone_tables"):
+        otswap.io.write_displacement_complete(path, r, lightcone_tables=1)
+
+    fits = tmp_path / "run.fits"
+    otswap.io.write_displacement_complete(fits, r)
+    header = fits.read_bytes()
+    assert header.count(b"EXTNAME = 'MPSPROF ") == 1 and header.count(b"EXTNAME = 'DISTANCE'") == 1
+    back = otswap.Result.from_arrays(r.displacement, r.matched_random, r.valid, r.tracers,
+                                     tracers_sky=r.tracers_sky, angle_unit="deg", distances=table)
+    otswap.io.write_displacement_complete(path, back)
+    assert not mps.exists() and distances.exists(), "from_arrays: a table, no profile"
+
+    mean = tmp_path / "mean.dat"
+    otswap.io.write_displacement_mean(mean, r)
+    def shared(lines):
+        return [line for line in lines.splitlines() if line.startswith("## ")
+                and not line.startswith(("## PRODUCT", "## MPSPART", "## DISTPART"))]
+    assert shared(mean.read_text()) == shared(text), "the same keywords in both files"
 
 
 def test_write_catalogue_and_profile(tmp_path, table, lightcone):
@@ -2104,25 +2172,25 @@ def test_ids_in_files_and_catalogues(tmp_path, table):
     r = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
     n = r.n_objects
     path = tmp_path / "d.dat"
-    otswap.io.write_displacements(path, r)
+    otswap.io.write_displacement_mean(path, r)
     default = path.read_text()
     assert "###   tracX" in default and " id\n" not in default, "no IDs: the 0.1.0 default"
     r.ids = np.arange(n)
-    otswap.io.write_displacements(path, r)
+    otswap.io.write_displacement_mean(path, r)
     assert path.read_text() == default, "0..n-1 stores no IDs: the same file"
 
     ids = -(np.arange(n, dtype=np.int64) * 7 + 2**53 + 1)
     r.ids = ids
     for suffix in (".dat", ".fits"):
         out = path.with_suffix(suffix)
-        otswap.io.write_displacements(out, r)
+        otswap.io.write_displacement_mean(out, r)
         assert np.array_equal(otswap.io.read(out, ["tracX"], integer_columns=["id"]).integers[:, 0], ids)
-        otswap.io.write_displacement_field(out, r)
+        otswap.io.write_displacement_complete(out, r)
         assert np.array_equal(otswap.io.read(out, ["tracX"], integer_columns=["id"]).integers[:, 0],
                               np.tile(ids, r.n_realizations))
-    otswap.io.write_displacements(path, r)
+    otswap.io.write_displacement_mean(path, r)
     assert "###   id   tracX" in path.read_text(), "with IDs, id first in the default"
-    otswap.io.write_displacements(path, r, groups=["displacement"])
+    otswap.io.write_displacement_mean(path, r, groups=["displacement"])
     assert " id" not in path.read_text().split("###")[-1].splitlines()[0], "groups given, as given"
 
     c = otswap.real_space_box(r, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=8.0,
@@ -2134,7 +2202,7 @@ def test_ids_in_files_and_catalogues(tmp_path, table):
     t = otswap.io.read(path, ["tracX"], integer_columns=["status", "id"])
     assert np.array_equal(t.integers[:, 1], ids), "with IDs, id first in the catalogue default"
     assert "###   id   tracX" in path.read_text()
-    otswap.io.write_displacements(path, r, groups=["displacement", "id"])
+    otswap.io.write_displacement_mean(path, r, groups=["displacement", "id"])
     assert "###   displX   displY   displZ   id\n" in path.read_text(), "id requested goes where it is given"
     r.ids = None
     c = otswap.real_space_box(r, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=8.0,
@@ -2143,7 +2211,7 @@ def test_ids_in_files_and_catalogues(tmp_path, table):
     otswap.io.write_real_space_catalog(path, c, groups=["id", "cartesian"])
     assert np.array_equal(otswap.io.read(path, ["tracX"], integer_columns=["id"]).integers[:, 0], np.arange(n))
 
-    for writer, value in ((otswap.io.write_displacements, r), (otswap.io.write_real_space_catalog, c)):
+    for writer, value in ((otswap.io.write_displacement_mean, r), (otswap.io.write_real_space_catalog, c)):
         with pytest.raises(otswap.Error, match="unknown group 'index'; the groups are id, "):
             writer(path, value, groups=["index"])
 
@@ -2174,8 +2242,10 @@ def test_writers_match_cpp(tmp_path, table, lightcone, sieve_mask):
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=otswap.Mask(sieve_mask),
                                           n_bins=3, distances=table, angle_unit="deg",
                                           max_unobserved_pixels_crossed=1, verbosity="silent", **config)
-    otswap.io.write_displacements(tmp_path / "py.displacements.dat", result)
-    otswap.io.write_displacement_field(tmp_path / "py.field.fits", result)
+    otswap.io.write_displacement_mean(tmp_path / "py.displacements.dat", result)
+    otswap.io.write_displacement_complete(tmp_path / "py.complete.fits", result)
+    otswap.io.write_displacement_complete(tmp_path / "py.complete.dat", result)
     otswap.io.write_mps_profile(tmp_path / "py.mps.dat", result.mps_profile)
-    for suffix in ("displacements.dat", "field.fits", "mps.dat"):
+    for suffix in ("displacements.dat", "complete.fits", "complete.dat", "complete.mps.dat",
+                   "complete.distances.dat", "mps.dat"):
         assert (tmp_path / f"py.{suffix}").read_bytes() == open(f"{out}.{suffix}", "rb").read(), suffix

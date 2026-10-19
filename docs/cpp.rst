@@ -161,7 +161,7 @@ Tables
 Writers
 ~~~~~~~
 
-``io::writeDisplacements``, ``io::writeDisplacementField``,
+``io::writeDisplacementMean``, ``io::writeDisplacementComplete``,
 ``io::writeRealSpaceCatalog``, ``io::writeMpsProfile`` and their group enums
 are documented on the :doc:`formats` page, with the layouts they write.
 

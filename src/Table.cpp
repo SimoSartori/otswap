@@ -250,9 +250,11 @@ namespace {
     return table;
   }
 
+  /// The table of HDU 2 or, with an extname, of the HDU of that EXTNAME.
   otswap::io::Table read_fits (const std::string& file,
                                const std::vector<std::string>& columns,
-                               const std::vector<std::string>& integerColumns)
+                               const std::vector<std::string>& integerColumns,
+                               const std::string& extname = "")
   {
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -267,11 +269,21 @@ namespace {
       fail("cannot open the input file, or it is not a valid FITS file: " + file);
 
     int hdutype = 0;
-    if (fits_movabs_hdu(fptr, 2, &hdutype, &status))
-      fail("the first extension cannot be accessed in: " + file);
-
-    if (hdutype != BINARY_TBL && hdutype != ASCII_TBL)
-      fail("the first extension of " + file + " is not a table");
+    if (extname.empty()) {
+      if (fits_movabs_hdu(fptr, 2, &hdutype, &status))
+        fail("the first extension cannot be accessed in: " + file);
+      if (hdutype != BINARY_TBL && hdutype != ASCII_TBL)
+        fail("the first extension of " + file + " is not a table");
+    }
+    else {
+      std::vector<char> name(extname.begin(), extname.end());
+      name.push_back('\0');
+      if (fits_movnam_hdu(fptr, ANY_HDU, name.data(), 0, &status))
+        fail("no extension of EXTNAME " + extname + " in: " + file);
+      fits_get_hdu_type(fptr, &hdutype, &status);
+      if (hdutype != BINARY_TBL && hdutype != ASCII_TBL)
+        fail("the extension " + extname + " of " + file + " is not a table");
+    }
 
     long nrows = 0;
     if (fits_get_num_rows(fptr, &nrows, &status))
@@ -497,10 +509,9 @@ namespace {
     return end == value.c_str() + value.size() && std::isfinite(v);
   }
 
+  /// Every part as a binary table of one new file, HDU 2 onwards.
   void write_fits (const std::string& file,
-                   const std::vector<otswap::io::Column>& columns,
-                   const std::size_t nrows, const Fill& fillRow,
-                   const otswap::io::WriteOptions& options)
+                   const std::vector<otswap::internal::TablePart>& parts)
   {
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -511,95 +522,101 @@ namespace {
       throw otswap::Error(message);
     };
 
+    for (const auto& part : parts)
+      if (part.nRows > (std::size_t)std::numeric_limits<long>::max())
+        fail("too many rows for a FITS table in: " + file);
+
     const std::string overwrite = "!" + file;
     if (fits_create_file(&fptr, overwrite.c_str(), &status))
       fail("cannot create the output file: " + file);
 
-    const int ncolumns = (int)columns.size();
-    std::vector<std::string> nameStore(ncolumns), formStore(ncolumns);
-    std::vector<char*> ttype(ncolumns), tform(ncolumns);
-    for (int i = 0; i < ncolumns; ++i) {
-      nameStore[i] = columns[i].name;
-      formStore[i] = columns[i].type == 'J' ? "1J" : columns[i].type == 'K' ? "1K" : "1D";
-      ttype[i] = &nameStore[i][0];
-      tform[i] = &formStore[i][0];
-    }
-
-    if (nrows > (std::size_t)std::numeric_limits<long>::max())
-      fail("too many rows for a FITS table in: " + file);
-
-    const long fitsRows = (long)nrows;
-    if (fits_create_tbl(fptr, BINARY_TBL, fitsRows, ncolumns, ttype.data(), tform.data(),
-                        nullptr, nullptr, &status))
-      fail("cannot create the binary table in: " + file);
-
-    auto write_string = [&] (const std::string& key, const std::string& text,
-                             const std::string& comment, const std::string& what) {
-      std::vector<char> value(text.begin(), text.end());
-      value.push_back('\0');
-      if (fits_write_key(fptr, TSTRING, key.c_str(), value.data(),
-                         comment.empty() ? nullptr : comment.c_str(), &status))
-        fail("cannot write " + what + " in: " + file);
-    };
-
-    for (int i = 0; i < ncolumns; ++i) {
-      const std::string what = "the description of the column '" + columns[i].name + "'";
-      if (!columns[i].description.empty())
-        write_string("TCOMM" + std::to_string(i+1), columns[i].description, "", what);
-      if (!columns[i].unit.empty())
-        write_string("TUNIT" + std::to_string(i+1), columns[i].unit, "", what);
-    }
-
-    for (const auto& k : options.keywords) {
-      if (numeric(k.value)) {
-        std::string literal = k.value;
-        std::replace(literal.begin(), literal.end(), 'e', 'E');
-        char card[FLEN_CARD];
-        if (fits_make_key(k.name.c_str(), &literal[0], k.comment.c_str(), card, &status) ||
-            fits_write_record(fptr, card, &status))
-          fail("cannot write the keyword " + k.name + " in: " + file);
-      }
-      else write_string(k.name, k.value, k.comment, "the keyword " + k.name);
-    }
-
-    long chunk = 0;
-    if (fits_get_rowsize(fptr, &chunk, &status)) { status = 0; chunk = 0; }
-    if (chunk < 1) chunk = 1;
-
-    std::vector<std::vector<double>> buffer(columns.size(), std::vector<double>(chunk));
-    std::vector<std::vector<LONGLONG>> integerBuffer(columns.size());
-    for (int i = 0; i < ncolumns; ++i)
-      if (columns[i].type == 'K') integerBuffer[i].resize(chunk);
-    std::vector<long> integers(chunk);
-    std::vector<double> values(columns.size());
-    std::vector<std::int64_t> rowIntegers(columns.size());
-
     try {
-      for (long first = 1; first <= fitsRows; first += chunk) {
-        const long nwrite = std::min(chunk, fitsRows-first+1);
-        for (long row = 0; row < nwrite; ++row) {
-          fillRow((std::size_t)(first-1+row), values, rowIntegers);
-          for (std::size_t c = 0; c < columns.size(); ++c) {
-            if (columns[c].type == 'K') integerBuffer[c][row] = (LONGLONG)rowIntegers[c];
-            else                        buffer[c][row] = values[c];
-          }
-        }
+      for (const auto& part : parts) {
+        const std::vector<otswap::io::Column>& columns = part.columns;
+        const int ncolumns = (int)columns.size();
+        std::vector<std::string> nameStore(ncolumns), formStore(ncolumns);
+        std::vector<char*> ttype(ncolumns), tform(ncolumns);
         for (int i = 0; i < ncolumns; ++i) {
-          int written = 0;
-          if (columns[i].type == 'J') {
-            for (long row = 0; row < nwrite; ++row) {
-              check_integer_value(columns[i], buffer[i][row], (std::size_t)(first-1+row));
-              integers[row] = (long)buffer[i][row];
-            }
-            written = fits_write_col(fptr, TLONG, i+1, first, 1, nwrite, integers.data(), &status);
+          nameStore[i] = columns[i].name;
+          formStore[i] = columns[i].type == 'J' ? "1J" : columns[i].type == 'K' ? "1K" : "1D";
+          ttype[i] = &nameStore[i][0];
+          tform[i] = &formStore[i][0];
+        }
+
+        std::vector<char> extname(part.extname.begin(), part.extname.end());
+        extname.push_back('\0');
+        const long fitsRows = (long)part.nRows;
+        if (fits_create_tbl(fptr, BINARY_TBL, fitsRows, ncolumns, ttype.data(), tform.data(),
+                            nullptr, part.extname.empty() ? nullptr : extname.data(), &status))
+          fail("cannot create the binary table in: " + file);
+
+        auto write_string = [&] (const std::string& key, const std::string& text,
+                                 const std::string& comment, const std::string& what) {
+          std::vector<char> value(text.begin(), text.end());
+          value.push_back('\0');
+          if (fits_write_key(fptr, TSTRING, key.c_str(), value.data(),
+                             comment.empty() ? nullptr : comment.c_str(), &status))
+            fail("cannot write " + what + " in: " + file);
+        };
+
+        for (int i = 0; i < ncolumns; ++i) {
+          const std::string what = "the description of the column '" + columns[i].name + "'";
+          if (!columns[i].description.empty())
+            write_string("TCOMM" + std::to_string(i+1), columns[i].description, "", what);
+          if (!columns[i].unit.empty())
+            write_string("TUNIT" + std::to_string(i+1), columns[i].unit, "", what);
+        }
+
+        for (const auto& k : part.options.keywords) {
+          if (numeric(k.value)) {
+            std::string literal = k.value;
+            std::replace(literal.begin(), literal.end(), 'e', 'E');
+            char card[FLEN_CARD];
+            if (fits_make_key(k.name.c_str(), &literal[0], k.comment.c_str(), card, &status) ||
+                fits_write_record(fptr, card, &status))
+              fail("cannot write the keyword " + k.name + " in: " + file);
           }
-          else if (columns[i].type == 'K')
-            written = fits_write_col(fptr, TLONGLONG, i+1, first, 1, nwrite,
-                                     integerBuffer[i].data(), &status);
-          else
-            written = fits_write_col(fptr, TDOUBLE, i+1, first, 1, nwrite, buffer[i].data(), &status);
-          if (written)
-            fail("cannot write the column '" + columns[i].name + "' in: " + file);
+          else write_string(k.name, k.value, k.comment, "the keyword " + k.name);
+        }
+
+        long chunk = 0;
+        if (fits_get_rowsize(fptr, &chunk, &status)) { status = 0; chunk = 0; }
+        if (chunk < 1) chunk = 1;
+
+        std::vector<std::vector<double>> buffer(columns.size(), std::vector<double>(chunk));
+        std::vector<std::vector<LONGLONG>> integerBuffer(columns.size());
+        for (int i = 0; i < ncolumns; ++i)
+          if (columns[i].type == 'K') integerBuffer[i].resize(chunk);
+        std::vector<long> integers(chunk);
+        std::vector<double> values(columns.size());
+        std::vector<std::int64_t> rowIntegers(columns.size());
+
+        for (long first = 1; first <= fitsRows; first += chunk) {
+          const long nwrite = std::min(chunk, fitsRows-first+1);
+          for (long row = 0; row < nwrite; ++row) {
+            part.fillRow((std::size_t)(first-1+row), values, rowIntegers);
+            for (std::size_t c = 0; c < columns.size(); ++c) {
+              if (columns[c].type == 'K') integerBuffer[c][row] = (LONGLONG)rowIntegers[c];
+              else                        buffer[c][row] = values[c];
+            }
+          }
+          for (int i = 0; i < ncolumns; ++i) {
+            int written = 0;
+            if (columns[i].type == 'J') {
+              for (long row = 0; row < nwrite; ++row) {
+                check_integer_value(columns[i], buffer[i][row], (std::size_t)(first-1+row));
+                integers[row] = (long)buffer[i][row];
+              }
+              written = fits_write_col(fptr, TLONG, i+1, first, 1, nwrite, integers.data(), &status);
+            }
+            else if (columns[i].type == 'K')
+              written = fits_write_col(fptr, TLONGLONG, i+1, first, 1, nwrite,
+                                       integerBuffer[i].data(), &status);
+            else
+              written = fits_write_col(fptr, TDOUBLE, i+1, first, 1, nwrite, buffer[i].data(), &status);
+            if (written)
+              fail("cannot write the column '" + columns[i].name + "' in: " + file);
+          }
         }
       }
     }
@@ -621,8 +638,13 @@ namespace {
                     const otswap::io::WriteOptions& options)
   {
     check_options(columns, options, file);
-    if (is_fits(file)) write_fits(file, columns, nRows, fillRow, options);
-    else               write_ascii(file, columns, nRows, fillRow, options);
+    if (is_fits(file)) {
+      otswap::internal::TablePart part {"", "", {}, nRows, fillRow, options};
+      for (const auto& c : columns)
+        part.columns.push_back({c.name, c.type, c.description, c.unit, {}, {}});
+      write_fits(file, {part});
+    }
+    else write_ascii(file, columns, nRows, fillRow, options);
   }
 
 }
@@ -735,4 +757,155 @@ otswap::BiasTable otswap::io::readBiasTable (const std::string& file,
   internal::check_bias_table(bias.redshift, bias.bias, "the bias table " + file, "data row", 1);
 
   return bias;
+}
+
+
+// ============================================================================
+
+
+void otswap::internal::write_parts (const std::string& file, const std::vector<TablePart>& parts)
+{
+  if (parts.empty())
+    throw Error("no table was given for: " + file);
+  for (const TablePart& part : parts)
+    check_options(part.columns, part.options, file);
+
+  if (is_fits(file)) {
+    write_fits(file, parts);
+    return;
+  }
+  for (std::size_t k = 0; k < parts.size(); ++k)
+    write_ascii(k == 0 ? file : twin_file(file, parts[k].twin), parts[k].columns, parts[k].nRows,
+                parts[k].fillRow, parts[k].options);
+}
+
+
+// ============================================================================
+
+
+std::vector<otswap::io::Keyword> otswap::internal::read_keywords (const std::string& file,
+                                                                  const std::string& extname)
+{
+  std::vector<io::Keyword> keywords;
+
+  if (!is_fits(file)) {
+    std::ifstream input(file);
+    if (!input)
+      throw Error("cannot open the input file: " + file);
+    std::string line;
+    while (std::getline(input, line)) {
+      if (line.compare(0, 3, "###") == 0 || line.empty() || line[0] != '#') break;
+      if (line.compare(0, 3, "## ") != 0) continue;
+      const std::size_t equals = line.find(" = ", 3);
+      if (equals == std::string::npos) continue;
+      const std::size_t slash = line.find(" / ", equals + 3);
+      keywords.push_back({line.substr(3, equals - 3),
+                          line.substr(equals + 3, slash == std::string::npos ? std::string::npos
+                                                                             : slash - equals - 3),
+                          ""});
+    }
+    return keywords;
+  }
+
+  fitsfile* fptr = nullptr;
+  int status = 0;
+
+  auto fail = [&] (const std::string& message) {
+    int closeStatus = 0;
+    if (fptr != nullptr) { fits_close_file(fptr, &closeStatus); fptr = nullptr; }
+    throw Error(message);
+  };
+
+  if (fits_open_file(&fptr, file.c_str(), READONLY, &status))
+    fail("cannot open the input file, or it is not a valid FITS file: " + file);
+
+  int hdutype = 0;
+  if (extname.empty()) {
+    if (fits_movabs_hdu(fptr, 2, &hdutype, &status))
+      fail("the first extension cannot be accessed in: " + file);
+  }
+  else {
+    std::vector<char> name(extname.begin(), extname.end());
+    name.push_back('\0');
+    if (fits_movnam_hdu(fptr, ANY_HDU, name.data(), 0, &status))
+      fail("no extension of EXTNAME " + extname + " in: " + file);
+  }
+
+  int nkeys = 0, more = 0;
+  if (fits_get_hdrspace(fptr, &nkeys, &more, &status))
+    fail("cannot read the header of: " + file);
+
+  for (int i = 1; i <= nkeys; ++i) {
+    char name[FLEN_KEYWORD] = "", value[FLEN_VALUE] = "", comment[FLEN_COMMENT] = "";
+    if (fits_read_keyn(fptr, i, name, value, comment, &status))
+      fail("cannot read the keyword " + std::to_string(i) + " of: " + file);
+    const std::string key = name;
+    if (key.empty() || key == "COMMENT" || key == "HISTORY") continue;
+
+    std::string text = value;
+    if (!text.empty() && text[0] == '\'') {
+      std::string unquoted;
+      for (std::size_t c = 1; c < text.size(); ++c) {
+        if (text[c] != '\'') { unquoted += text[c]; continue; }
+        if (c + 1 < text.size() && text[c+1] == '\'') { unquoted += '\''; ++c; continue; }
+        break;
+      }
+      text = unquoted;
+    }
+    while (!text.empty() && text.back() == ' ') text.pop_back();
+    while (!text.empty() && text.front() == ' ') text.erase(0, 1);
+    keywords.push_back({key, text, ""});
+  }
+
+  int closeStatus = 0;
+  fits_close_file(fptr, &closeStatus);
+  return keywords;
+}
+
+
+// ============================================================================
+
+
+otswap::io::Table otswap::internal::read_part (const std::string& file, const std::string& extname,
+                                               const std::vector<std::string>& columns,
+                                               const std::vector<std::string>& integerColumns)
+{
+  if (columns.empty() && integerColumns.empty())
+    throw Error("no column was requested from: " + file);
+  if (!is_fits(file))
+    throw Error("the extension " + extname + " was requested from " + file + ", which is not FITS");
+  return read_fits(file, columns, integerColumns, extname);
+}
+
+
+// ============================================================================
+
+
+bool otswap::internal::has_part (const std::string& file, const std::string& extname)
+{
+  fitsfile* fptr = nullptr;
+  int status = 0;
+  if (fits_open_file(&fptr, file.c_str(), READONLY, &status))
+    throw Error("cannot open the input file, or it is not a valid FITS file: " + file);
+
+  std::vector<char> name(extname.begin(), extname.end());
+  name.push_back('\0');
+  const bool found = fits_movnam_hdu(fptr, ANY_HDU, name.data(), 0, &status) == 0;
+
+  int closeStatus = 0;
+  fits_close_file(fptr, &closeStatus);
+  return found;
+}
+
+
+// ============================================================================
+
+
+std::string otswap::internal::twin_file (const std::string& file, const std::string& part)
+{
+  const std::size_t slash = file.find_last_of('/');
+  const std::size_t dot = file.find_last_of('.');
+  if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+    return file + "." + part;
+  return file.substr(0, dot) + "." + part + file.substr(dot);
 }

@@ -160,9 +160,9 @@ int main (int argc, char** argv)
     // mean Lagrangian position (the position plus the mean displacement),
     // the mean displacement and the number of valid realizations, with a
     // header giving the units and the parameters of the run. The format
-    // follows the extension, ASCII here; io::writeDisplacementField writes
-    // every realization instead, losslessly
-    otswap::io::writeDisplacements(output + "/displacement_box.dat", result);
+    // follows the extension, ASCII here; io::writeDisplacementComplete
+    // writes every realization instead, losslessly
+    otswap::io::writeDisplacementMean(output + "/displacement_box.dat", result);
 
     std::cout << "Written: output/displacement_box.dat" << std::endl;
 

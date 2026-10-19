@@ -35,6 +35,7 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 | `DistanceTable(redshift, distance, growthRate)` | `DistanceTable.from_table(redshift, distance, growth_rate)` | |
 | `distanceAt`, `redshiftAt`, `growthRateAt` | `distance_at`, `redshift_at`, `growth_rate_at` | Python takes arrays |
 | `hasGrowthRate()`, `minRedshift()`, `maxRedshift()` | `has_growth_rate`, `min_redshift`, `max_redshift` | properties |
+| `redshift()`, `distance()`, `growthRate()` | `redshift`, `distance`, `growth_rate` | read-only views; `growth_rate` None when the table carries none |
 | `toCartesian`, `toSky` | `to_cartesian`, `to_sky` | |
 | `skyToRadians`, `skyToDegrees` | — | Python takes `angle_unit` instead |
 
@@ -97,5 +98,5 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 | `io::write`, `WriteOptions`, `Keyword` | `io.write`, keywords `precision`, `keywords` | keywords as `(name, value, comment)` tuples |
 | `io::write` with a row function | — | |
 | `io::readBiasTable` | `io.read_bias_table` | |
-| `io::writeDisplacements`, `writeDisplacementField`, `writeRealSpaceCatalog`, `writeMpsProfile` | `io.write_displacements`, `write_displacement_field`, `write_real_space_catalog`, `write_mps_profile` | |
+| `io::writeDisplacementMean`, `writeDisplacementComplete`, `writeRealSpaceCatalog`, `writeMpsProfile` | `io.write_displacement_mean`, `write_displacement_complete`, `write_real_space_catalog`, `write_mps_profile` | |
 | `io::DisplacementGroup`, `io::CatalogGroup` | strings | `TracerSky` is `"tracer_sky"` |

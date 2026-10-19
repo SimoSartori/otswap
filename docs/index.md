@@ -49,7 +49,7 @@ import otswap
 
 result = otswap.reconstruct_box(tracers, n_realizations=8, seed=12345)
 print(result.mean_displacement[0])
-otswap.io.write_displacements("displacements.dat", result)
+otswap.io.write_displacement_mean("displacements.dat", result)
 ```
 :::
 
@@ -65,7 +65,7 @@ config.seed = 12345;
 
 otswap::Result result = otswap::reconstructBox(tracers, {}, config);
 std::cout << result.meanDisplacement[0] << '\n';
-otswap::io::writeDisplacements("displacements.dat", result);
+otswap::io::writeDisplacementMean("displacements.dat", result);
 ```
 :::
 

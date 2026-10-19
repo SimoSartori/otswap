@@ -405,3 +405,30 @@ double otswap::DistanceTable::maxRedshift () const
 {
   return m_redshift.back();
 }
+
+
+// ============================================================================
+
+
+const std::vector<double>& otswap::DistanceTable::redshift () const
+{
+  return m_redshift;
+}
+
+
+// ============================================================================
+
+
+const std::vector<double>& otswap::DistanceTable::distance () const
+{
+  return m_distance;
+}
+
+
+// ============================================================================
+
+
+const std::vector<double>& otswap::DistanceTable::growthRate () const
+{
+  return m_growthRate;
+}

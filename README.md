@@ -116,7 +116,7 @@ tracers = otswap.io.read("tracers.dat", [0, 1, 2]).values   # (N, 3), Mpc/h
 result = otswap.reconstruct_box(tracers, n_realizations=8, seed=12345)
 print(result.mean_displacement[:3])
 
-otswap.io.write_displacements("displacements.dat", result)
+otswap.io.write_displacement_mean("displacements.dat", result)
 ```
 
 `examples/` holds four examples, each in C++ and in Python, with the data to

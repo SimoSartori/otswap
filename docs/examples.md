@@ -42,7 +42,7 @@ Reads:
 - {repo-file}`examples/data/box_halos_real_space.dat`
 - {repo-file}`examples/data/box_randoms.dat`
 
-Writes `output/displacement_box.dat`, with {py:func}`otswap.io.write_displacements`; its columns
+Writes `output/displacement_box.dat`, with {py:func}`otswap.io.write_displacement_mean`; its columns
 and keywords are on the [file formats](formats.md) page.
 
 ::::{tab-set}
@@ -79,7 +79,7 @@ Reads:
 - {repo-file}`examples/data/lightcone_randoms.dat`
 - {repo-file}`examples/data/lightcone_mask.fits`
 
-Writes `output/displacement_lightcone.dat`, with {py:func}`otswap.io.write_displacements`; its columns
+Writes `output/displacement_lightcone.dat`, with {py:func}`otswap.io.write_displacement_mean`; its columns
 and keywords are on the [file formats](formats.md) page.
 
 ::::{tab-set}

@@ -119,11 +119,11 @@ Tables
 Writers
 ~~~~~~~
 
-.. autoapifunction:: otswap.io.write_displacements
+.. autoapifunction:: otswap.io.write_displacement_mean
 
 .. autoapidata:: otswap.io.DisplacementGroup
 
-.. autoapifunction:: otswap.io.write_displacement_field
+.. autoapifunction:: otswap.io.write_displacement_complete
 
 .. autoapifunction:: otswap.io.write_real_space_catalog
 

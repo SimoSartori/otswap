@@ -451,6 +451,23 @@ class DistanceTable:
     @property
     def has_growth_rate(self) -> bool: ...
 
+    @property
+    def redshift(self) -> NDArray[np.float64]:
+        """The sampled redshifts, shape (n_samples,), strictly increasing; a
+        read-only view. ``DistanceTable.from_table(t.redshift, t.distance,
+        t.growth_rate)`` gives the same values, bit for bit, at every
+        lookup."""
+
+    @property
+    def distance(self) -> NDArray[np.float64]:
+        """The comoving distance at each sampled redshift, Mpc/h; a read-only
+        view."""
+
+    @property
+    def growth_rate(self) -> Optional[NDArray[np.float64]]:
+        """The growth rate at each sampled redshift, a read-only view; None
+        when the table carries none."""
+
     def distance_at(self, z: ArrayLike) -> NDArray[np.float64]:
         """Comoving distance at each redshift. Raises outside the table."""
 

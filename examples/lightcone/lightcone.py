@@ -176,9 +176,9 @@ def main():
     # left out, or without a valid realization, has NaN Lagrangian
     # coordinates and displacement. The writer is the C++ library's, so the
     # file is the C++ example's, byte for byte.
-    # otswap.io.write_displacement_field writes every realization instead,
+    # otswap.io.write_displacement_complete writes every realization instead,
     # losslessly, and otswap.io.write_mps_profile the mps(z)
-    otswap.io.write_displacements(output / "displacement_lightcone.dat", result)
+    otswap.io.write_displacement_mean(output / "displacement_lightcone.dat", result)
 
     print("Written: output/displacement_lightcone.dat")
 

@@ -128,9 +128,9 @@ def main():
     # mean displacement and the number of valid realizations, with a header
     # giving the units and the parameters of the run. The writer is the C++
     # library's, so the file is the C++ example's, byte for byte;
-    # otswap.io.write_displacement_field writes every realization instead,
+    # otswap.io.write_displacement_complete writes every realization instead,
     # losslessly
-    otswap.io.write_displacements(output / "displacement_box.dat", result)
+    otswap.io.write_displacement_mean(output / "displacement_box.dat", result)
 
     print("Written: output/displacement_box.dat")
 

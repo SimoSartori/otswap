@@ -214,9 +214,10 @@ int main (int argc, char** argv)
     // Mpc/h, its number of valid realizations and the two selection flags,
     // with a header giving the units and the parameters of the run. A
     // tracer left out, or without a valid realization, has NaN Lagrangian
-    // coordinates and displacement. io::writeDisplacementField writes every
-    // realization instead, losslessly, and io::writeMpsProfile the mps(z)
-    otswap::io::writeDisplacements(output + "/displacement_lightcone.dat", result);
+    // coordinates and displacement. io::writeDisplacementComplete writes
+    // every realization instead, losslessly, and io::writeMpsProfile the
+    // mps(z)
+    otswap::io::writeDisplacementMean(output + "/displacement_lightcone.dat", result);
 
     std::cout << "Written: output/displacement_lightcone.dat" << std::endl;
 

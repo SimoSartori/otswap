@@ -427,5 +427,29 @@ int main ()
     check(skyToRadians({}).empty() && skyToDegrees({}).empty(), "empty arrays");
   }
 
+  group("the accessors return the sampled arrays, and a table rebuilt from them gives the same lookups");
+  {
+    const DistanceTable flat(0.31, 0.674, -0.9, 0.1, 0.05, 3., 3000);
+    check(flat.redshift().size() == 3000 && flat.distance().size() == 3000 && flat.growthRate().size() == 3000,
+          "the cosmology constructor: three arrays of nSamples");
+    check(flat.redshift().front() == flat.minRedshift() && flat.redshift().back() == flat.maxRedshift(),
+          "the redshifts span the range");
+    const DistanceTable rebuilt(flat.redshift(), flat.distance(), flat.growthRate());
+    bool same = true;
+    for (int k = 0; k <= 10000; ++k) {
+      const double z = 0.05 + 2.95 * k / 10000.;
+      const double d = flat.distanceAt(z);
+      same = same && rebuilt.distanceAt(z) == d && rebuilt.growthRateAt(z) == flat.growthRateAt(z) &&
+             rebuilt.redshiftAt(d) == flat.redshiftAt(d);
+    }
+    check(same, "distanceAt, redshiftAt and growthRateAt bit for bit over the range");
+    const std::vector<double> z {0., 0.5, 1.}, d {0., 1000., 2000.}, f {0.5, 0.7, 0.9};
+    const DistanceTable given(z, d, f), plain(z, d);
+    check(given.redshift() == z && given.distance() == d && given.growthRate() == f,
+          "the table constructor: the arrays as given");
+    check(plain.growthRate().empty() && plain.redshift() == z && plain.distance() == d,
+          "no growth rate: growthRate() is empty");
+  }
+
   return report("test_distance_table");
 }

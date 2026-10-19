@@ -571,6 +571,19 @@ namespace otswap {
     double minRedshift () const;
     double maxRedshift () const;
 
+    /// The sampled redshifts, strictly increasing, as given to the table
+    /// constructor or as the cosmology constructor sampled them. A table
+    /// built from redshift(), distance() and growthRate() with the table
+    /// constructor gives the same value, bit for bit, at every lookup.
+    const std::vector<double>& redshift () const;
+
+    /// The comoving distance at each sampled redshift, Mpc/h.
+    const std::vector<double>& distance () const;
+
+    /// The growth rate at each sampled redshift; empty when the table
+    /// carries none.
+    const std::vector<double>& growthRate () const;
+
   private:
 
     std::vector<double> m_redshift;

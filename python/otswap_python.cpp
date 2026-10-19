@@ -470,13 +470,17 @@ namespace {
 
   /// The Result of the Python package: the C++ result, the angle unit of
   /// the call that made it, and its sky arrays in that unit, converted on
-  /// first access and kept until a filter changes them.
+  /// first access and kept until a filter changes them. Its config.log is
+  /// &std::clog, never the stream a call wrote its report into.
   struct PyResult : otswap::Result {
     bool degrees = false;
     nb::object tracersSkyInUnit, lagrangianSkyInUnit;
 
     PyResult () = default;
-    PyResult (otswap::Result&& r, const bool inDegrees) : otswap::Result(std::move(r)), degrees(inDegrees) {}
+    PyResult (otswap::Result&& r, const bool inDegrees) : otswap::Result(std::move(r)), degrees(inDegrees)
+    {
+      config.log = &std::clog;
+    }
   };
 
   using ResultHandle = nb::handle_t<PyResult>;
@@ -852,6 +856,19 @@ NB_MODULE(_otswap, m)
     .def_prop_ro("min_redshift", &otswap::DistanceTable::minRedshift)
     .def_prop_ro("max_redshift", &otswap::DistanceTable::maxRedshift)
     .def_prop_ro("has_growth_rate", &otswap::DistanceTable::hasGrowthRate)
+    .def_prop_ro("redshift", [] (nb::handle_t<otswap::DistanceTable> self) {
+        const auto& t = nb::cast<const otswap::DistanceTable&>(self);
+        return view<double>(self, t.redshift().data(), {t.redshift().size()});
+      }, "The sampled redshifts, shape (n_samples,); a read-only view.")
+    .def_prop_ro("distance", [] (nb::handle_t<otswap::DistanceTable> self) {
+        const auto& t = nb::cast<const otswap::DistanceTable&>(self);
+        return view<double>(self, t.distance().data(), {t.distance().size()});
+      }, "The comoving distance at each sampled redshift, Mpc/h; a read-only view.")
+    .def_prop_ro("growth_rate", [] (nb::handle_t<otswap::DistanceTable> self) -> nb::object {
+        const auto& t = nb::cast<const otswap::DistanceTable&>(self);
+        if (!t.hasGrowthRate()) return nb::none();
+        return nb::cast(view<double>(self, t.growthRate().data(), {t.growthRate().size()}));
+      }, "The growth rate at each sampled redshift; None when the table carries none.")
     .def("distance_at", [] (const otswap::DistanceTable& t, nb::handle z) {
           return elementwise(z, "z", [&t] (const double v) { return t.distanceAt(v); });
         }, "z"_a.none(), "Comoving distance at each redshift. Raises outside the table.")
@@ -1466,7 +1483,7 @@ NB_MODULE(_otswap, m)
       "keywords"_a = nb::none(),
       "Write a table, ASCII or FITS by the extension of file. An existing file is overwritten.");
 
-  io.def("write_displacements",
+  io.def("write_displacement_mean",
       [] (nb::handle file, nb::handle result, nb::handle groups) {
         const std::string path = to_path(file, "file");
         const PyResult& r = instance<PyResult>(result, "result", "Result");
@@ -1482,20 +1499,22 @@ NB_MODULE(_otswap, m)
           {"outside_box", otswap::io::DisplacementGroup::OutsideBox}};
         const std::vector<otswap::io::DisplacementGroup> chosen = group_list(groups, names);
         nb::gil_scoped_release released;
-        otswap::io::writeDisplacements(path, r, chosen);
+        otswap::io::writeDisplacementMean(path, r, chosen);
       },
       "file"_a.none(), "result"_a.none(), nb::kw_only(), "groups"_a = nb::none(),
       "Write the mean displacement field of a result, one row per tracer.");
 
-  io.def("write_displacement_field",
-      [] (nb::handle file, nb::handle result) {
+  io.def("write_displacement_complete",
+      [] (nb::handle file, nb::handle result, nb::handle lightconeTables) {
         const std::string path = to_path(file, "file");
         const PyResult& r = instance<PyResult>(result, "result", "Result");
+        const bool tables = to_bool(lightconeTables, "lightcone_tables");
         nb::gil_scoped_release released;
-        otswap::io::writeDisplacementField(path, r);
+        otswap::io::writeDisplacementComplete(path, r, tables);
       },
-      "file"_a.none(), "result"_a.none(),
-      "Write every realization of a result, losslessly, one row per realization and tracer.");
+      "file"_a.none(), "result"_a.none(), nb::kw_only(), "lightcone_tables"_a.none() = true,
+      "Write every realization of a result, losslessly, one row per realization and tracer, with "
+      "the mps(z) profile and the distance table of a lightcone.");
 
   io.def("write_real_space_catalog",
       [] (nb::handle file, nb::handle catalog, nb::handle groups) {

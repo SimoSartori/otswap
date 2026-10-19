@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <random>
 #include <string>
 #include <utility>
@@ -320,6 +321,45 @@ namespace otswap {
                            const std::string& what,
                            const std::string& entry = "node",
                            std::size_t first = 0);
+
+    /// One table of a multi-table file: in FITS, HDU 2 for the first, then
+    /// in order, extname written as EXTNAME, none when empty; in ASCII, the
+    /// first in the file, each other one in twin_file(file, twin).
+    struct TablePart {
+      std::string extname;
+      std::string twin;
+      std::vector<io::Column> columns;
+      std::size_t nRows = 0;
+      std::function<void(std::size_t, std::vector<double>&, std::vector<std::int64_t>&)> fillRow;
+      io::WriteOptions options;
+    };
+
+    /// Write the parts: FITS, one binary table each, HDU 2 onwards, in one
+    /// file; ASCII, the first part in the file and each other one in its
+    /// twin file. Every part is checked, as io::write checks a table, before
+    /// any file is opened; the messages are those of io::write.
+    void write_parts (const std::string& file, const std::vector<TablePart>& parts);
+
+    /// The keywords of a table: FITS, the header of HDU 2 or, with an
+    /// extname, of the HDU of that EXTNAME, every card but COMMENT, HISTORY
+    /// and blank ones; ASCII, the "## NAME = value / comment" lines, extname
+    /// ignored. Values as written, a FITS string without its quotes and
+    /// trailing blanks; comments dropped.
+    std::vector<io::Keyword> read_keywords (const std::string& file, const std::string& extname = "");
+
+    /// io::read of the HDU of that EXTNAME (FITS only).
+    io::Table read_part (const std::string& file, const std::string& extname,
+                         const std::vector<std::string>& columns,
+                         const std::vector<std::string>& integerColumns);
+
+    /// True when a FITS file holds an HDU of that EXTNAME.
+    bool has_part (const std::string& file, const std::string& extname);
+
+    /// The name of the ASCII twin file holding the part @p part of a
+    /// complete displacement file: <stem>.<part>.<ext>, ext the text after
+    /// the last '.' of the file name and stem what precedes it, or
+    /// <file>.<part> when the name has no '.'.
+    std::string twin_file (const std::string& file, const std::string& part);
 
   }
 

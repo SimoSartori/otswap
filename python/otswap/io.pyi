@@ -180,7 +180,7 @@ CatalogGroup: TypeAlias = Literal["id", "sky", "cartesian", "valid_realizations"
                                   "neighbours", "shift", "status"]
 
 
-def write_displacements(
+def write_displacement_mean(
     file: Path,
     result: Result,
     *,
@@ -216,30 +216,81 @@ def write_displacements(
     Notes
     -----
     Floating values are written with 9 significant digits in ASCII. Keywords:
-    NREC, SEED (the seed used), CONVERG; MPS for a box; ZCUTMIN and ZCUTMAX
-    for the finite bounds of a redshift cut, MASK = 1 when a mask selected
-    the objects, FILTNSID and MAXPIXCR when a mask filter was applied.
-    Raises for a repeated group, or one that does not apply to the geometry,
-    and, whatever the groups, for ``ids`` that are neither empty nor one per
-    object or hold a value twice.
+    those of the reconstruction, listed with ``write_displacement_complete``.
+    In FITS the table is named DISPLACEMENTS. Raises for a repeated group, or
+    one that does not apply to the geometry, and, whatever the groups, for
+    ``ids`` that are neither empty nor one per object or hold a value twice,
+    for a result whose realization count differs from its configuration's,
+    and for a box result whose box differs from the limits recorded in its
+    selection.
     """
 
 
-def write_displacement_field(file: Path, result: Result) -> None:
-    """Write every realization of a result, losslessly: one row per
-    realization and tracer, ordered [realization][object].
+def write_displacement_complete(
+    file: Path,
+    result: Result,
+    *,
+    lightcone_tables: bool = True,
+) -> None:
+    """Write every realization of a result, losslessly, with what a reader
+    needs to rebuild it: one row per realization and tracer, ordered
+    [realization][object]; and, for a lightcone, its mps(z) profile and its
+    distance table.
 
-    Columns: realization, id (``Result.ids`` as in ``write_displacements``,
-    repeated), tracX..tracZ (``Result.tracers``, repeated),
-    lagrX..lagrZ (``Result.matched_random``), displX..displZ
-    (``Result.displacement``), valid, outsideRedshiftCut, outsideMask.
-    Keywords as ``write_displacements``.
+    Columns: realization; id (``Result.ids`` as in
+    ``write_displacement_mean``); for a lightcone, tracRA, tracDec (degrees,
+    the right ascension as given, not folded into [0, 360)) and tracRed;
+    tracX..tracZ (``Result.tracers``); lagrX..lagrZ
+    (``Result.matched_random``); displX..displZ (``Result.displacement``);
+    valid; outsideRedshiftCut, outsideMask, outsideBox (0 or 1, in both
+    geometries). The columns of the tracer, id and flags are repeated in
+    every realization.
 
+    Parameters
+    ----------
+    lightcone_tables : bool, optional
+        False to leave out the profile and the table of a lightcone result;
+        no effect on a box result, which has neither.
+
+    Notes
+    -----
     Floating values are written with 17 significant digits in ASCII, and as
     they are in FITS, so every value reads back identical, NaN included, in
     both formats; ``Result.from_arrays`` on the arrays read back gives the
     reconstruction's means bit for bit. displX..displZ equal lagr - trac bit
-    for bit. Raises for ``ids`` as ``write_displacements``.
+    for bit.
+
+    Keywords, those of ``write_displacement_mean`` too: NREC, SEED (the seed
+    used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE (silent,
+    normal or detailed): the configuration; MPS for a box; BOXXLO, BOXXHI,
+    BOXYLO, BOXYHI, BOXZLO, BOXZHI, ``Result.box`` when it is set, and
+    BOXLIM = 1 when it holds the limits given to ``reconstruct_box``;
+    ZCUTMIN and ZCUTMAX for the finite bounds of a redshift cut, MASK = 1
+    when a mask selected the objects, FILTNSID and MAXPIXCR when a mask
+    filter was applied; NTRAC, NTRCUT, NTRMASK, NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNMASK,
+    NRNBOTH, NRNBOX, NDISPL and NDISPCR, the selection counts, each when it
+    is not 0. Then, in this file only, MPSPART = 1 and DISTPART = 1 when the
+    profile and the table are written.
+
+    The profile (redshift, MPS, nTracers, with the keywords ZMIN, ZMAX and
+    MPSREPR of ``write_mps_profile``) and the table (redshift, distance and,
+    when the table has one, growthRate, with the keywords ZMIN and ZMAX) are
+    written with 17 digits in ASCII, each with its own PRODUCT, complete
+    displacements mps profile and complete displacements distance table. In
+    FITS they are the HDUs MPSPROF and DISTANCE, after the main table
+    DISPLACEMENTS. In ASCII they are twin files next to the file, the name
+    with .mps and .distances inserted before the text after its last '.'
+    (run.dat gives run.mps.dat and run.distances.dat), or appended when the
+    name has no '.'. A file renamed needs its twins renamed by the same rule.
+    Existing files of those names are overwritten: the twin run.mps.dat
+    replaces a ``write_mps_profile`` file of that name, and is replaced by it
+    when that is written later. Each is written when ``lightcone_tables`` is
+    true and the result is a lightcone that holds it; a result made by
+    ``Result.from_arrays`` holds a table but no profile.
+
+    Raises for ``ids`` as ``write_displacement_mean``, for a result whose
+    realization count differs from its configuration's, and for a box result
+    whose box differs from the limits recorded in its selection.
     """
 
 
@@ -273,7 +324,7 @@ def write_real_space_catalog(
     -----
     Floating values are written with 9 significant digits in ASCII.
     Keywords: SIGMA, WEIGHTED; NEXTRAP for a lightcone; AXIS, ZBOX and BIAS
-    for a box. Raises as ``write_displacements``.
+    for a box. Raises as ``write_displacement_mean``.
     """
 
 
