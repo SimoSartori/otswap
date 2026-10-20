@@ -125,6 +125,8 @@ Writers
 
 .. autoapifunction:: otswap.io.write_displacement_complete
 
+.. autoapifunction:: otswap.io.read_displacement_complete
+
 .. autoapifunction:: otswap.io.write_real_space_catalog
 
 .. autoapidata:: otswap.io.CatalogGroup

@@ -215,8 +215,8 @@ int main (int argc, char** argv)
     // with a header giving the units and the parameters of the run. A
     // tracer left out, or without a valid realization, has NaN Lagrangian
     // coordinates and displacement. io::writeDisplacementComplete writes
-    // every realization instead, losslessly, and io::writeMpsProfile the
-    // mps(z)
+    // every realization instead, losslessly, io::readDisplacementComplete
+    // reads it back, and io::writeMpsProfile writes the mps(z)
     otswap::io::writeDisplacementMean(output + "/displacement_lightcone.dat", result);
 
     std::cout << "Written: output/displacement_lightcone.dat" << std::endl;

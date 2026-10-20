@@ -161,7 +161,8 @@ int main (int argc, char** argv)
     // the mean displacement and the number of valid realizations, with a
     // header giving the units and the parameters of the run. The format
     // follows the extension, ASCII here; io::writeDisplacementComplete
-    // writes every realization instead, losslessly
+    // writes every realization instead, losslessly, and
+    // io::readDisplacementComplete reads it back
     otswap::io::writeDisplacementMean(output + "/displacement_box.dat", result);
 
     std::cout << "Written: output/displacement_box.dat" << std::endl;

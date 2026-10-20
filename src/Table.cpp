@@ -909,3 +909,47 @@ std::string otswap::internal::twin_file (const std::string& file, const std::str
     return file + "." + part;
   return file.substr(0, dot) + "." + part + file.substr(dot);
 }
+
+
+// ============================================================================
+
+
+otswap::internal::PartLocation otswap::internal::locate_part (const std::string& file,
+                                                              const std::string& extname,
+                                                              const std::string& twin)
+{
+  PartLocation location;
+  if (is_fits(file)) {
+    location.file = file;
+    location.extname = extname;
+    location.name = "the HDU " + extname + " of " + file;
+    location.exists = has_part(file, extname);
+  }
+  else {
+    location.file = twin_file(file, twin);
+    location.name = location.file;
+    location.exists = std::ifstream(location.file).good();
+  }
+  return location;
+}
+
+
+// ============================================================================
+
+
+std::vector<std::string> otswap::internal::column_names (const std::string& file, const std::string& extname)
+{
+  if (!is_fits(file)) {
+    bool found = false;
+    return ascii_names(file, ' ', '#', found);
+  }
+  const std::vector<io::Keyword> keywords = read_keywords(file, extname);
+  std::vector<std::string> names;
+  for (bool more = true; more; ) {
+    more = false;
+    const std::string key = "TTYPE" + std::to_string(names.size() + 1);
+    for (const io::Keyword& k : keywords)
+      if (k.name == key) { names.push_back(k.value); more = true; break; }
+  }
+  return names;
+}

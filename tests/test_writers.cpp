@@ -24,7 +24,9 @@
  *  @brief The writers of a Result, a RealSpaceCatalog and an MpsProfile:
  *  their columns and keywords, the lossless round trip of the complete
  *  displacement file, its profile and distance table parts, and the
- *  refusals of the displacement writers.
+ *  refusals of the displacement writers; the reader of the complete
+ *  displacement file, on the files of this version and of otswap 0.1.0,
+ *  and its refusals.
  */
 
 #include <algorithm>
@@ -46,6 +48,7 @@
 #include "otswap/OT.h"
 #include "internal.h"
 #include "check.h"
+#include "fixtures_v010.h"
 
 using namespace otswap;
 
@@ -161,6 +164,143 @@ namespace {
     std::vector<double> out(t.nRows);
     for (std::size_t r = 0; r < t.nRows; ++r) out[r] = t.values[r*t.nColumns + c];
     return out;
+  }
+
+  // Right ascension and declination equal within the rounding of a
+  // conversion to degrees and back, redshifts and NaN positions identical.
+  bool close_sky (const std::vector<double>& a, const std::vector<double>& b)
+  {
+    if (a.size() != b.size()) return false;
+    for (std::size_t j = 0; j < a.size(); ++j) {
+      if (std::isnan(a[j]) || std::isnan(b[j])) {
+        if (std::isnan(a[j]) != std::isnan(b[j])) return false;
+        continue;
+      }
+      if (j % 3 == 2 ? !same_bits({a[j]}, {b[j]}) : std::fabs(a[j] - b[j]) > 4.e-16 * std::fabs(b[j]))
+        return false;
+    }
+    return true;
+  }
+
+  bool same_box (const std::optional<BoxLimits>& a, const std::optional<BoxLimits>& b)
+  {
+    return a.has_value() == b.has_value() && (!a || (a->lower == b->lower && a->upper == b->upper));
+  }
+
+  bool same_selection (const SelectionCounts& a, const SelectionCounts& b)
+  {
+    return a.redshiftCut.has_value() == b.redshiftCut.has_value() &&
+           (!a.redshiftCut || (a.redshiftCut->min == b.redshiftCut->min &&
+                               a.redshiftCut->max == b.redshiftCut->max)) &&
+           a.maskApplied == b.maskApplied && same_box(a.boxLimits, b.boxLimits) &&
+           a.tracers == b.tracers && a.tracersOutsideRedshiftCut == b.tracersOutsideRedshiftCut &&
+           a.tracersOutsideMask == b.tracersOutsideMask && a.tracersOutsideBoth == b.tracersOutsideBoth &&
+           a.tracersOutsideBox == b.tracersOutsideBox && a.randoms == b.randoms &&
+           a.randomsOutsideRedshiftCut == b.randomsOutsideRedshiftCut &&
+           a.randomsOutsideMask == b.randomsOutsideMask && a.randomsOutsideBoth == b.randomsOutsideBoth &&
+           a.randomsOutsideBox == b.randomsOutsideBox &&
+           a.maxUnobservedPixelsCrossed == b.maxUnobservedPixelsCrossed &&
+           a.displacements == b.displacements && a.displacementsCrossingMask == b.displacementsCrossingMask;
+  }
+
+  // The first member of a Result read back that differs from the one
+  // expected, or "" when none does: every member bit for bit, but
+  // tracersSky (close_sky), config.log (std::clog), elapsedSeconds (0) and
+  // distances (an equal table).
+  std::string difference (const Result& read, const Result& expected)
+  {
+    const Config& a = read.config;
+    const Config& b = expected.config;
+    const MpsProfile& p = read.mpsProfile;
+    const MpsProfile& q = expected.mpsProfile;
+    if (read.nObjects != expected.nObjects || read.nRealizations != expected.nRealizations ||
+        read.geometry != expected.geometry) return "nObjects, nRealizations or geometry";
+    if (read.ids != expected.ids) return "ids";
+    if (a.nRealizations != b.nRealizations || !same_bits({a.convergence, a.cellSize}, {b.convergence, b.cellSize}) ||
+        a.seed != b.seed || a.rejectCrossings != b.rejectCrossings ||
+        a.maxUnobservedPixelsCrossed != b.maxUnobservedPixelsCrossed || a.verbosity != b.verbosity ||
+        a.log != &std::clog) return "config";
+    if (!same_bits(read.tracers, expected.tracers)) return "tracers";
+    if (!close_sky(read.tracersSky, expected.tracersSky)) return "tracersSky";
+    if (!same_bits(read.displacement, expected.displacement)) return "displacement";
+    if (!same_bits(read.matchedRandom, expected.matchedRandom)) return "matchedRandom";
+    if (read.valid != expected.valid) return "valid";
+    if (!same_bits(read.meanDisplacement, expected.meanDisplacement)) return "meanDisplacement";
+    if (read.validRealizations != expected.validRealizations) return "validRealizations";
+    if (read.filteredNside != expected.filteredNside) return "filteredNside";
+    if (read.outsideRedshiftCut != expected.outsideRedshiftCut || read.outsideMask != expected.outsideMask ||
+        read.outsideBox != expected.outsideBox) return "the flags";
+    if (!same_selection(read.selection, expected.selection)) return "selection";
+    if (!same_bits(read.lagrangian, expected.lagrangian)) return "lagrangian";
+    if (!same_bits(read.lagrangianSky, expected.lagrangianSky)) return "lagrangianSky";
+    if (!same_bits({read.mps}, {expected.mps})) return "mps";
+    if (!same_box(read.box, expected.box)) return "box";
+    if (!same_bits(p.redshift, q.redshift) || !same_bits(p.mps, q.mps) || p.count != q.count ||
+        !same_bits({p.redshiftMin, p.redshiftMax, p.representative},
+                   {q.redshiftMin, q.redshiftMax, q.representative})) return "mpsProfile";
+    if ((read.distances == nullptr) != (expected.distances == nullptr) ||
+        (read.distances && (!same_bits(read.distances->redshift(), expected.distances->redshift()) ||
+                            !same_bits(read.distances->distance(), expected.distances->distance()) ||
+                            !same_bits(read.distances->growthRate(), expected.distances->growthRate()))))
+      return "distances";
+    if (read.elapsedSeconds != 0.) return "elapsedSeconds";
+    return "";
+  }
+
+  void write_text (const std::string& file, const std::string& text)
+  {
+    std::ofstream(file) << text;
+  }
+
+  // The text with its first occurrence of from replaced by to; unchanged
+  // when from is absent.
+  std::string replaced (std::string text, const std::string& from, const std::string& to)
+  {
+    const std::size_t at = text.find(from);
+    if (at != std::string::npos) text.replace(at, from.size(), to);
+    return text;
+  }
+
+  // The text of an ASCII table with field f of data row r replaced.
+  std::string with_field (const std::string& text, const std::size_t r, const std::size_t f,
+                          const std::string& value)
+  {
+    std::size_t start = text.find("\n", text.find("###")) + 1;
+    for (std::size_t k = 0; k < r; ++k) start = text.find('\n', start) + 1;
+    for (std::size_t k = 0; k < f; ++k) start = text.find(' ', start) + 1;
+    const std::size_t end = text.find_first_of(" \n", start);
+    return text.substr(0, start) + value + text.substr(end);
+  }
+
+  // A FITS file with the HDU of that EXTNAME deleted, or with a string
+  // keyword of it changed.
+  void delete_hdu (const std::string& file, const std::string& extname)
+  {
+    fitsfile* f = nullptr;
+    int status = 0;
+    fits_open_file(&f, file.c_str(), READWRITE, &status);
+    fits_movnam_hdu(f, ANY_HDU, const_cast<char*>(extname.c_str()), 0, &status);
+    fits_delete_hdu(f, nullptr, &status);
+    int closing = 0;
+    fits_close_file(f, &closing);
+  }
+
+  void set_keyword (const std::string& file, const std::string& extname, const std::string& key,
+                    const std::string& value)
+  {
+    fitsfile* f = nullptr;
+    int status = 0;
+    fits_open_file(&f, file.c_str(), READWRITE, &status);
+    fits_movnam_hdu(f, ANY_HDU, const_cast<char*>(extname.c_str()), 0, &status);
+    fits_update_key(f, TSTRING, key.c_str(), const_cast<char*>(value.c_str()), nullptr, &status);
+    int closing = 0;
+    fits_close_file(f, &closing);
+  }
+
+  void remove_with_twins (const std::string& file)
+  {
+    for (const std::string& f : {file, internal::twin_file(file, "mps"), internal::twin_file(file, "distances")})
+      std::remove(f.c_str());
   }
 
 }
@@ -573,6 +713,245 @@ int main ()
           "the twin run.mps.dat replaces a writeMpsProfile file of that name");
     for (const std::string& f : {fits, ascii, boxFile, run, runMps, temporary("run.distances.dat")})
       std::remove(f.c_str());
+  }
+
+  group("readDisplacementComplete: every member back bit for bit, but the sky angles within rounding, both formats");
+  {
+    const Result plain = reconstructLightcone(sky, randomsSky, 2000., 1, table, config);
+    Result lcIds = lc;
+    Result boxIds = limited;
+    lcIds.ids.resize(n);
+    boxIds.ids.resize(n);
+    for (std::size_t i = 0; i < n; ++i) {
+      lcIds.ids[i] = 1000000 - 3 * (std::int64_t)i;
+      boxIds.ids[i] = (std::int64_t)i * (std::int64_t)i - 7;
+    }
+    const std::pair<const char*, const Result*> cases[] = {
+      {"lightcone with mask, cut and filter", &lc}, {"lightcone with IDs", &lcIds},
+      {"lightcone with the sky area", &plain}, {"box", &box}, {"box with limits", &limited},
+      {"box with limits and IDs", &boxIds}};
+    for (const auto& c : cases)
+      for (const std::string ext : {".dat", ".fits"}) {
+        const std::string file = temporary("read" + ext);
+        io::writeDisplacementComplete(file, *c.second);
+        const std::string d = difference(io::readDisplacementComplete(file), *c.second);
+        check(d.empty(), std::string(c.first) + ", " + ext + ": " + (d.empty() ? "every member back" : d + " differs"));
+        remove_with_twins(file);
+      }
+    check(!lc.outsideRedshiftCut.empty() && std::count(lc.outsideMask.begin(), lc.outsideMask.end(), 1) > 0 &&
+          lc.filteredNside == 64 && lc.selection.displacementsCrossingMask > 0 && limited.selection.boxLimits &&
+          std::count(limited.outsideBox.begin(), limited.outsideBox.end(), 1) > 0,
+          "the cases flag tracers and reject crossings");
+
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string file = temporary("read" + ext);
+      io::writeDisplacementComplete(file, lc);
+      const Result back = io::readDisplacementComplete(file);
+      const RealSpaceCatalog moved = realSpaceLightcone(back, table, bias, 10., quiet);
+      check(same_bits(moved.cartesian, lcCatalog.cartesian) && same_bits(moved.shift, lcCatalog.shift) &&
+            same_bits(moved.factor, lcCatalog.factor) && moved.status == lcCatalog.status &&
+            moved.validRealizations == lcCatalog.validRealizations &&
+            moved.nNeighbours == lcCatalog.nNeighbours &&
+            moved.nRealizationsAveraged == lcCatalog.nRealizationsAveraged &&
+            moved.nExtrapolated == lcCatalog.nExtrapolated && close_sky(moved.sky, lcCatalog.sky),
+            ext + ": realSpaceLightcone on the Result read is the direct run's, but RA and Dec within rounding");
+      remove_with_twins(file);
+    }
+  }
+
+  group("readDisplacementComplete: a file without its parts gives no profile, no table, no lagrangianSky");
+  {
+    Result expected = lc;
+    expected.mpsProfile = MpsProfile();
+    expected.distances = nullptr;
+    expected.lagrangianSky.clear();
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string file = temporary("noparts" + ext);
+      io::writeDisplacementComplete(file, lc, false);
+      const std::string d = difference(io::readDisplacementComplete(file), expected);
+      check(d.empty(), ext + ": lightconeTables false: " + (d.empty() ? "the rest back" : d + " differs"));
+      remove_with_twins(file);
+    }
+    Result noProfile = lc;
+    noProfile.mpsProfile = MpsProfile();
+    noProfile.distances = std::make_shared<const DistanceTable>(table.redshift(), table.distance());
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string file = temporary("tableonly" + ext);
+      io::writeDisplacementComplete(file, noProfile);
+      const std::string d = difference(io::readDisplacementComplete(file), noProfile);
+      check(d.empty(), ext + ": no profile, a table without growth rate: " + (d.empty() ? "back" : d + " differs"));
+      remove_with_twins(file);
+    }
+  }
+
+  group("readDisplacementComplete: the files of otswap 0.1.0, box and lightcone, ASCII and FITS");
+  {
+    namespace f = fixtures_v010;
+    const Result box010 = reconstructBox(f::box_tracers(), {}, f::config());
+    const Result lc010 = reconstructLightcone(f::lightcone_tracers(), f::lightcone_randoms(), f::mask(), 1,
+                                              f::table(), f::config(), f::cut());
+    // What a 0.1.0 file holds: no sky, profile, table or counts, and the
+    // configuration's defaults where it wrote nothing.
+    auto as_v010 = [] (Result r) {
+      r.tracersSky.clear();
+      r.lagrangianSky.clear();
+      r.mpsProfile = MpsProfile();
+      r.distances = nullptr;
+      SelectionCounts s;
+      s.redshiftCut = r.selection.redshiftCut;
+      s.maskApplied = r.selection.maskApplied;
+      s.maxUnobservedPixelsCrossed = r.selection.maxUnobservedPixelsCrossed;
+      r.selection = s;
+      r.config.verbosity = Config().verbosity;
+      return r;
+    };
+    const Result boxExpected = as_v010(box010);
+    const Result lcExpected = as_v010(lc010);
+    check(box010.box && !box010.selection.boxLimits && lc010.filteredNside == 16 &&
+          std::count(lc010.outsideRedshiftCut.begin(), lc010.outsideRedshiftCut.end(), 1) > 0 &&
+          std::count(lc010.outsideMask.begin(), lc010.outsideMask.end(), 1) > 0,
+          "the inputs of the files: a box without limits, a lightcone with cut, mask and filter");
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string dir = std::string(OTSWAP_TEST_DATA) + "/v0.1.0_";
+      const std::string db = difference(io::readDisplacementComplete(dir + "box" + ext), boxExpected);
+      const std::string dl = difference(io::readDisplacementComplete(dir + "lightcone" + ext), lcExpected);
+      check(db.empty(), ext + ": the box, its bounding box as Result::box: " + (db.empty() ? "back" : db + " differs"));
+      check(dl.empty(), ext + ": the lightcone, its flags and selection: " + (dl.empty() ? "back" : dl + " differs"));
+    }
+  }
+
+  group("readDisplacementComplete: counts checked against the flags only when the file records them (NTRAC)");
+  {
+    Result handBuilt = lc;
+    handBuilt.selection = SelectionCounts();
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string file = temporary("handbuilt" + ext);
+      io::writeDisplacementComplete(file, handBuilt);
+      const std::string d = difference(io::readDisplacementComplete(file), handBuilt);
+      check(d.empty() && value_of(internal::read_keywords(file), "NTRAC") == "missing",
+            ext + ": flags set, no counts recorded: " + (d.empty() ? "read back" : d + " differs"));
+      remove_with_twins(file);
+    }
+  }
+
+  group("readDisplacementComplete: refusals, each naming the file and what is wrong");
+  {
+    const std::string file = temporary("bad.dat");
+    io::writeDisplacementComplete(file, lc);
+    const std::string good = text_of(file);
+    const std::string version = value_of(internal::read_keywords(file), "OTSWAPV");
+    auto refused = [&] (const std::string& text, const std::string& message) {
+      write_text(file, text);
+      return throws_naming([&] { io::readDisplacementComplete(file); }, file + ": " + message);
+    };
+    auto count_of = [&] (const char* key) { return value_of(internal::read_keywords(file), key); };
+
+    check(refused(replaced(good, "## PRODUCT = complete displacements", "## PRODUCT = displacements"),
+                  "its PRODUCT is 'displacements'"), "another product");
+    check(refused(replaced(replaced(good, "## PRODUCT = complete displacements", "## PRODUCT = displacement field"),
+                           "## OTSWAPV = " + version, "## OTSWAPV = 0.2.0"),
+                  "its PRODUCT is 'displacement field'"), "the product of 0.1.0 in a later file");
+    check(refused(replaced(good, "## NREC = 3 / realizations\n", ""), "the keyword NREC is missing"),
+          "a required keyword missing");
+    check(refused(replaced(good, "## NREC = 3 /", "## NREC = three /"), "the keyword NREC holds 'three'"),
+          "a malformed keyword");
+    check(refused(replaced(good, "## VERBOSE = silent", "## VERBOSE = loud"), "the keyword VERBOSE holds 'loud'"),
+          "an unknown verbosity");
+    check(refused(replaced(good, "## REJCROSS = 1", "## REJCROSS = 2"), "the keyword REJCROSS holds '2'"),
+          "REJCROSS neither 0 nor 1");
+    check(refused(replaced(good, "## MPSPART = 1", "## MPSPART = 2"), "the keyword MPSPART holds '2', where only 1 is written"),
+          "a declaration other than 1");
+    check(refused(replaced(good, "## NOBJECTS = 900", "## NOBJECTS = 901"),
+                  "it holds 2700 rows, where NOBJECTS x NREC = 901 x 3 = 2703 are expected"), "rows not NOBJECTS x NREC");
+    check(refused(good.substr(0, good.rfind('\n', good.size() - 2) + 1), "it holds 2699 rows"), "a row missing");
+    check(refused(with_field(good, 1, 0, "1"), "row 1 (from 0) holds realization 1, where 0 is expected"),
+          "a row out of its realization's block");
+    check(refused(with_field(good, 5, 14, "2"), "the column valid holds 2 at row 5"), "valid neither 0 nor 1");
+    check(refused(with_field(good, 4, 17, "2"), "the column outsideBox holds 2 at row 4"), "a flag neither 0 nor 1");
+    check(refused(with_field(good, 0, 1, "1"), "ids holds 1 twice"), "an ID repeated");
+    const std::string cut = count_of("NTRCUT");
+    check(refused(replaced(good, "## NTRCUT = " + cut, "## NTRCUT = " + std::to_string(std::stoul(cut) + 1)),
+                  "NTRCUT records " + std::to_string(std::stoul(cut) + 1) + " tracers, where outsideRedshiftCut flags " + cut),
+          "a count that disagrees with the flags");
+    check(refused(replaced(good, "## NTRAC = 900", "## NTRAC = 5"), "NTRAC records 5 tracers given"),
+          "a tracer count other than NOBJECTS");
+
+    const std::string mpsTwin = internal::twin_file(file, "mps");
+    const std::string tableTwin = internal::twin_file(file, "distances");
+    write_text(file, good);
+    std::remove(mpsTwin.c_str());
+    check(throws_naming([&] { io::readDisplacementComplete(file); },
+                        file + ": it declares MPSPART = 1, and " + mpsTwin + " does not exist"),
+          "ASCII: a declared profile missing, its twin named");
+    io::writeMpsProfile(mpsTwin, lc.mpsProfile);
+    check(throws_naming([&] { io::readDisplacementComplete(file); },
+                        "the mps profile in " + mpsTwin + ": its PRODUCT is 'mps profile'"),
+          "ASCII: a writeMpsProfile file in place of the twin");
+    io::writeDisplacementComplete(file, lc);
+    io::write(tableTwin, {{"redshift", 'D', "", "", {0.5}, {}}, {"distance", 'D', "", "", {1000.}, {}}},
+              {17, {{"PRODUCT", "complete displacements distance table", ""}}});
+    check(throws_naming([&] { io::readDisplacementComplete(file); }, "the distance table in " + tableTwin + ": "),
+          "ASCII: a malformed table");
+    std::remove(tableTwin.c_str());
+    check(throws_naming([&] { io::readDisplacementComplete(file); },
+                        "DISTPART = 1, and " + tableTwin + " does not exist"), "ASCII: a declared table missing");
+    remove_with_twins(file);
+
+    const std::string fits = temporary("bad.fits");
+    io::writeDisplacementComplete(fits, lc);
+    delete_hdu(fits, "MPSPROF");
+    check(throws_naming([&] { io::readDisplacementComplete(fits); },
+                        fits + ": it declares MPSPART = 1, and the HDU MPSPROF of " + fits + " does not exist"),
+          "FITS: a declared profile missing, its HDU named");
+    io::writeDisplacementComplete(fits, lc);
+    delete_hdu(fits, "DISTANCE");
+    check(throws_naming([&] { io::readDisplacementComplete(fits); }, "the HDU DISTANCE of " + fits + " does not exist"),
+          "FITS: a declared table missing");
+    io::writeDisplacementComplete(fits, lc);
+    set_keyword(fits, "DISTANCE", "PRODUCT", "displacements");
+    check(throws_naming([&] { io::readDisplacementComplete(fits); },
+                        "the distance table in the HDU DISTANCE of " + fits + ": its PRODUCT is 'displacements'"),
+          "FITS: a part of another product");
+    std::remove(fits.c_str());
+
+    const std::string boxFile = temporary("bad_box.dat");
+    io::writeDisplacementComplete(boxFile, limited);
+    const std::string boxText = text_of(boxFile);
+    std::string noBox = boxText;
+    for (const char* k : {"BOXXLO", "BOXXHI", "BOXYLO", "BOXYHI", "BOXZLO", "BOXZHI"}) {
+      const std::size_t at = noBox.find(std::string("## ") + k);
+      noBox.erase(at, noBox.find('\n', at) + 1 - at);
+      if (std::string(k) == "BOXXLO") {
+        write_text(boxFile, noBox);
+        check(throws_naming([&] { io::readDisplacementComplete(boxFile); }, "holds 5 of the six keywords BOXXLO"),
+              "a box keyword missing");
+      }
+    }
+    write_text(boxFile, noBox);
+    check(throws_naming([&] { io::readDisplacementComplete(boxFile); },
+                        "BOXLIM = 1 records the limits as the box, and the box keywords are missing"),
+          "BOXLIM without the box");
+    for (const char* part : {"MPSPART", "DISTPART"}) {
+      write_text(boxFile, replaced(boxText, "## NREC", std::string("## ") + part + " = 1 / declared by hand\n## NREC"));
+      check(throws_naming([&] { io::readDisplacementComplete(boxFile); },
+                          std::string("it declares ") + part + " = 1 in a box file"),
+            std::string("a box file declaring ") + part);
+    }
+    std::remove(boxFile.c_str());
+
+    const std::string other = temporary("other.dat");
+    io::writeDisplacementMean(other, lc);
+    check(throws_naming([&] { io::readDisplacementComplete(other); }, "its PRODUCT is 'displacements'"),
+          "a mean displacement file");
+    io::writeRealSpaceCatalog(other, lcCatalog);
+    check(throws_naming([&] { io::readDisplacementComplete(other); }, "its PRODUCT is 'real-space catalogue'"),
+          "a catalogue");
+    io::write(other, {{"x", 'D', "", "", {1.}, {}}});
+    check(throws_naming([&] { io::readDisplacementComplete(other); }, "the keyword PRODUCT is missing"),
+          "a table without keywords");
+    std::remove(other.c_str());
+    check(throws_naming([&] { io::readDisplacementComplete(temporary("absent.dat")); }, "cannot open"),
+          "a file that does not exist");
   }
 
   group("Both displacement writers refuse realization counts or box limits that disagree, before writing");

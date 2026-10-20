@@ -177,7 +177,8 @@ def main():
     # coordinates and displacement. The writer is the C++ library's, so the
     # file is the C++ example's, byte for byte.
     # otswap.io.write_displacement_complete writes every realization instead,
-    # losslessly, and otswap.io.write_mps_profile the mps(z)
+    # losslessly, otswap.io.read_displacement_complete reads it back, and
+    # otswap.io.write_mps_profile writes the mps(z)
     otswap.io.write_displacement_mean(output / "displacement_lightcone.dat", result)
 
     print("Written: output/displacement_lightcone.dat")

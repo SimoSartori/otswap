@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Requires meshsearch 0.2.1 or a later 0.2.x; 0.2.1 is fetched when none is
+  installed.
+- Tracers at exactly the same distance from a tracer, or randoms at exactly
+  the same distance from a first-guess starter, are now ordered by ascending
+  index. Their order used to come from the standard library, so a result
+  could differ between compilers when distances were tied, as on a lattice.
+  Results for inputs with exactly tied distances change on every compiler;
+  results without ties are unchanged.
+
 ## 0.1.0 — 2026-10-08
 
 First release.

@@ -23,18 +23,21 @@ column names; then one line per row, values separated by single spaces:
 ``numpy.loadtxt`` and most table readers skip them.
 
 FITS layout: the table in HDU 2, a binary table of 1D, 1J and 1K columns;
-descriptions in TCOMMn, units in TUNITn, keywords in the header of HDU 2.
+descriptions in TCOMMn, units in TUNITn, keywords in the header of HDU 2. The
+displacement writers name that table DISPLACEMENTS (EXTNAME); the complete
+displacement file adds one HDU per further table, each named by its EXTNAME,
+which an ASCII file writes as twin files of its own.
 
 The writers of a ``Result``, a ``RealSpaceCatalog`` and an ``MpsProfile``
 write one row per input object, in input order, tracers left out of the
 reconstruction included, with NaN where nothing was computed, so row i of a
 file describes object i of the input. The id column, where written, holds
 the object's ID (``Result.ids``, ``RealSpaceCatalog.ids``), or i when no IDs
-were set. Angles are in degrees, right
-ascension in [0, 360). Each column has a description and a unit, and the
-header carries keywords: PRODUCT, what the file holds; OTSWAPV, the library
-version; GEOMETRY, box or lightcone; NOBJECTS; and those of the product,
-listed with each writer. They are the C++ library's writers, so the C++ and
+were set. Angles are in degrees, right ascension in [0, 360) but in the
+complete displacement file, which keeps it as given. Each column has a
+description and a unit, and the header carries keywords: PRODUCT, what the
+file holds; OTSWAPV, the library version; GEOMETRY, box or lightcone;
+NOBJECTS; and those of the product, listed with each writer. They are the C++ library's writers, so the C++ and
 Python files are the same, byte for byte.
 """
 
@@ -45,7 +48,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 from typing_extensions import TypeAlias
 
-from . import BiasTable, MpsProfile, RealSpaceCatalog, Result
+from . import AngleUnit, BiasTable, MpsProfile, RealSpaceCatalog, Result
 
 Path = Union[str, os.PathLike]
 
@@ -258,7 +261,8 @@ def write_displacement_complete(
     they are in FITS, so every value reads back identical, NaN included, in
     both formats; ``Result.from_arrays`` on the arrays read back gives the
     reconstruction's means bit for bit. displX..displZ equal lagr - trac bit
-    for bit.
+    for bit. ``read_displacement_complete`` reads the file back into a
+    ``Result``.
 
     Keywords, those of ``write_displacement_mean`` too: NREC, SEED (the seed
     used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE (silent,
@@ -291,6 +295,66 @@ def write_displacement_complete(
     Raises for ``ids`` as ``write_displacement_mean``, for a result whose
     realization count differs from its configuration's, and for a box result
     whose box differs from the limits recorded in its selection.
+    """
+
+
+def read_displacement_complete(file: Path, *, angle_unit: AngleUnit) -> Result:
+    """Read a file written by ``write_displacement_complete`` back into a
+    ``Result``, its sky arrays in ``angle_unit``.
+
+    Read as written: the geometry, ``ids``, the configuration, ``tracers``,
+    ``tracers_sky``, ``displacement``, ``matched_random``, ``valid``, the
+    three flags, the selection counts, the box, the mps(z) profile and the
+    distance table. Recomputed, as ``recompute_means`` does: the valid
+    realizations, ``mean_displacement``, ``lagrangian`` and
+    ``lagrangian_sky``. ``ids`` reads as having no IDs when the file's IDs
+    are 0..n_objects-1. The columns of the tracer, id and flags are taken
+    from realization 0.
+
+    Parameters
+    ----------
+    file : str or os.PathLike
+        A complete displacement file; its extension sets the format.
+    angle_unit : {"deg", "rad"}
+        The unit of the sky arrays of the result; required, and without
+        effect for a box file.
+
+    Returns
+    -------
+    Result
+        The result written, but for the differences below.
+
+    Raises
+    ------
+    Error
+        If the file cannot be read; if its PRODUCT is not that of
+        ``write_displacement_complete``; if a keyword or a column its layout
+        requires is missing or malformed; if the rows are not NOBJECTS x
+        NREC, ordered in blocks of realization 0, 1, and so on; if a flag or
+        valid entry is neither 0 nor 1, or an ID is repeated; if the file
+        records the tracer counts of the selection (NTRAC) and one disagrees
+        with the flags; if a box file declares a profile or a table; if a
+        declared profile or table is missing, the message naming the file and
+        the part, or is not the part written, by its PRODUCT, or is
+        malformed. Every message names the file.
+
+    Notes
+    -----
+    Every value reads back identical but ``tracers_sky``, whose right
+    ascension and declination are equal within the rounding of the
+    conversion to degrees and back; NaN reads back as NaN, with its sign and
+    payload in FITS only. ``real_space_lightcone`` on the result read gives
+    the catalogue of the reconstruction bit for bit, but for its right
+    ascension and declination, equal within that rounding.
+
+    The profile and the table are read when the file declares them (MPSPART,
+    DISTPART): in FITS from the HDUs MPSPROF and DISTANCE, in ASCII from the
+    twin files named by the rule of ``write_displacement_complete``, from the
+    name of the file read. They are left empty when it does not: for a file
+    written with ``lightcone_tables=False``, and for a file of otswap 0.1,
+    whose result has no ``tracers_sky`` either, and whose index column is
+    read as the IDs. A box file of otswap 0.1 gets the bounding box of its
+    tracers as its box, the box its reconstruction used.
     """
 
 

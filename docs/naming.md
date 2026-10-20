@@ -99,4 +99,5 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 | `io::write` with a row function | — | |
 | `io::readBiasTable` | `io.read_bias_table` | |
 | `io::writeDisplacementMean`, `writeDisplacementComplete`, `writeRealSpaceCatalog`, `writeMpsProfile` | `io.write_displacement_mean`, `write_displacement_complete`, `write_real_space_catalog`, `write_mps_profile` | |
+| `io::readDisplacementComplete` | `io.read_displacement_complete` | `angle_unit=` required |
 | `io::DisplacementGroup`, `io::CatalogGroup` | strings | `TracerSky` is `"tracer_sky"` |

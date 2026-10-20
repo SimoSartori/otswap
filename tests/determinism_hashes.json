@@ -13,6 +13,10 @@
   "reconstruct_box.generated.mean_displacement": "0ab4e91bf320b0488ca5ee1d802c8683a0b477db695aecbcb75e077c724c0478",
   "reconstruct_box.given.displacement": "cb16b3d59fc5d97f32882f1b2777263d53fca60fdfd01619ddac549c14200775",
   "reconstruct_box.given.mean_displacement": "05f2498d1755ee936d06d18fee7aefb37dee134f7a453e8dd548bde7bbd3da45",
+  "reconstruct_box.lattice.generated.displacement": "c3775f1f9d7574cee9c55cd8ddcd19996d0f9a73b2b3299b755d1e4575c564ed",
+  "reconstruct_box.lattice.generated.mean_displacement": "7ae9b1f54e062d1832fec220fbb9ce72e14bed8eb6a857a708120540f556c002",
+  "reconstruct_box.lattice.given.displacement": "ed201ff236a57b6b5e5f53385a717aa7b3b8addb9ae94f45858ac8707f7aa38f",
+  "reconstruct_box.lattice.given.mean_displacement": "4b75231d1c4bc1decdddd21e036c6d1817baf6fb8e6195303728cafc186f4e11",
   "reconstruct_box.limits.generated.displacement": "20c921e88fb51ccb265c72199dc543ffc00ee1b924f995c64d287cbb35c31cbb",
   "reconstruct_box.limits.generated.outside_box": "102e3c1ab9c3b79f7c107fd77b646fd790856f8ec435d507fc2e9b3e280302fe",
   "reconstruct_box.limits.generated.valid": "131e0077c8b23b8219988bb087804a101c0ef7c51b57ed289c34f8a476c553cb",
@@ -75,7 +79,7 @@
   "to_sky.rad": "65236ff76b856bc70826e316436066f4d0cf9c3dc6b83e98fbfd3f3ec5c12771"
  },
  "recorded": {
-  "date": "2026-10-14",
+  "date": "2026-10-20",
   "machine": "arm64",
   "numpy": "2.5.3",
   "platform": "macOS-14.5-arm64-arm-64bit-Mach-O",

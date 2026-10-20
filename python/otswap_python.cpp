@@ -1516,6 +1516,20 @@ NB_MODULE(_otswap, m)
       "Write every realization of a result, losslessly, one row per realization and tracer, with "
       "the mps(z) profile and the distance table of a lightcone.");
 
+  io.def("read_displacement_complete",
+      [] (nb::handle file, nb::handle angleUnit) {
+        const std::string path = to_path(file, "file");
+        const bool degrees = in_degrees(angleUnit);
+        otswap::Result result;
+        {
+          nb::gil_scoped_release released;
+          result = otswap::io::readDisplacementComplete(path);
+        }
+        return PyResult(std::move(result), degrees);
+      },
+      "file"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
+      "Read a file written by write_displacement_complete back into a Result.");
+
   io.def("write_real_space_catalog",
       [] (nb::handle file, nb::handle catalog, nb::handle groups) {
         const std::string path = to_path(file, "file");

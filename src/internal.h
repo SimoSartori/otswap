@@ -361,6 +361,26 @@ namespace otswap {
     /// <file>.<part> when the name has no '.'.
     std::string twin_file (const std::string& file, const std::string& part);
 
+    /// Where write_parts wrote a table other than the first: in FITS the
+    /// file itself and the HDU of that extname, in ASCII the file
+    /// twin_file(file, twin) and no extname. name names it in messages:
+    /// "the HDU <extname> of <file>", or the twin file. exists is false
+    /// when the HDU or the twin file does not exist.
+    struct PartLocation {
+      std::string file;
+      std::string extname;
+      std::string name;
+      bool exists = false;
+    };
+
+    PartLocation locate_part (const std::string& file, const std::string& extname,
+                              const std::string& twin);
+
+    /// The column names of a table, in order: FITS, of HDU 2 or, with an
+    /// extname, of the HDU of that EXTNAME; ASCII, the names of the "###"
+    /// line, extname ignored.
+    std::vector<std::string> column_names (const std::string& file, const std::string& extname = "");
+
   }
 
 }

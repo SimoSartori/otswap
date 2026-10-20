@@ -1195,6 +1195,11 @@ def real_space_lightcone(
     Tracers outside the reconstruction's redshift cut or mask are not
     corrected, take no part in any average, and have status 3. The catalogue
     carries the result's ``ids``.
+
+    On a result read by ``otswap.io.read_displacement_complete`` the
+    correction is that of the reconstruction itself, bit for bit, but for the
+    right ascension and declination of ``sky``, which match within the
+    rounding of the file's conversion to degrees and back.
     """
 
 

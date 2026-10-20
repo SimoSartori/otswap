@@ -56,13 +56,13 @@ endif()
 # ---------------------------------------------------------------------------
 # meshsearch
 #
-# An installed meshsearch of the same minor version is used when found;
+# An installed meshsearch 0.2.1 or a later 0.2.x is used when found;
 # otherwise the pinned tag is fetched and built from source. A parent
 # project that already defines meshsearch::meshsearch provides its own.
 # ---------------------------------------------------------------------------
 
-set(OTSWAP_MESHSEARCH_VERSION 0.2)
-set(OTSWAP_MESHSEARCH_TAG "v0.2.0" CACHE STRING
+set(OTSWAP_MESHSEARCH_VERSION 0.2.1)
+set(OTSWAP_MESHSEARCH_TAG "v0.2.1" CACHE STRING
     "meshsearch tag to fetch when no installed meshsearch is found")
 set(OTSWAP_MESHSEARCH_REPOSITORY "https://github.com/SimoSartori/meshsearch.git"
     CACHE STRING "meshsearch repository to fetch from; may be a local path")
@@ -255,6 +255,8 @@ if (OTSWAP_BUILD_TESTS)
                    test_detmath test_pixel test_rsd test_writers)
     add_executable(${test_name} tests/${test_name}.cpp)
     target_include_directories(${test_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(${test_name} PRIVATE
+      OTSWAP_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
     target_link_libraries(${test_name} PRIVATE otswap CFITSIO::CFITSIO otswap_healpix)
     if (OpenMP_CXX_FOUND)
       target_link_libraries(${test_name} PRIVATE OpenMP::OpenMP_CXX)
@@ -301,7 +303,7 @@ endif()
 #
 # find_package(otswap 0.1 CONFIG) then otswap::otswap. The archive holds
 # fdlibm's objects; its other dependencies are found again on the consumer's
-# machine by otswapConfig.cmake: meshsearch of the same minor version,
+# machine by otswapConfig.cmake: meshsearch 0.2.1 or a later 0.2.x,
 # cfitsio through the FindCFITSIO.cmake installed beside it, and OpenMP when
 # otswap was built with it.
 # ---------------------------------------------------------------------------

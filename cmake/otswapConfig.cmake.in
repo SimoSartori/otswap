@@ -2,8 +2,8 @@
 
 include(CMakeFindDependencyMacro)
 
-# The meshsearch otswap was built against: any patch release of its minor
-# version.
+# meshsearch: the version otswap requires or a later patch release of its
+# minor version.
 find_dependency(meshsearch @OTSWAP_MESHSEARCH_VERSION@ CONFIG)
 
 # cfitsio, found on this machine by the module installed beside this file;

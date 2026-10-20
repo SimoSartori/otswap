@@ -177,6 +177,19 @@ def compute():
         out[f"reconstruct_box.limits.{label}.valid"] = digest(limited.valid)
         out[f"reconstruct_box.limits.{label}.outside_box"] = digest(limited.outside_box)
 
+    # Tracers and given randoms on lattices, every coordinate a multiple of
+    # 3.125, so that many neighbours lie at exactly the same distance: ties
+    # are broken by index, the same on every toolchain.
+    lattice = np.array([[12.5 * i, 12.5 * j, 12.5 * k]
+                        for i in range(8) for j in range(8) for k in range(8)])
+    lattice_randoms = np.array([[3.125 + 6.25 * i, 3.125 + 6.25 * j, 3.125 + 12.5 * k]
+                                for i in range(16) for j in range(16) for k in range(8)])
+    for label, given in (("generated", None), ("given", lattice_randoms)):
+        tied = otswap.reconstruct_box(lattice, given, mps=12.5, n_realizations=3, seed=12345,
+                                      verbosity="silent")
+        out[f"reconstruct_box.lattice.{label}.displacement"] = digest(tied.displacement)
+        out[f"reconstruct_box.lattice.{label}.mean_displacement"] = digest(tied.mean_displacement)
+
     def lightcone():
         return otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0,
                                             n_bins=2, distances=lc_table, angle_unit="deg",

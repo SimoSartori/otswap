@@ -323,7 +323,8 @@ namespace otswap {
      *  recomputeMeans, has the reconstruction's meanDisplacement,
      *  validRealizations and lagrangian bit for bit, and its lagrangianSky
      *  given the distance table. displacement also equals lagr - trac bit for
-     *  bit, as the reconstruction computes it.
+     *  bit, as the reconstruction computes it. readDisplacementComplete
+     *  reads the file back into a Result.
      *
      *  Keywords, those of writeDisplacementMean too: NREC, SEED (the seed
      *  used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE
@@ -371,6 +372,56 @@ namespace otswap {
      */
     void writeDisplacementComplete (const std::string& file, const Result& result,
                                     bool lightconeTables = true);
+
+    /**
+     *  @brief Read a file written by writeDisplacementComplete back into a
+     *  Result.
+     *
+     *  Read as written: the geometry, ids, config (but log, which is
+     *  &std::clog), tracers, tracersSky (degrees to radians), displacement,
+     *  matchedRandom, valid, the three flags, filteredNside, selection, mps,
+     *  box, mpsProfile, and the distance table, as a new table equal to the
+     *  one written. Recomputed with recomputeMeans: validRealizations,
+     *  meanDisplacement, lagrangian and lagrangianSky. elapsedSeconds is 0.
+     *  ids is empty when the file's IDs are 0..nObjects-1. The columns of the
+     *  tracer, id and flags are taken from realization 0.
+     *
+     *  Every double reads back identical, and so does every field above but
+     *  tracersSky, whose right ascension and declination are equal within
+     *  the rounding of the conversion to degrees and back; NaN reads back as
+     *  NaN, with its sign and payload in FITS only. realSpaceLightcone on the
+     *  Result read gives the catalogue of the reconstruction bit for bit,
+     *  but for its right ascension and declination, equal within that
+     *  rounding.
+     *
+     *  The profile and the table are read when the main table declares them
+     *  (MPSPART, DISTPART): in FITS from the HDUs MPSPROF and DISTANCE, in
+     *  ASCII from the twin files named by the rule of
+     *  writeDisplacementComplete, from the name of the file read. They are
+     *  left empty when it does not: for a file written with lightconeTables
+     *  false, and for a file of otswap 0.1, whose Result has no tracersSky
+     *  either, and whose index column is read as the IDs. A box file of
+     *  otswap 0.1 gets the bounding box of its tracers as Result::box, the
+     *  box its reconstruction used.
+     *
+     *  @param file a complete displacement file; its extension sets the
+     *  format.
+     *
+     *  @return the result, as writeDisplacementComplete received it but for
+     *  the differences above.
+     *
+     *  @exception Error if the file cannot be read (as io::read); if its
+     *  PRODUCT is not that of writeDisplacementComplete; if a keyword or a
+     *  column its layout requires is missing or malformed; if the rows are
+     *  not NOBJECTS x NREC, ordered in blocks of realization 0, 1, and so
+     *  on; if a flag or valid entry is neither 0 nor 1, or an ID is
+     *  repeated; if the file records the tracer counts of the selection
+     *  (NTRAC) and one disagrees with the flags; if a box file declares a
+     *  profile or a table; if a declared profile or table is missing, the
+     *  message naming the file and the part, or is not the part written, by
+     *  its PRODUCT, or is malformed. Every message names the file.
+     */
+    Result readDisplacementComplete (const std::string& file);
 
     /// The column groups of writeRealSpaceCatalog.
     enum class CatalogGroup {

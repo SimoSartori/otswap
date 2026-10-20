@@ -56,6 +56,12 @@ columns and the keywords are listed with each.
 | `io::writeRealSpaceCatalog` | `io.write_real_space_catalog` | a catalogue moved to real space |
 | `io::writeMpsProfile` | `io.write_mps_profile` | a mean particle separation profile |
 
+The complete displacement file has its reader, which rebuilds the `Result`:
+
+| C++ | Python | Reads |
+|---|---|---|
+| `io::readDisplacementComplete` | `io.read_displacement_complete` | a complete displacement file, of this version or of otswap 0.1 |
+
 In Python the groups are strings, the C++ names in snake case
 (`DisplacementGroup::TracerSky` is `"tracer_sky"`).
 
@@ -70,6 +76,9 @@ In Python the groups are strings, the C++ names in snake case
 ### Complete displacements
 
 ```{doxygenfunction} otswap::io::writeDisplacementComplete
+```
+
+```{doxygenfunction} otswap::io::readDisplacementComplete
 ```
 
 ### Real-space catalogue

@@ -21,19 +21,27 @@
 /**
  *  @file src/Writers.cpp
  *
- *  @brief The writers of a Result, a RealSpaceCatalog and an MpsProfile.
+ *  @brief The writers of a Result, a RealSpaceCatalog and an MpsProfile,
+ *  and the reader of the complete displacement file.
  *
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */
 
+#include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <iomanip>
+#include <limits>
 #include <locale>
+#include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <system_error>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -277,6 +285,148 @@ namespace {
     }
   }
 
+  /// The keywords of a table being read, and the text that starts every
+  /// message about it.
+  struct Header {
+    std::string where;
+    std::vector<Keyword> keywords;
+
+    [[noreturn]] void fail (const std::string& what) const
+    {
+      throw otswap::Error(where + ": " + what);
+    }
+
+    const std::string* find (const std::string& name) const
+    {
+      for (const Keyword& k : keywords)
+        if (k.name == name) return &k.value;
+      return nullptr;
+    }
+
+    std::string text (const std::string& name) const
+    {
+      const std::string* value = find(name);
+      if (value == nullptr) fail("the keyword " + name + " is missing");
+      return *value;
+    }
+
+    /// An integer keyword in [0, max]; absent, the value given, or an error
+    /// when none is.
+    std::uint64_t whole (const std::string& name, const std::uint64_t max,
+                         const std::optional<std::uint64_t> absent = std::nullopt) const
+    {
+      const std::string* value = find(name);
+      if (value == nullptr && absent) return *absent;
+      const std::string v = text(name);
+      std::uint64_t n = 0;
+      const auto conversion = std::from_chars(v.data(), v.data() + v.size(), n);
+      if (conversion.ec != std::errc() || conversion.ptr != v.data() + v.size() || n > max)
+        fail("the keyword " + name + " holds '" + v + "', not an integer in [0, " + std::to_string(max) + "]");
+      return n;
+    }
+
+    /// A number keyword; absent, the value given, or an error when none is.
+    double real (const std::string& name, const std::optional<double> absent = std::nullopt) const
+    {
+      const std::string* value = find(name);
+      if (value == nullptr && absent) return *absent;
+      const std::string v = text(name);
+      char* end = nullptr;
+      const double x = std::strtod(v.c_str(), &end);
+      if (v.empty() || end != v.c_str() + v.size())
+        fail("the keyword " + name + " holds '" + v + "', not a number");
+      return x;
+    }
+
+    /// A keyword written as 1 or not at all: true when present.
+    bool one (const std::string& name) const
+    {
+      const std::string* value = find(name);
+      if (value == nullptr) return false;
+      if (*value != "1") fail("the keyword " + name + " holds '" + *value + "', where only 1 is written");
+      return true;
+    }
+
+    void product (const std::string& expected) const
+    {
+      const std::string found = text("PRODUCT");
+      if (found != expected)
+        fail("its PRODUCT is '" + found + "', where '" + expected + "' is expected" +
+             (found == "mps profile" ? "; a file of writeMpsProfile has taken the place of the twin file" : ""));
+    }
+  };
+
+  /// An entry of a column of 0 and 1.
+  std::uint8_t flag_of (const Header& h, const std::int64_t value, const char* const column, const std::size_t row)
+  {
+    if (value != 0 && value != 1)
+      h.fail("the column " + std::string(column) + " holds " + std::to_string(value) + " at row " +
+             std::to_string(row) + " (from 0); it must be 0 or 1");
+    return (std::uint8_t)value;
+  }
+
+  /// The columns of a part, from its HDU or its twin file.
+  otswap::io::Table read_located (const otswap::internal::PartLocation& at, const std::vector<std::string>& columns,
+                                  const std::vector<std::string>& integerColumns)
+  {
+    return at.extname.empty() ? otswap::io::read(at.file, columns, integerColumns)
+                              : otswap::internal::read_part(at.file, at.extname, columns, integerColumns);
+  }
+
+  /// The profile part a main table declares.
+  otswap::MpsProfile read_profile (const Header& main, const std::string& file)
+  {
+    const otswap::internal::PartLocation at = otswap::internal::locate_part(file, kProfileExtname, "mps");
+    if (!at.exists) main.fail("it declares MPSPART = 1, and " + at.name + " does not exist");
+    const Header h {"cannot read the mps profile in " + at.name, otswap::internal::read_keywords(at.file, at.extname)};
+    h.product("complete displacements mps profile");
+
+    otswap::MpsProfile profile;
+    profile.redshiftMin = h.real("ZMIN");
+    profile.redshiftMax = h.real("ZMAX");
+    profile.representative = h.real("MPSREPR");
+    const otswap::io::Table t = read_located(at, {"redshift", "MPS"}, {"nTracers"});
+    if (t.nRows == 0) h.fail("it holds no bin");
+    for (std::size_t row = 0; row < t.nRows; ++row) {
+      if (t.integers[row] < 0)
+        h.fail("the column nTracers holds " + std::to_string(t.integers[row]) + " at row " + std::to_string(row) +
+               " (from 0)");
+      profile.redshift.push_back(t.values[2*row]);
+      profile.mps.push_back(t.values[2*row+1]);
+      profile.count.push_back((std::size_t)t.integers[row]);
+    }
+    return profile;
+  }
+
+  /// The distance table part a main table declares, as a new table equal
+  /// to the one written.
+  std::shared_ptr<const otswap::DistanceTable> read_table (const Header& main, const std::string& file)
+  {
+    const otswap::internal::PartLocation at = otswap::internal::locate_part(file, kTableExtname, "distances");
+    if (!at.exists) main.fail("it declares DISTPART = 1, and " + at.name + " does not exist");
+    const Header h {"cannot read the distance table in " + at.name, otswap::internal::read_keywords(at.file, at.extname)};
+    h.product("complete displacements distance table");
+
+    const std::vector<std::string> names = otswap::internal::column_names(at.file, at.extname);
+    const bool growth = std::find(names.begin(), names.end(), "growthRate") != names.end();
+    std::vector<std::string> columns {"redshift", "distance"};
+    if (growth) columns.push_back("growthRate");
+    const otswap::io::Table t = read_located(at, columns, {});
+    std::vector<double> redshift(t.nRows), distance(t.nRows), growthRate(growth ? t.nRows : 0);
+    for (std::size_t row = 0; row < t.nRows; ++row) {
+      redshift[row] = t.values[t.nColumns*row];
+      distance[row] = t.values[t.nColumns*row+1];
+      if (growth) growthRate[row] = t.values[t.nColumns*row+2];
+    }
+    try {
+      return std::make_shared<const otswap::DistanceTable>(std::move(redshift), std::move(distance),
+                                                           std::move(growthRate));
+    }
+    catch (const otswap::Error& e) {
+      h.fail(e.what());
+    }
+  }
+
 }
 
 
@@ -501,6 +651,177 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
   }
 
   internal::write_parts(file, parts);
+}
+
+
+// ============================================================================
+
+
+otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
+{
+  const Header h {"cannot read the complete displacement file " + file, internal::read_keywords(file)};
+  const std::string product = h.text("PRODUCT");
+  const bool v010 = product == "displacement field" && h.text("OTSWAPV").compare(0, 4, "0.1.") == 0;
+  if (product != "complete displacements" && !v010)
+    h.fail("its PRODUCT is '" + product + "', where writeDisplacementComplete writes 'complete "
+           "displacements' (and otswap 0.1 'displacement field')");
+
+  Result r;
+  const std::string geometry = h.text("GEOMETRY");
+  if (geometry != "box" && geometry != "lightcone")
+    h.fail("its GEOMETRY is '" + geometry + "', neither box nor lightcone");
+  r.geometry = geometry == "box" ? Geometry::Box : Geometry::Lightcone;
+  const bool lightcone = r.geometry == Geometry::Lightcone;
+  const bool sky = lightcone && !v010;
+
+  constexpr std::uint64_t kUnsigned = std::numeric_limits<unsigned>::max();
+  constexpr std::uint64_t kSize = std::numeric_limits<std::size_t>::max();
+  const std::size_t n = (std::size_t)h.whole("NOBJECTS", kSize);
+  const unsigned nRec = (unsigned)h.whole("NREC", kUnsigned);
+  if (n == 0) h.fail("NOBJECTS is 0; a reconstruction has at least one object");
+  if (nRec == 0) h.fail("NREC is 0; a reconstruction has at least one realization");
+  if (nRec > kSize / n) h.fail("NOBJECTS x NREC overflows");
+  const std::size_t rows = n * nRec;
+  r.nObjects = n;
+  r.nRealizations = nRec;
+
+  Config& config = r.config;
+  config.nRealizations = nRec;
+  config.seed = (unsigned)h.whole("SEED", kUnsigned);
+  config.convergence = h.real("CONVERG");
+  config.cellSize = h.real("CELLSIZE", Config().cellSize);
+  config.rejectCrossings = h.whole("REJCROSS", 1, Config().rejectCrossings ? 1 : 0) == 1;
+  config.maxUnobservedPixelsCrossed =
+    (unsigned)h.whole("CFMAXPIX", kUnsigned, Config().maxUnobservedPixelsCrossed);
+  const std::string verbosity = h.find("VERBOSE") ? h.text("VERBOSE") : verbosity_name(Config().verbosity);
+  if (verbosity == "silent") config.verbosity = Verbosity::Silent;
+  else if (verbosity == "normal") config.verbosity = Verbosity::Normal;
+  else if (verbosity == "detailed") config.verbosity = Verbosity::Detailed;
+  else h.fail("the keyword VERBOSE holds '" + verbosity + "', not silent, normal or detailed");
+
+  r.mps = h.real("MPS", std::numeric_limits<double>::quiet_NaN());
+  static const char* const boxKeywords[6] = {"BOXXLO", "BOXXHI", "BOXYLO", "BOXYHI", "BOXZLO", "BOXZHI"};
+  int boxFound = 0;
+  for (const char* k : boxKeywords) boxFound += h.find(k) ? 1 : 0;
+  if (boxFound != 0 && boxFound != 6)
+    h.fail("it holds " + std::to_string(boxFound) + " of the six keywords BOXXLO, BOXXHI, BOXYLO, BOXYHI, "
+           "BOXZLO, BOXZHI; a box has all six");
+  if (boxFound == 6) {
+    BoxLimits box;
+    for (int c = 0; c < 3; ++c) {
+      box.lower[c] = h.real(boxKeywords[2*c]);
+      box.upper[c] = h.real(boxKeywords[2*c+1]);
+    }
+    r.box = box;
+  }
+
+  SelectionCounts& s = r.selection;
+  if (h.one("BOXLIM")) {
+    if (!r.box) h.fail("BOXLIM = 1 records the limits as the box, and the box keywords are missing");
+    s.boxLimits = r.box;
+  }
+  if (h.find("ZCUTMIN") || h.find("ZCUTMAX"))
+    s.redshiftCut = RedshiftCut{h.real("ZCUTMIN", -std::numeric_limits<double>::infinity()),
+                                h.real("ZCUTMAX", std::numeric_limits<double>::infinity())};
+  s.maskApplied = h.one("MASK");
+  r.filteredNside = (int)h.whole("FILTNSID", (std::uint64_t)std::numeric_limits<int>::max(), 0);
+  if (h.find("MAXPIXCR")) s.maxUnobservedPixelsCrossed = (unsigned)h.whole("MAXPIXCR", kUnsigned);
+  const std::pair<const char*, std::size_t*> counts[] = {
+    {"NTRAC", &s.tracers}, {"NTRCUT", &s.tracersOutsideRedshiftCut}, {"NTRMASK", &s.tracersOutsideMask},
+    {"NTRBOTH", &s.tracersOutsideBoth}, {"NTRBOX", &s.tracersOutsideBox}, {"NRAND", &s.randoms},
+    {"NRNCUT", &s.randomsOutsideRedshiftCut}, {"NRNMASK", &s.randomsOutsideMask},
+    {"NRNBOTH", &s.randomsOutsideBoth}, {"NRNBOX", &s.randomsOutsideBox}, {"NDISPL", &s.displacements},
+    {"NDISPCR", &s.displacementsCrossingMask}};
+  for (const auto& c : counts) *c.second = (std::size_t)h.whole(c.first, kSize, 0);
+
+  std::vector<std::string> columns;
+  if (sky) columns = {"tracRA", "tracDec", "tracRed"};
+  for (const char* p : {"trac", "lagr", "displ"})
+    for (const char* c : kXyz) columns.push_back(std::string(p) + c);
+  std::vector<std::string> integerColumns {"realization", v010 ? "index" : "id", "valid", "outsideRedshiftCut",
+                                           "outsideMask"};
+  if (!v010) integerColumns.push_back("outsideBox");
+  const Table t = read(file, columns, integerColumns);
+  if (t.nRows != rows)
+    h.fail("it holds " + std::to_string(t.nRows) + " rows, where NOBJECTS x NREC = " + std::to_string(n) +
+           " x " + std::to_string(nRec) + " = " + std::to_string(rows) + " are expected");
+
+  const std::size_t xyz = sky ? 3 : 0;
+  std::vector<double> skyDegrees(sky ? 3 * n : 0);
+  r.tracers.resize(3 * n);
+  r.matchedRandom.resize(3 * rows);
+  r.displacement.resize(3 * rows);
+  r.valid.resize(rows);
+  r.outsideRedshiftCut.resize(n);
+  r.outsideMask.resize(n);
+  r.outsideBox.assign(n, 0);
+  r.ids.resize(n);
+  for (std::size_t row = 0; row < rows; ++row) {
+    const double* v = &t.values[row * t.nColumns];
+    const std::int64_t* k = &t.integers[row * t.nIntegerColumns];
+    if (k[0] != (std::int64_t)(row / n))
+      h.fail("row " + std::to_string(row) + " (from 0) holds realization " + std::to_string(k[0]) + ", where " +
+             std::to_string(row / n) + " is expected: the rows are the NOBJECTS = " + std::to_string(n) +
+             " objects of realization 0, then those of realization 1, and so on");
+    for (std::size_t c = 0; c < 3; ++c) {
+      r.matchedRandom[3*row+c] = v[xyz+3+c];
+      r.displacement[3*row+c] = v[xyz+6+c];
+    }
+    r.valid[row] = flag_of(h, k[2], "valid", row);
+    if (row >= n) continue;
+    for (std::size_t c = 0; c < 3; ++c) {
+      r.tracers[3*row+c] = v[xyz+c];
+      if (sky) skyDegrees[3*row+c] = v[c];
+    }
+    r.ids[row] = k[1];
+    r.outsideRedshiftCut[row] = flag_of(h, k[3], "outsideRedshiftCut", row);
+    r.outsideMask[row] = flag_of(h, k[4], "outsideMask", row);
+    if (!v010) r.outsideBox[row] = flag_of(h, k[5], "outsideBox", row);
+  }
+
+  bool sequential = true;
+  for (std::size_t i = 0; sequential && i < n; ++i) sequential = r.ids[i] == (std::int64_t)i;
+  if (sequential) r.ids.clear();
+  try {
+    internal::check_ids(r.ids, n);
+    if (sky) r.tracersSky = skyToRadians(std::move(skyDegrees));
+  }
+  catch (const Error& e) {
+    h.fail(e.what());
+  }
+
+  if (v010 && !lightcone) r.box = internal::bounding_box(r.tracers);
+  if (h.find("NTRAC")) {
+    std::size_t cut = 0, mask = 0, both = 0, box = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+      cut += r.outsideRedshiftCut[i];
+      mask += r.outsideMask[i];
+      both += r.outsideRedshiftCut[i] & r.outsideMask[i];
+      box += r.outsideBox[i];
+    }
+    if (s.tracers != n)
+      h.fail("NTRAC records " + std::to_string(s.tracers) + " tracers given, where NOBJECTS = " +
+             std::to_string(n) + " is expected");
+    const std::tuple<const char*, std::size_t, std::size_t, const char*> agree[] = {
+      {"NTRCUT", s.tracersOutsideRedshiftCut, cut, "outsideRedshiftCut flags"},
+      {"NTRMASK", s.tracersOutsideMask, mask, "outsideMask flags"},
+      {"NTRBOTH", s.tracersOutsideBoth, both, "outsideRedshiftCut and outsideMask both flag"},
+      {"NTRBOX", s.tracersOutsideBox, box, "outsideBox flags"}};
+    for (const auto& a : agree)
+      if (std::get<1>(a) != std::get<2>(a))
+        h.fail(std::string(std::get<0>(a)) + " records " + std::to_string(std::get<1>(a)) + " tracers, where " +
+               std::get<3>(a) + " " + std::to_string(std::get<2>(a)));
+  }
+
+  const bool profile = h.one("MPSPART"), distances = h.one("DISTPART");
+  if (!lightcone && (profile || distances))
+    h.fail(std::string("it declares ") + (profile ? "MPSPART" : "DISTPART") + " = 1 in a box file; only a "
+           "lightcone has an mps profile and a distance table");
+  if (profile) r.mpsProfile = read_profile(h, file);
+  if (distances) r.distances = read_table(h, file);
+
+  recomputeMeans(r);
+  return r;
 }
 
 

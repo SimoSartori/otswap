@@ -342,6 +342,11 @@ namespace otswap {
    *  left out: they take no part in any average, are not moved, have
    *  diagnostics 0, and the status LeftOut.
    *
+   *  On a Result read by io::readDisplacementComplete the correction is
+   *  that of the reconstruction itself, bit for bit, but for the right
+   *  ascension and declination of RealSpaceCatalog::sky, which match
+   *  within the rounding of the file's conversion to degrees and back.
+   *
    *  @param result a lightcone reconstruction, with its tracers and
    *  tracersSky, as reconstructLightcone returns it.
    *  @param distances a table carrying the growth rate, covering the

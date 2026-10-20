@@ -1804,9 +1804,11 @@ def test_io_stub_lists_the_module():
         text = f.read()
     for line in ("class Column:", "class Table:", "def read(", "def write(", "def read_bias_table(",
                  "def write_displacement_mean(", "def write_displacement_complete(",
-                 "def write_real_space_catalog(", "def write_mps_profile("):
+                 "def read_displacement_complete(", "def write_real_space_catalog(",
+                 "def write_mps_profile("):
         assert line in text, line
-    assert sorted(otswap.io.__all__) == ["Column", "Table", "read", "read_bias_table", "write",
+    assert sorted(otswap.io.__all__) == ["Column", "Table", "read", "read_bias_table",
+                                         "read_displacement_complete", "write",
                                          "write_displacement_complete", "write_displacement_mean",
                                          "write_mps_profile", "write_real_space_catalog"]
 
@@ -2085,6 +2087,140 @@ def test_write_displacement_complete_parts(tmp_path, table, lightcone):
         return [line for line in lines.splitlines() if line.startswith("## ")
                 and not line.startswith(("## PRODUCT", "## MPSPART", "## DISTPART"))]
     assert shared(mean.read_text()) == shared(text), "the same keywords in both files"
+
+
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+SELECTION_FIELDS = ("redshift_cut", "mask_applied", "tracers", "tracers_outside_redshift_cut",
+                    "tracers_outside_mask", "tracers_outside_both", "tracers_outside_box", "randoms",
+                    "randoms_outside_redshift_cut", "randoms_outside_mask", "randoms_outside_both",
+                    "randoms_outside_box", "max_unobserved_pixels_crossed", "displacements",
+                    "displacements_crossing_mask")
+
+
+def same_values(a, b):
+    """Equal bit for bit, a NaN equal to any NaN: ASCII keeps neither the
+    sign nor the payload of a NaN."""
+    a, b = np.asarray(a), np.asarray(b)
+    if a.dtype != b.dtype or a.shape != b.shape:
+        return False
+    if a.dtype.kind != "f":
+        return a.tobytes() == b.tobytes()
+    nan = np.isnan(a)
+    return np.array_equal(nan, np.isnan(b)) and a[~nan].tobytes() == b[~nan].tobytes()
+
+
+def same_result(back, r, exact):
+    """The members a Python Result shows, back as written: bit for bit (NaN
+    with its sign in FITS, exact=True), but the sky angles."""
+    same = same_bytes if exact else same_values
+    for field in ("ids", "tracers", "displacement", "matched_random", "valid", "valid_realizations",
+                  "mean_displacement", "lagrangian", "outside_redshift_cut", "outside_mask", "outside_box"):
+        assert same(getattr(back, field), getattr(r, field)), field
+    for field in ("n_objects", "n_realizations", "geometry", "angle_unit", "seed", "filtered_nside"):
+        assert getattr(back, field) == getattr(r, field), field
+    for field in SELECTION_FIELDS:
+        assert getattr(back.selection, field) == getattr(r.selection, field), field
+    assert repr(back.box) == repr(r.box) and same_values(back.mps or np.nan, r.mps or np.nan)
+    assert (back.lagrangian_sky is None) == (r.lagrangian_sky is None)
+    if r.lagrangian_sky is not None:
+        assert same(back.lagrangian_sky, r.lagrangian_sky)
+    assert (back.tracers_sky is None) == (r.tracers_sky is None)
+    if r.tracers_sky is not None:
+        np.testing.assert_allclose(back.tracers_sky, r.tracers_sky, rtol=4e-16, atol=0)
+        assert same_bytes(back.tracers_sky[:, 2], r.tracers_sky[:, 2])
+    assert (back.mps_profile is None) == (r.mps_profile is None)
+    if r.mps_profile is not None:
+        p, q = back.mps_profile, r.mps_profile
+        assert same_bytes(p.redshift, q.redshift) and same_bytes(p.mps, q.mps) and same_bytes(p.count, q.count)
+    assert back.elapsed_seconds == 0.0
+
+
+# The reader gives back the Result written, in both formats: every member bit
+# for bit but the sky angles, within the rounding of the degree conversion;
+# the correction of the Result read is the direct run's.
+@pytest.mark.parametrize("name", ["complete.dat", "complete.fits"])
+def test_read_displacement_complete_round_trip(tmp_path, table, lightcone, sieve_mask, name):
+    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
+    otswap.reject_mask_crossings(r, otswap.Mask(sieve_mask))
+    r.ids = np.arange(r.n_objects)[::-1] * 7 + 3
+    path = tmp_path / name
+    otswap.io.write_displacement_complete(path, r)
+    back = otswap.io.read_displacement_complete(path, angle_unit="deg")
+    same_result(back, r, name.endswith(".fits"))
+    assert r.outside_redshift_cut.any() and r.selection.displacements_crossing_mask > 0
+
+    radians = otswap.io.read_displacement_complete(path, angle_unit="rad")
+    assert radians.angle_unit == "rad"
+    np.testing.assert_allclose(radians.tracers_sky[:, :2], np.deg2rad(r.tracers_sky[:, :2]), rtol=4e-16)
+
+    bias = otswap.BiasTable([0.3, 0.6], [1.2, 1.6])
+    direct = otswap.real_space_lightcone(r, distances=table, bias=bias, sigma=10.0, verbosity="silent")
+    moved = otswap.real_space_lightcone(back, distances=table, bias=bias, sigma=10.0, verbosity="silent")
+    for field in ("cartesian", "shift", "factor", "status", "ids"):
+        assert same_values(getattr(moved, field), getattr(direct, field)), field
+    np.testing.assert_allclose(moved.sky, direct.sky, rtol=4e-16, atol=0)
+
+    otswap.io.write_displacement_complete(path, r, lightcone_tables=False)
+    bare = otswap.io.read_displacement_complete(path, angle_unit="deg")
+    assert bare.mps_profile is None and bare.lagrangian_sky is None
+    assert same_values(bare.mean_displacement, r.mean_displacement)
+
+
+@pytest.mark.parametrize("name", ["box.dat", "box.fits"])
+def test_read_displacement_complete_box(tmp_path, name):
+    r = otswap.reconstruct_box(box_catalogue(), box=LIMITS, n_realizations=2, seed=1, verbosity="silent")
+    path = tmp_path / name
+    otswap.io.write_displacement_complete(path, r)
+    back = otswap.io.read_displacement_complete(path, angle_unit="rad")
+    same_result(back, r, name.endswith(".fits"))
+    assert back.angle_unit is None and back.outside_box.any() and back.selection.box_limits is not None
+
+
+# The files of otswap 0.1.0: the index column read as the IDs, no sky, profile
+# or table, and for a box its tracers' bounding box.
+@pytest.mark.parametrize("ext", [".dat", ".fits"])
+def test_read_displacement_complete_v010(ext):
+    box = otswap.io.read_displacement_complete(os.path.join(DATA, "v0.1.0_box" + ext), angle_unit="deg")
+    assert box.geometry == "box" and box.n_objects == 500 and box.n_realizations == 2 and box.seed == 2026
+    assert np.array_equal(box.ids, np.arange(500)) and not box.outside_box.any()
+    t = box.tracers
+    assert repr(box.box) == repr(otswap.BoxLimits(t.min(axis=0), t.max(axis=0)))
+    lc = otswap.io.read_displacement_complete(os.path.join(DATA, "v0.1.0_lightcone" + ext), angle_unit="deg")
+    assert lc.geometry == "lightcone" and lc.tracers_sky is None and lc.lagrangian_sky is None
+    assert lc.mps_profile is None and lc.filtered_nside == 16 and lc.selection.redshift_cut == (0.25, 0.65)
+    assert lc.outside_mask.any() and lc.outside_redshift_cut.any() and lc.selection.tracers == 0
+
+
+def test_read_displacement_complete_errors(tmp_path, table, lightcone):
+    r = lightcone_result(table, lightcone, n_bins=2, verbosity="silent")
+    path = tmp_path / "run.dat"
+    otswap.io.write_displacement_complete(path, r)
+    with pytest.raises(TypeError):
+        otswap.io.read_displacement_complete(path)
+    with pytest.raises(otswap.Error, match="angle_unit"):
+        otswap.io.read_displacement_complete(path, angle_unit="degrees")
+    (tmp_path / "run.mps.dat").unlink()
+    with pytest.raises(otswap.Error, match="MPSPART = 1, and .*run.mps.dat does not exist"):
+        otswap.io.read_displacement_complete(path, angle_unit="deg")
+    otswap.io.write_displacement_mean(path, r)
+    with pytest.raises(otswap.Error, match="its PRODUCT is 'displacements'"):
+        otswap.io.read_displacement_complete(path, angle_unit="deg")
+
+
+# A result built from arrays records no selection counts: its flags are read
+# back without a check against them.
+def test_read_displacement_complete_from_arrays(tmp_path, table, lightcone):
+    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
+    built = otswap.Result.from_arrays(r.displacement, r.matched_random, r.valid, r.tracers,
+                                      tracers_sky=r.tracers_sky, angle_unit="deg", distances=table,
+                                      outside_redshift_cut=r.outside_redshift_cut, seed=r.seed)
+    path = tmp_path / "built.fits"
+    otswap.io.write_displacement_complete(path, built)
+    back = otswap.io.read_displacement_complete(path, angle_unit="deg")
+    assert built.outside_redshift_cut.any() and back.selection.tracers == 0
+    assert same_bytes(back.outside_redshift_cut, built.outside_redshift_cut)
+    assert same_bytes(back.mean_displacement, built.mean_displacement)
 
 
 def test_write_catalogue_and_profile(tmp_path, table, lightcone):
