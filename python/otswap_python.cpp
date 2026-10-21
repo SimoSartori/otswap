@@ -34,12 +34,16 @@
  *  RedshiftCut and BoxLimits are the C++ structs themselves, so that
  *  another nanobind module can take and return them; their setters convert
  *  each value to its C++ type, and the library checks it at the call.
- *  Right ascension and declination are
- *  converted from degrees here, so the library only ever sees radians; a
- *  Result records the angle unit of its call, and returns its sky arrays in
- *  it, converted once and kept. The other Result arrays are read-only views
- *  on the C++ result, kept alive by the Python object that holds it, but
- *  for ids, a new copy on each access, since assigning ids replaces them. The
+ *  Result and RealSpaceCatalog are the C++ structs too. Right ascension and
+ *  declination are converted from degrees here, so the library only ever
+ *  sees radians; the angle unit of the call that made a lightcone Result or
+ *  RealSpaceCatalog is kept in a weak-keyed table of the module, not in the
+ *  object, and its sky arrays are returned in that unit, converted once and
+ *  kept there; one made by another module has no entry and is in radians.
+ *  The other arrays are read-only views on the C++ object, kept alive by
+ *  the Python object that holds it, their sizes checked first, since one
+ *  made by another module may be inconsistent; ids is a new copy on each
+ *  access, since assigning ids replaces them. The
  *  report of a call is written by the library into a string, and printed
  *  from Python, to sys.stdout, which a notebook shows, rather than by the
  *  library to the process's stderr; the extrapolation of b(z) is an
@@ -501,55 +505,145 @@ namespace {
     otswap::rsdFactor({}, withGrowth, table);
   }
 
-  /// The Result of the Python package: the C++ result, the angle unit of
-  /// the call that made it, and its sky arrays in that unit, converted on
-  /// first access and kept until a filter changes them. Its config.log is
-  /// &std::clog, never the stream a call wrote its report into.
-  struct PyResult : otswap::Result {
-    bool degrees = false;
-    nb::object tracersSkyInUnit, lagrangianSkyInUnit;
+  // ------------------------------------------------------------ state tables
 
-    PyResult () = default;
-    PyResult (otswap::Result&& r, const bool inDegrees) : otswap::Result(std::move(r)), degrees(inDegrees)
-    {
-      config.log = &std::clog;
-    }
-  };
+  /// The weak-keyed tables of the module, _result_state and _catalog_state:
+  /// each a weakref.WeakKeyDictionary that maps a lightcone Result or
+  /// RealSpaceCatalog made by otswap to its entry, a dict holding "degrees",
+  /// whether its call took angles in degrees, and the read-only degree
+  /// copies of its sky arrays, made on first access. Created with the
+  /// module. An entry goes with its instance, and nothing is stored in the
+  /// instance itself. One with no entry, made by another module, is in
+  /// radians. The tables key on identity: neither class defines __eq__.
+  PyObject* result_state = nullptr;
+  PyObject* catalog_state = nullptr;
 
-  using ResultHandle = nb::handle_t<PyResult>;
-  /// The RealSpaceCatalog of the Python package: the C++ catalogue, the
-  /// angle unit of the result it corrects, and its sky array in that unit,
-  /// converted on first access and kept.
-  struct PyCatalog : otswap::RealSpaceCatalog {
-    bool degrees = false;
-    nb::object skyInUnit;
-
-    PyCatalog () = default;
-    PyCatalog (otswap::RealSpaceCatalog&& c, const bool inDegrees)
-      : otswap::RealSpaceCatalog(std::move(c)), degrees(inDegrees) {}
-  };
-
-  using CatalogHandle = nb::handle_t<PyCatalog>;
-
-  const PyResult& result_of (ResultHandle self)
+  /// The entry of owner in table, or None.
+  nb::object entry_of (PyObject* table, nb::handle owner)
   {
-    return nb::cast<const PyResult&>(self);
+    return nb::handle(table).attr("get")(owner);
   }
 
-  /// A sky array of a result in the unit of its call: a view in radians, a
-  /// read-only copy in degrees, made once and kept in cache.
-  nb::object sky_in_unit (nb::handle owner, const std::vector<double>& sky, const bool degrees,
-                          nb::object& cache)
+  /// Record the angle unit of an instance just made by otswap.
+  void set_entry (PyObject* table, nb::handle owner, const bool degrees)
+  {
+    nb::dict entry;
+    entry["degrees"] = degrees;
+    nb::handle(table).attr("__setitem__")(owner, entry);
+  }
+
+  /// Whether the sky arrays of owner are returned in degrees.
+  bool degrees_of (PyObject* table, nb::handle owner)
+  {
+    const nb::object entry = entry_of(table, owner);
+    return !entry.is_none() && nb::cast<bool>(entry["degrees"]);
+  }
+
+  /// Drop the degree copy kept under key, after a filter changed the array.
+  void drop_cache (PyObject* table, nb::handle owner, const char* key)
+  {
+    const nb::object entry = entry_of(table, owner);
+    if (!entry.is_none()) entry.attr("pop")(key, nb::none());
+  }
+
+  /// A Result made by otswap, as its Python object: config.log reset to
+  /// &std::clog, so that the stream of the call's report never outlives the
+  /// call, and a lightcone given its entry with the unit of its call.
+  nb::object result_object (otswap::Result&& r, const bool degrees)
+  {
+    r.config.log = &std::clog;
+    const bool lightcone = r.geometry == otswap::Geometry::Lightcone;
+    nb::object self = nb::cast(std::move(r), nb::rv_policy::move);
+    if (lightcone) set_entry(result_state, self, degrees);
+    return self;
+  }
+
+  /// A RealSpaceCatalog made by otswap, as its Python object; a lightcone
+  /// gets its entry with the unit of the result it corrects.
+  nb::object catalog_object (otswap::RealSpaceCatalog&& c, const bool degrees)
+  {
+    const bool lightcone = c.geometry == otswap::Geometry::Lightcone;
+    nb::object self = nb::cast(std::move(c), nb::rv_policy::move);
+    if (lightcone) set_entry(catalog_state, self, degrees);
+    return self;
+  }
+
+  using ResultHandle = nb::handle_t<otswap::Result>;
+  using CatalogHandle = nb::handle_t<otswap::RealSpaceCatalog>;
+
+  const otswap::Result& result_of (ResultHandle self)
+  {
+    return nb::cast<const otswap::Result&>(self);
+  }
+
+  const otswap::RealSpaceCatalog& catalog_of (CatalogHandle self)
+  {
+    return nb::cast<const otswap::RealSpaceCatalog&>(self);
+  }
+
+  // ------------------------------------------------------- checked getters
+
+  /// Check that a vector of a Result or RealSpaceCatalog holds the entries
+  /// of n objects, width each, for every realization when realizations is
+  /// given. Every one otswap makes does; one made by another module may
+  /// not, and a view past the end of its vector would read outside it.
+  void check_entries (const char* what, const char* name, const std::size_t size, const std::size_t n,
+                      const std::size_t width, const std::optional<std::size_t> realizations = std::nullopt)
+  {
+    const std::size_t rows = realizations.value_or(1);
+    const bool fits = rows == 0 || width == 0 || n <= SIZE_MAX / rows / width;
+    if (fits && size == rows * n * width) return;
+    throw otswap::Error(std::string("the ") + what + " is malformed: " + name + " holds " +
+                        std::to_string(size) + " entries for " +
+                        (realizations ? std::to_string(rows) + " realizations of " : std::string()) +
+                        std::to_string(n) + " objects");
+  }
+
+  /// A read-only view of shape ([realizations,] n[, width]) on a vector of
+  /// owner, its size checked first.
+  template <typename T, typename V>
+  nb::ndarray<nb::numpy, const T> checked_view (nb::handle owner, const std::vector<V>& values,
+                                                const char* what, const char* name, const std::size_t n,
+                                                const std::size_t width = 1,
+                                                const std::optional<std::size_t> realizations = std::nullopt)
+  {
+    static_assert(sizeof(T) == sizeof(V), "a view reinterprets the vector's elements");
+    check_entries(what, name, values.size(), n, width, realizations);
+    std::vector<std::size_t> shape;
+    if (realizations) shape.push_back(*realizations);
+    shape.push_back(n);
+    if (width != 1) shape.push_back(width);
+    return nb::ndarray<nb::numpy, const T>(reinterpret_cast<const T*>(values.data()), shape.size(),
+                                           shape.data(), owner);
+  }
+
+  /// The IDs of n objects, ids_array once their count is checked: empty, or
+  /// one per object.
+  nb::ndarray<nb::numpy, const std::int64_t> checked_ids (const std::vector<std::int64_t>& ids,
+                                                           const std::size_t n, const char* what)
+  {
+    if (!ids.empty()) check_entries(what, "ids", ids.size(), n, 1);
+    return ids_array(ids, n);
+  }
+
+  /// A sky array of n objects in the unit recorded for owner in table: a
+  /// view in radians, or a read-only copy in degrees, made once and kept in
+  /// the entry under key. None when the array is empty, as in a box.
+  nb::object sky_in_unit (nb::handle owner, const std::vector<double>& sky, const std::size_t n,
+                          PyObject* table, const char* key, const char* what)
   {
     if (sky.empty()) return nb::none();
-    const std::size_t n = sky.size() / 3;
-    if (!degrees) return nb::cast(view<double>(owner, sky.data(), {n, 3}));
-    if (!cache.is_valid()) {
-      nb::object converted = nb::cast(owned(otswap::skyToDegrees(sky), {n, 3}));
-      converted.attr("flags").attr("writeable") = false;
-      cache = converted;
+    check_entries(what, key, sky.size(), n, 3);
+    const nb::object entry = entry_of(table, owner);
+    if (entry.is_none() || !nb::cast<bool>(entry["degrees"]))
+      return nb::cast(checked_view<double>(owner, sky, what, key, n, 3));
+    nb::object cached = entry.attr("get")(key);
+    if (cached.is_none()) {
+      cached = nb::cast(owned(otswap::skyToDegrees(sky), {n, 3}));
+      cached.attr("flags").attr("writeable") = false;
+      entry[key] = cached;
     }
-    return cache;
+    return cached;
   }
 
   /// A float64 array of the given shape, copied into the flat layout.
@@ -637,6 +731,13 @@ NB_MODULE(_otswap, m)
     "Issued when b(z) is extrapolated beyond its table.", PyExc_UserWarning, nullptr);
   if (extrapolation_warning == nullptr) throw nb::python_error();
   m.attr("ExtrapolationWarning") = nb::handle(extrapolation_warning);
+
+  const nb::object weak_table = nb::module_::import_("weakref").attr("WeakKeyDictionary");
+  // held for the life of the process, whatever happens to the attributes
+  result_state = weak_table().release().ptr();
+  catalog_state = weak_table().release().ptr();
+  m.attr("_result_state") = nb::handle(result_state);
+  m.attr("_catalog_state") = nb::handle(catalog_state);
 
   // ------------------------------------------------------------------ Config
 
@@ -903,7 +1004,8 @@ NB_MODULE(_otswap, m)
 
   // ------------------------------------------------------------------ Result
 
-  nb::class_<PyResult>(m, "Result", "Displacement field produced by a reconstruction.")
+  nb::class_<otswap::Result>(m, "Result", nb::is_weak_referenceable(),
+                             "Displacement field produced by a reconstruction.")
     .def_static("from_arrays",
         [] (nb::handle displacement, nb::handle matchedRandom, nb::handle valid, nb::handle tracers,
             nb::handle tracersSky, nb::handle angleUnit, nb::handle distances,
@@ -952,7 +1054,7 @@ NB_MODULE(_otswap, m)
             throw otswap::Error("angle_unit and distances describe tracers_sky; give them with it, "
                                 "for a lightcone result, or not at all");
           otswap::recomputeMeans(r);
-          return PyResult(std::move(r), degrees);
+          return result_object(std::move(r), degrees);
         },
         "displacement"_a.none(), "matched_random"_a.none(), "valid"_a.none(), "tracers"_a.none(),
         nb::kw_only(), "tracers_sky"_a = nb::none(), "angle_unit"_a = nb::none(),
@@ -966,93 +1068,93 @@ NB_MODULE(_otswap, m)
         return nb::str(result_of(self).geometry == otswap::Geometry::Box ? "box" : "lightcone");
       }, "\"box\" or \"lightcone\".")
     .def_prop_ro("angle_unit", [] (ResultHandle self) -> nb::object {
-        const PyResult& r = result_of(self);
-        if (r.geometry == otswap::Geometry::Box) return nb::none();
-        return nb::str(r.degrees ? "deg" : "rad");
-      }, "The angle_unit of the sky arrays, that of the call; None for a box.")
-    .def_prop_ro("config", [] (const PyResult& r) {
+        if (result_of(self).geometry == otswap::Geometry::Box) return nb::none();
+        return nb::str(degrees_of(result_state, self) ? "deg" : "rad");
+      }, "The angle_unit of the sky arrays, that of the call; \"rad\" for a result made by another "
+         "module; None for a box.")
+    .def_prop_ro("config", [] (const otswap::Result& r) {
         otswap::Config config = r.config;
         config.log = &std::clog;
         return config;
       }, "The parameters of the run: a new copy on each access, so changing it changes nothing in "
          "the result. seed is the one used: the drawn one when 0 was given.")
-    .def_prop_ro("distances", [] (const PyResult& r) -> nb::object {
+    .def_prop_ro("distances", [] (const otswap::Result& r) -> nb::object {
         if (!r.distances) return nb::none();
         return nb::cast(otswap::DistanceTable(*r.distances));
       }, "The distance table of a lightcone result, a new copy on each access; None for a box.")
     .def_prop_rw("ids",
-        [] (const PyResult& r) { return ids_array(r.ids, r.nObjects); },
-        [] (PyResult& r, nb::handle value) { r.ids = ids_value(value, r.nObjects); },
+        [] (const otswap::Result& r) { return checked_ids(r.ids, r.nObjects, "result"); },
+        [] (otswap::Result& r, nb::handle value) { r.ids = ids_value(value, r.nObjects); },
         nb::for_getter(nb::rv_policy::reference), nb::for_setter(nb::arg("value").none()),
         "The ID of each object, shape (n_objects,), a new read-only copy on each access; "
         "0..n_objects-1 when none were set. Settable: one 64-bit integer per object, no value twice, "
         "or None.")
     .def_prop_ro("displacement", [] (ResultHandle self) {
-        const PyResult& r = result_of(self);
-        return view<double>(self, r.displacement.data(), {r.nRealizations, r.nObjects, 3});
+        const otswap::Result& r = result_of(self);
+        return checked_view<double>(self, r.displacement, "result", "displacement", r.nObjects, 3,
+                                    r.nRealizations);
       }, "Displacements, shape (n_realizations, n_objects, 3).")
     .def_prop_ro("matched_random", [] (ResultHandle self) {
-        const PyResult& r = result_of(self);
-        return view<double>(self, r.matchedRandom.data(), {r.nRealizations, r.nObjects, 3});
+        const otswap::Result& r = result_of(self);
+        return checked_view<double>(self, r.matchedRandom, "result", "matched_random", r.nObjects, 3,
+                                    r.nRealizations);
       }, "Cartesian position of the random matched to each tracer, shape "
          "(n_realizations, n_objects, 3).")
     .def_prop_ro("valid", [] (ResultHandle self) {
-        const PyResult& r = result_of(self);
-        return view<bool>(self, reinterpret_cast<const bool*>(r.valid.data()),
-                          {r.nRealizations, r.nObjects});
+        const otswap::Result& r = result_of(self);
+        return checked_view<bool>(self, r.valid, "result", "valid", r.nObjects, 1, r.nRealizations);
       }, "Whether each displacement is valid, shape (n_realizations, n_objects).")
     .def_prop_ro("valid_realizations", [] (ResultHandle self) {
-        const PyResult& r = result_of(self);
-        return view<std::uint32_t>(self, reinterpret_cast<const std::uint32_t*>(r.validRealizations.data()),
-                                   {r.nObjects});
+        const otswap::Result& r = result_of(self);
+        return checked_view<std::uint32_t>(self, r.validRealizations, "result", "valid_realizations",
+                                           r.nObjects);
       }, "Number of valid realizations per tracer, shape (n_objects,).")
     .def_prop_ro("mean_displacement", [] (ResultHandle self) {
-        const PyResult& r = result_of(self);
-        return view<double>(self, r.meanDisplacement.data(), {r.nObjects, 3});
+        const otswap::Result& r = result_of(self);
+        return checked_view<double>(self, r.meanDisplacement, "result", "mean_displacement", r.nObjects, 3);
       }, "Displacement averaged over the valid realizations, shape (n_objects, 3).")
     .def_prop_ro("tracers", [] (ResultHandle self) {
-        const PyResult& r = result_of(self);
-        return view<double>(self, r.tracers.data(), {r.nObjects, 3});
+        const otswap::Result& r = result_of(self);
+        return checked_view<double>(self, r.tracers, "result", "tracers", r.nObjects, 3);
       }, "Cartesian position of each tracer, shape (n_objects, 3).")
     .def_prop_ro("tracers_sky", [] (ResultHandle self) {
-        PyResult& r = nb::cast<PyResult&>(self);
-        return sky_in_unit(self, r.tracersSky, r.degrees, r.tracersSkyInUnit);
+        const otswap::Result& r = result_of(self);
+        return sky_in_unit(self, r.tracersSky, r.nObjects, result_state, "tracers_sky", "result");
       }, "Sky coordinates of each tracer in angle_unit, shape (n_objects, 3); None for a box.")
     .def_prop_ro("lagrangian", [] (ResultHandle self) {
-        const PyResult& r = result_of(self);
-        return view<double>(self, r.lagrangian.data(), {r.nObjects, 3});
+        const otswap::Result& r = result_of(self);
+        return checked_view<double>(self, r.lagrangian, "result", "lagrangian", r.nObjects, 3);
       }, "Mean Lagrangian position, tracers + mean_displacement, shape (n_objects, 3).")
     .def_prop_ro("filtered_nside", [] (ResultHandle self) { return result_of(self).filteredNside; },
                  "NSIDE of the mask the result was filtered against, 0 if none.")
     .def_prop_ro("outside_redshift_cut", [] (ResultHandle self) {
-        const PyResult& r = result_of(self);
-        return view<bool>(self, reinterpret_cast<const bool*>(r.outsideRedshiftCut.data()),
-                          {r.nObjects});
+        const otswap::Result& r = result_of(self);
+        return checked_view<bool>(self, r.outsideRedshiftCut, "result", "outside_redshift_cut", r.nObjects);
       }, "Whether each tracer lay outside the redshift cut, shape (n_objects,).")
     .def_prop_ro("outside_mask", [] (ResultHandle self) {
-        const PyResult& r = result_of(self);
-        return view<bool>(self, reinterpret_cast<const bool*>(r.outsideMask.data()), {r.nObjects});
+        const otswap::Result& r = result_of(self);
+        return checked_view<bool>(self, r.outsideMask, "result", "outside_mask", r.nObjects);
       }, "Whether each tracer fell on an unobserved pixel of the mask, shape (n_objects,).")
     .def_prop_ro("outside_box", [] (ResultHandle self) {
-        const PyResult& r = result_of(self);
-        return view<bool>(self, reinterpret_cast<const bool*>(r.outsideBox.data()), {r.nObjects});
+        const otswap::Result& r = result_of(self);
+        return checked_view<bool>(self, r.outsideBox, "result", "outside_box", r.nObjects);
       }, "Whether each tracer lay outside the box limits, shape (n_objects,).")
-    .def_prop_ro("selection", [] (const PyResult& r) -> const otswap::SelectionCounts& {
+    .def_prop_ro("selection", [] (const otswap::Result& r) -> const otswap::SelectionCounts& {
         return r.selection;
       }, nb::rv_policy::reference_internal, "What the reconstruction left out, and why.")
     .def_prop_ro("lagrangian_sky", [] (ResultHandle self) {
-        PyResult& r = nb::cast<PyResult&>(self);
-        return sky_in_unit(self, r.lagrangianSky, r.degrees, r.lagrangianSkyInUnit);
+        const otswap::Result& r = result_of(self);
+        return sky_in_unit(self, r.lagrangianSky, r.nObjects, result_state, "lagrangian_sky", "result");
       }, "Sky coordinates of each tracer's mean Lagrangian position in angle_unit, shape "
          "(n_objects, 3); None for a box.")
     .def_prop_ro("mps", [] (ResultHandle self) -> nb::object {
-        const PyResult& r = result_of(self);
+        const otswap::Result& r = result_of(self);
         if (std::isnan(r.mps)) return nb::none();
         return nb::float_(r.mps);
       }, "Box: the mean particle separation used, Mpc/h; None for a lightcone.")
     .def_prop_ro("box", [] (ResultHandle self) { return box_or_none(result_of(self).box); },
                  "Box: the box of the reconstruction, a copy; None for a lightcone.")
-    .def_prop_ro("mps_profile", [] (const PyResult& r) -> const otswap::MpsProfile* {
+    .def_prop_ro("mps_profile", [] (const otswap::Result& r) -> const otswap::MpsProfile* {
         return r.mpsProfile.redshift.empty() ? nullptr : &r.mpsProfile;
       }, nb::rv_policy::reference_internal, "Lightcone: the mps(z) profile; None for a box.")
     .def_prop_ro("elapsed_seconds", [] (ResultHandle self) { return result_of(self).elapsedSeconds; },
@@ -1225,7 +1327,7 @@ NB_MODULE(_otswap, m)
                             : otswap::reconstructBox(t, r, separation, config, limits);
         }
         print_report(report.str());
-        return PyResult(std::move(result), false);
+        return result_object(std::move(result), false);
       },
       "tracers"_a.none(), "randoms"_a = nb::none(), nb::kw_only(), "mps"_a = nb::none(),
       "box"_a = nb::none(), "config"_a.none() = otswap::Config(),
@@ -1272,7 +1374,7 @@ NB_MODULE(_otswap, m)
                                : otswap::reconstructLightcone(t, r, ts, rs, area, bins, table, config, cut);
         }
         print_report(report.str());
-        return PyResult(std::move(result), degrees);
+        return result_object(std::move(result), degrees);
       },
       "tracers_sky"_a.none(), "randoms_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(),
       "mask"_a = nb::none(), "n_bins"_a.none(), "distances"_a.none(), "angle_unit"_a.none(),
@@ -1316,14 +1418,14 @@ NB_MODULE(_otswap, m)
 
   m.def("reject_mask_crossings",
       [] (nb::handle result, nb::handle mask, nb::handle maxUnobservedPixelsCrossed) {
-        PyResult& r = instance<PyResult>(result, "result", "Result");
+        otswap::Result& r = instance<otswap::Result>(result, "result", "Result");
         const otswap::Mask& k = instance<otswap::Mask>(mask, "mask", "Mask");
         const unsigned limit = to_unsigned(maxUnobservedPixelsCrossed, "max_unobserved_pixels_crossed");
         {
           nb::gil_scoped_release released;
           otswap::rejectMaskCrossings(r, k, limit);
         }
-        r.lagrangianSkyInUnit = nb::object();
+        drop_cache(result_state, result, "lagrangian_sky");
       },
       "result"_a.none(), "mask"_a.none(), "max_unobserved_pixels_crossed"_a.none() = 0,
       "Mark as invalid the displacements whose path crosses more than "
@@ -1332,9 +1434,9 @@ NB_MODULE(_otswap, m)
 
   m.def("recompute_means",
       [] (nb::handle result) {
-        PyResult& r = instance<PyResult>(result, "result", "Result");
+        otswap::Result& r = instance<otswap::Result>(result, "result", "Result");
         otswap::recomputeMeans(r);
-        r.lagrangianSkyInUnit = nb::object();
+        drop_cache(result_state, result, "lagrangian_sky");
       },
       "result"_a.none(),
       "Recompute valid_realizations, mean_displacement, lagrangian and lagrangian_sky from "
@@ -1364,76 +1466,78 @@ NB_MODULE(_otswap, m)
 
   // ----------------------------------------------- Redshift-space correction
 
-  nb::class_<PyCatalog>(m, "RealSpaceCatalog",
+  nb::class_<otswap::RealSpaceCatalog>(m, "RealSpaceCatalog", nb::is_weak_referenceable(),
       "A catalogue moved to real space; row i describes input tracer i.")
-    .def_prop_ro("n_objects", [] (const PyCatalog& c) { return c.nObjects; })
-    .def_prop_ro("geometry", [] (const PyCatalog& c) {
+    .def_prop_ro("n_objects", [] (const otswap::RealSpaceCatalog& c) { return c.nObjects; })
+    .def_prop_ro("geometry", [] (const otswap::RealSpaceCatalog& c) {
         return nb::str(c.geometry == otswap::Geometry::Box ? "box" : "lightcone");
       }, "\"box\" or \"lightcone\".")
-    .def_prop_ro("ids", [] (const PyCatalog& c) { return ids_array(c.ids, c.nObjects); },
-                 nb::rv_policy::reference,
-                 "The IDs of the objects, copied from the Result corrected, shape (n_objects,), a new "
-                 "read-only copy on each access; 0..n_objects-1 when it had none.")
-    .def_prop_ro("angle_unit", [] (const PyCatalog& c) -> nb::object {
-        if (c.geometry == otswap::Geometry::Box) return nb::none();
-        return nb::str(c.degrees ? "deg" : "rad");
-      }, "The angle_unit of sky, that of the result corrected; None for a box.")
+    .def_prop_ro("ids", [] (const otswap::RealSpaceCatalog& c) {
+        return checked_ids(c.ids, c.nObjects, "catalogue");
+      }, nb::rv_policy::reference,
+         "The IDs of the objects, copied from the Result corrected, shape (n_objects,), a new "
+         "read-only copy on each access; 0..n_objects-1 when it had none.")
+    .def_prop_ro("angle_unit", [] (CatalogHandle self) -> nb::object {
+        if (catalog_of(self).geometry == otswap::Geometry::Box) return nb::none();
+        return nb::str(degrees_of(catalog_state, self) ? "deg" : "rad");
+      }, "The angle_unit of sky, that of the result corrected; \"rad\" for a catalogue made by "
+         "another module; None for a box.")
     .def_prop_ro("sky", [] (CatalogHandle self) {
-        PyCatalog& c = nb::cast<PyCatalog&>(self);
-        return sky_in_unit(self, c.sky, c.degrees, c.skyInUnit);
+        const otswap::RealSpaceCatalog& c = catalog_of(self);
+        return sky_in_unit(self, c.sky, c.nObjects, catalog_state, "sky", "catalogue");
       }, "Lightcone: right ascension and declination of each tracer and its corrected redshift, "
          "in angle_unit, shape (n_objects, 3); None for a box.")
     .def_prop_ro("cartesian", [] (CatalogHandle self) {
-        const auto& c = nb::cast<const PyCatalog&>(self);
-        return view<double>(self, c.cartesian.data(), {c.nObjects, 3});
+        const otswap::RealSpaceCatalog& c = catalog_of(self);
+        return checked_view<double>(self, c.cartesian, "catalogue", "cartesian", c.nObjects, 3);
       }, "Corrected Cartesian positions, Mpc/h, shape (n_objects, 3); NaN rows for the tracers "
          "not moved.")
     .def_prop_ro("shift", [] (CatalogHandle self) {
-        const auto& c = nb::cast<const PyCatalog&>(self);
-        return view<double>(self, c.shift.data(), {c.nObjects});
+        const otswap::RealSpaceCatalog& c = catalog_of(self);
+        return checked_view<double>(self, c.shift, "catalogue", "shift", c.nObjects);
       }, "Shift applied along the line of sight, Mpc/h, shape (n_objects,); NaN where none was.")
     .def_prop_ro("factor", [] (CatalogHandle self) {
-        const auto& c = nb::cast<const PyCatalog&>(self);
-        return view<double>(self, c.factor.data(), {c.nObjects});
+        const otswap::RealSpaceCatalog& c = catalog_of(self);
+        return checked_view<double>(self, c.factor, "catalogue", "factor", c.nObjects);
       }, "The factor f/(b + 3f/5) at each tracer, shape (n_objects,); NaN for those left out.")
     .def_prop_ro("status", [] (CatalogHandle self) {
-        const auto& c = nb::cast<const PyCatalog&>(self);
-        return view<std::uint8_t>(self, reinterpret_cast<const std::uint8_t*>(c.status.data()),
-                                  {c.nObjects});
+        const otswap::RealSpaceCatalog& c = catalog_of(self);
+        return checked_view<std::uint8_t>(self, c.status, "catalogue", "status", c.nObjects);
       }, "What the correction did with each tracer, shape (n_objects,): 0 corrected, 1 moved by "
          "its neighbours, 2 no valid neighbour, 3 left out.")
     .def_prop_ro("valid_realizations", [] (CatalogHandle self) {
-        const auto& c = nb::cast<const PyCatalog&>(self);
-        return view<std::uint32_t>(self, reinterpret_cast<const std::uint32_t*>(c.validRealizations.data()),
-                                   {c.nObjects});
+        const otswap::RealSpaceCatalog& c = catalog_of(self);
+        return checked_view<std::uint32_t>(self, c.validRealizations, "catalogue", "valid_realizations",
+                                           c.nObjects);
       }, "Valid realizations of each tracer, as in the result, shape (n_objects,).")
     .def_prop_ro("n_neighbours", [] (CatalogHandle self) {
-        const auto& c = nb::cast<const PyCatalog&>(self);
-        return view<std::uint32_t>(self, reinterpret_cast<const std::uint32_t*>(c.nNeighbours.data()),
-                                   {c.nObjects});
+        const otswap::RealSpaceCatalog& c = catalog_of(self);
+        return checked_view<std::uint32_t>(self, c.nNeighbours, "catalogue", "n_neighbours", c.nObjects);
       }, "Valid tracers averaged for each tracer, shape (n_objects,).")
     .def_prop_ro("n_realizations_averaged", [] (CatalogHandle self) {
-        const auto& c = nb::cast<const PyCatalog&>(self);
-        return view<std::uint32_t>(self, reinterpret_cast<const std::uint32_t*>(c.nRealizationsAveraged.data()),
-                                   {c.nObjects});
+        const otswap::RealSpaceCatalog& c = catalog_of(self);
+        return checked_view<std::uint32_t>(self, c.nRealizationsAveraged, "catalogue",
+                                           "n_realizations_averaged", c.nObjects);
       }, "Sum of the valid realizations of those tracers, shape (n_objects,).")
-    .def_prop_ro("n_extrapolated", [] (const PyCatalog& c) { return c.nExtrapolated; },
+    .def_prop_ro("n_extrapolated", [] (const otswap::RealSpaceCatalog& c) { return c.nExtrapolated; },
                  "Tracers at whose redshift b(z) was extrapolated; 0 for a box.")
-    .def_prop_ro("sigma", [] (const PyCatalog& c) { return c.sigma; }, "The width of the average, Mpc/h.")
-    .def_prop_ro("weight_by_realizations", [] (const PyCatalog& c) { return c.weightByRealizations; })
-    .def_prop_ro("axis", [] (const PyCatalog& c) -> nb::object {
+    .def_prop_ro("sigma", [] (const otswap::RealSpaceCatalog& c) { return c.sigma; },
+                 "The width of the average, Mpc/h.")
+    .def_prop_ro("weight_by_realizations",
+                 [] (const otswap::RealSpaceCatalog& c) { return c.weightByRealizations; })
+    .def_prop_ro("axis", [] (const otswap::RealSpaceCatalog& c) -> nb::object {
         if (c.geometry != otswap::Geometry::Box) return nb::none();
         return nb::int_(c.axis);
       }, "Box: the line-of-sight axis; None for a lightcone.")
-    .def_prop_ro("box_redshift", [] (const PyCatalog& c) -> nb::object {
+    .def_prop_ro("box_redshift", [] (const otswap::RealSpaceCatalog& c) -> nb::object {
         if (c.geometry != otswap::Geometry::Box) return nb::none();
         return nb::float_(c.boxRedshift);
       }, "Box: the redshift of the box; None for a lightcone.")
-    .def_prop_ro("box_bias", [] (const PyCatalog& c) -> nb::object {
+    .def_prop_ro("box_bias", [] (const otswap::RealSpaceCatalog& c) -> nb::object {
         if (c.geometry != otswap::Geometry::Box) return nb::none();
         return nb::float_(c.boxBias);
       }, "Box: the bias of the tracers; None for a lightcone.")
-    .def_prop_ro("elapsed_seconds", [] (const PyCatalog& c) { return c.elapsedSeconds; },
+    .def_prop_ro("elapsed_seconds", [] (const otswap::RealSpaceCatalog& c) { return c.elapsedSeconds; },
                  "Wall time of the call that made the catalogue, in seconds.");
 
   m.def("radial_projection",
@@ -1531,7 +1635,7 @@ NB_MODULE(_otswap, m)
   m.def("real_space_lightcone",
       [] (nb::handle result, nb::handle distances, nb::handle bias, nb::handle sigma,
           nb::handle correction) {
-        const PyResult& r = instance<PyResult>(result, "result", "Result");
+        const otswap::Result& r = instance<otswap::Result>(result, "result", "Result");
         const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
         const otswap::BiasTable& b = instance<otswap::BiasTable>(bias, "bias", "BiasTable");
         const double s = to_double(sigma, "sigma");
@@ -1547,7 +1651,7 @@ NB_MODULE(_otswap, m)
         for (const otswap::CorrectionStatus status : catalog.status)
           kept += status != otswap::CorrectionStatus::LeftOut;
         warn_extrapolation(catalog.nExtrapolated, kept, b.redshift);
-        return PyCatalog(std::move(catalog), r.degrees);
+        return catalog_object(std::move(catalog), degrees_of(result_state, result));
       },
       "result"_a.none(), nb::kw_only(), "distances"_a.none(), "bias"_a.none(), "sigma"_a.none(),
       "correction"_a.none() = otswap::CorrectionConfig(),
@@ -1556,7 +1660,7 @@ NB_MODULE(_otswap, m)
   m.def("real_space_box",
       [] (nb::handle result, nb::handle axis, nb::handle redshift, nb::handle distances,
           nb::handle bias, nb::handle sigma, nb::handle correction) {
-        const PyResult& r = instance<PyResult>(result, "result", "Result");
+        const otswap::Result& r = instance<otswap::Result>(result, "result", "Result");
         const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
         const unsigned a = to_unsigned(axis, "axis");
         const double z = to_double(redshift, "redshift");
@@ -1570,7 +1674,7 @@ NB_MODULE(_otswap, m)
           catalog = otswap::realSpaceBox(r, a, z, table, b, s, config);
         }
         print_report(report.str());
-        return PyCatalog(std::move(catalog), false);
+        return catalog_object(std::move(catalog), false);
       },
       "result"_a.none(), nb::kw_only(), "axis"_a.none(), "redshift"_a.none(), "distances"_a.none(),
       "bias"_a.none(), "sigma"_a.none(), "correction"_a.none() = otswap::CorrectionConfig(),
@@ -1696,7 +1800,7 @@ NB_MODULE(_otswap, m)
   io.def("write_displacement_mean",
       [] (nb::handle file, nb::handle result, nb::handle groups) {
         const std::string path = to_path(file, "file");
-        const PyResult& r = instance<PyResult>(result, "result", "Result");
+        const otswap::Result& r = instance<otswap::Result>(result, "result", "Result");
         static const std::vector<std::pair<std::string, otswap::io::DisplacementGroup>> names {
           {"id", otswap::io::DisplacementGroup::Id},
           {"tracer_sky", otswap::io::DisplacementGroup::TracerSky},
@@ -1717,7 +1821,7 @@ NB_MODULE(_otswap, m)
   io.def("write_displacement_complete",
       [] (nb::handle file, nb::handle result, nb::handle lightconeTables) {
         const std::string path = to_path(file, "file");
-        const PyResult& r = instance<PyResult>(result, "result", "Result");
+        const otswap::Result& r = instance<otswap::Result>(result, "result", "Result");
         const bool tables = to_bool(lightconeTables, "lightcone_tables");
         nb::gil_scoped_release released;
         otswap::io::writeDisplacementComplete(path, r, tables);
@@ -1735,7 +1839,7 @@ NB_MODULE(_otswap, m)
           nb::gil_scoped_release released;
           result = otswap::io::readDisplacementComplete(path);
         }
-        return PyResult(std::move(result), degrees);
+        return result_object(std::move(result), degrees);
       },
       "file"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
       "Read a file written by write_displacement_complete back into a Result.");
@@ -1743,7 +1847,8 @@ NB_MODULE(_otswap, m)
   io.def("write_real_space_catalog",
       [] (nb::handle file, nb::handle catalog, nb::handle groups) {
         const std::string path = to_path(file, "file");
-        const PyCatalog& c = instance<PyCatalog>(catalog, "catalog", "RealSpaceCatalog");
+        const otswap::RealSpaceCatalog& c = instance<otswap::RealSpaceCatalog>(catalog, "catalog",
+                                                                                "RealSpaceCatalog");
         static const std::vector<std::pair<std::string, otswap::io::CatalogGroup>> names {
           {"id", otswap::io::CatalogGroup::Id},
           {"sky", otswap::io::CatalogGroup::Sky},

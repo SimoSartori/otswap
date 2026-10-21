@@ -34,6 +34,13 @@
   result's configuration and distance table; `Result.seed` is removed, its
   value is `Result.config.seed`. `Result.from_arrays` takes `config=`, in
   place of `seed=`.
+- Python: `Result` and `RealSpaceCatalog` are the C++ structs too, so
+  another nanobind module can take and return them, as it can `Config`,
+  `CorrectionConfig`, `RedshiftCut`, `BoxLimits`, `Mask`, `DistanceTable`,
+  `MpsProfile` and `BiasTable` (conditions in the "Names side by side" page).
+  One made by another module is in radians, its `angle_unit` `"rad"`; its
+  array properties raise `otswap.Error` when the C++ arrays do not have the
+  sizes the object declares.
 
 ## 0.1.0 — 2026-10-08
 

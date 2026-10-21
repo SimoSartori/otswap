@@ -66,7 +66,7 @@ passed as `config=` or `correction=`; a flat
 | `Result::ids`, empty without IDs | `Result.ids`, 0..n_objects-1 without IDs | settable in Python, checked on assignment; a new copy on each access |
 | `Result::config` | `Result.config` | a copy; `seed` is the one used |
 | `Result::distances` | `Result.distances` | a copy; None in a box |
-| — | `Result.angle_unit` | the unit of `tracers_sky` and `lagrangian_sky` |
+| — | `Result.angle_unit` | the unit of `tracers_sky` and `lagrangian_sky`; `"rad"` for a result made by another module |
 | — | `Result.from_arrays` | a result from arrays read back from a file |
 | `Result::mps`, NaN in a lightcone | `Result.mps`, None in a lightcone | |
 | `Result::box`, empty in a lightcone | `Result.box`, None in a lightcone | a copy in Python |
@@ -85,7 +85,7 @@ passed as `config=` or `correction=`; a flat
 | `rsdFactor`, `rsdFactorBox` | `rsd_factor`, `rsd_factor_box` | |
 | `shiftRadially`, `shiftAlongAxis` | `shift_radially`, `shift_along_axis` | |
 | `BiasTable` | `BiasTable` | Python checks the table when it is built |
-| `RealSpaceCatalog` | `RealSpaceCatalog` | `sky` in the result's `angle_unit` in Python; `axis`, `box_redshift`, `box_bias` None in a lightcone |
+| `RealSpaceCatalog` | `RealSpaceCatalog` | `sky` in the `angle_unit` of the result corrected in Python, radians for a catalogue made by another module; `axis`, `box_redshift`, `box_bias` None in a lightcone |
 | `RealSpaceCatalog::ids` | `RealSpaceCatalog.ids` | read-only in Python, as `Result.ids` |
 | `CorrectionStatus` | `CorrectionStatus` | an `IntEnum`; `MovedByNeighbours` is `MOVED_BY_NEIGHBOURS` |
 
@@ -101,3 +101,43 @@ passed as `config=` or `correction=`; a flat
 | `io::writeDisplacementMean`, `writeDisplacementComplete`, `writeRealSpaceCatalog`, `writeMpsProfile` | `io.write_displacement_mean`, `write_displacement_complete`, `write_real_space_catalog`, `write_mps_profile` | |
 | `io::readDisplacementComplete` | `io.read_displacement_complete` | `angle_unit=` required |
 | `io::DisplacementGroup`, `io::CatalogGroup` | strings | `TracerSky` is `"tracer_sky"` |
+
+## Use from another nanobind module
+
+The Python types are the C++ structs themselves, so another nanobind module
+can take and return them, naming the C++ types in its own signatures:
+`Config`, `CorrectionConfig`, `RedshiftCut`, `BoxLimits`, `Mask`,
+`DistanceTable`, `MpsProfile`, `BiasTable`, `Result` and `RealSpaceCatalog`.
+For example, `double f (const otswap::Result&)` takes an `otswap.Result`, and
+a function returning an `otswap::Config` returns an `otswap.Config`. The
+module binds none of these types itself.
+
+- Both modules are built with nanobind 3.1.0 and the same nanobind ABI (the
+  same compiler family and C++ standard library), and neither defines
+  `NB_DOMAIN`. `import otswap` comes before the other module's functions are
+  used: it registers the types. The pairs `(min, max)` and
+  `((x0, y0, z0), (x1, y1, z1))` are converted in the other module's
+  functions too.
+- The layouts of the structs are part of the interface across 0.2.x: a field
+  added in a patch release would break a module built against the older
+  header.
+- A `Config` or `CorrectionConfig` received from Python holds
+  `log = &std::clog`; the other module sets it before using it.
+- A `Result` or `RealSpaceCatalog` made by the other module is in radians:
+  its `angle_unit` is `"rad"`. The unit of one made by otswap from angles in
+  degrees is kept by otswap, not in the object.
+- Take a `Result` as `const otswap::Result&`. One changed in place behind
+  otswap's back keeps the degree arrays already read from it; to filter in
+  place, call otswap's own functions.
+- An `otswap::Error` thrown by otswap's Python functions reaches Python as
+  `otswap.Error`. One thrown where the other module calls otswap in C++ is
+  that module's to translate: otswap's translator does not recognise it
+  with every standard library (with libc++, two modules that each link
+  otswap do not share the type information of `otswap::Error`), and it then
+  arrives as a plain `RuntimeError`. The recommended way is to catch it
+  where the module calls otswap and rethrow the module's own error, its
+  message prefixed by `"otswap: "`, as otswap does with the errors of
+  meshsearch. For a malformed `Result` or catalogue, which only another
+  module can make, the library's consistency messages name the C++ members
+  (`meanDisplacement`), and the array properties raise `otswap.Error` naming
+  the Python ones (`mean_displacement`).

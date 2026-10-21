@@ -196,6 +196,14 @@ class Result:
     ``mean_displacement`` and ``lagrangian`` in place, so views taken earlier
     reflect it; ``lagrangian_sky`` is recomputed, and an array taken from it
     in degrees before the filter is not updated.
+
+    The type is ``otswap::Result`` itself, so another nanobind module can
+    take and return it (see "Use from another nanobind module" on the
+    "Names side by side" page of the documentation). The angle unit is kept by the module, not in the
+    object: a result made by another module is in radians. Each array
+    getter checks the size of the C++ array first, and raises
+    ``otswap.Error`` for a malformed result, which only another module can
+    make. No attribute can be added to a result.
     """
 
     @staticmethod
@@ -262,7 +270,8 @@ class Result:
     @property
     def angle_unit(self) -> Optional[AngleUnit]:
         """The unit of ``tracers_sky`` and ``lagrangian_sky``: the
-        ``angle_unit`` of the call that made the result. None for a box."""
+        ``angle_unit`` of the call that made the result; ``"rad"`` for a
+        result made by another module. None for a box."""
 
     @property
     def config(self) -> Config:
@@ -1038,7 +1047,9 @@ class RealSpaceCatalog:
     Every array attribute is read-only; ``sky`` is in the ``angle_unit`` of
     the result corrected, converted once and kept, ``ids`` is a new copy on
     each access, and every other array is a view on memory owned by this
-    object, as for Result."""
+    object, as for Result. As Result, the type is
+    ``otswap::RealSpaceCatalog`` itself: a catalogue made by another module
+    is in radians, and its array getters check the sizes first."""
 
     @property
     def n_objects(self) -> int: ...
@@ -1055,7 +1066,8 @@ class RealSpaceCatalog:
 
     @property
     def angle_unit(self) -> Optional[AngleUnit]:
-        """The unit of ``sky``, that of the result corrected; None for a box."""
+        """The unit of ``sky``, that of the result corrected; ``"rad"`` for a
+        catalogue made by another module. None for a box."""
 
     @property
     def sky(self) -> Optional[NDArray[np.float64]]:

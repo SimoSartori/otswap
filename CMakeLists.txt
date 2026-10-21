@@ -296,6 +296,20 @@ if (OTSWAP_BUILD_PYTHON)
   target_include_directories(otswap_python PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(otswap_python PRIVATE otswap)
   install(TARGETS otswap_python LIBRARY DESTINATION otswap)
+
+  # _otswap_crosstest, for tests/test_crossmodule.py: a second module that
+  # takes and returns otswap's types as their C++ types, as a package built
+  # on otswap would. Built with the tests only, into crossmodule/ of the
+  # build tree, the directory OTSWAP_CROSSTEST_DIR names; never installed.
+  if (OTSWAP_BUILD_TESTS)
+    nanobind_add_module(otswap_crosstest NB_STATIC tests/crossmodule/crosstest.cpp)
+    set_target_properties(otswap_crosstest PROPERTIES OUTPUT_NAME _otswap_crosstest
+      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/crossmodule)
+    target_link_libraries(otswap_crosstest PRIVATE otswap)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+      target_compile_options(otswap_crosstest PRIVATE -Wall -Wextra)
+    endif()
+  endif()
 endif()
 
 # ---------------------------------------------------------------------------
