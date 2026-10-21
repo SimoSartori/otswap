@@ -47,7 +47,9 @@ a file with one row per tracer:
 ```python
 import otswap
 
-result = otswap.reconstruct_box(tracers, n_realizations=8, seed=12345)
+config = otswap.Config(n_realizations=8, seed=12345)
+
+result = otswap.reconstruct_box(tracers, config=config)
 print(result.mean_displacement[0])
 otswap.io.write_displacement_mean("displacements.dat", result)
 ```

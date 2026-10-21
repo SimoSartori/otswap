@@ -72,6 +72,58 @@ namespace {
     ++failures;
   }
 
+  /// Whether @p f raises an otswap::Error whose message contains @p text.
+  template <typename F>
+  bool throws_naming (F&& f, const std::string& text)
+  {
+    try {
+      f();
+    }
+    catch (const otswap::Error& e) {
+      return std::string(e.what()).find(text) != std::string::npos;
+    }
+    return false;
+  }
+
+  /// @p f must raise an otswap::Error whose message is @p text, naming
+  /// no field or argument of the C++ or the Python interface: the message
+  /// of a wrong value reads the same from either language.
+  template <typename F>
+  void throws_with (F&& f, const std::string& text, const std::string& what)
+  {
+    static const char* const identifiers[] = {
+      "nRealizations", "n_realizations", "config.", "nBins", "n_bins", "zMin", "z_min", "zMax",
+      "z_max", "nSamples", "n_samples", "cellSize", "cell_size", "convergence =", "OmegaM",
+      "omega_m", "w0", "sigma"};
+    try {
+      f();
+    }
+    catch (const otswap::Error& e) {
+      const std::string message = e.what();
+      if (message != text) {
+        std::cerr << "FAILED: " << what << " (the message is \"" << message << "\", not \"" << text
+                  << "\")" << std::endl;
+        ++failures;
+        return;
+      }
+      for (const char* name : identifiers)
+        if (message.find(name) != std::string::npos) {
+          std::cerr << "FAILED: " << what << " (the message names " << name << ")" << std::endl;
+          ++failures;
+          return;
+        }
+      return;
+    }
+    catch (const std::exception& e) {
+      std::cerr << "FAILED: " << what << " (threw the wrong type: " << e.what() << ")"
+                << std::endl;
+      ++failures;
+      return;
+    }
+    std::cerr << "FAILED: " << what << " (did not throw)" << std::endl;
+    ++failures;
+  }
+
   /// @p f must raise an otswap::Error whose message starts with @p prefix
   /// and in which an exception of type Nested is nested.
   template <typename Nested, typename F>

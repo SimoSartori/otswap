@@ -110,7 +110,7 @@ changes nothing: set the threshold in the call that reconstructs.
 :end-before: <!-- docs:reproducibility-end -->
 ```
 
-The seed used is `Result::config.seed` in C++, `Result.seed` in Python. The
+The seed used is `Result::config.seed` in C++, `Result.config.seed` in Python. The
 number of threads follows `OMP_NUM_THREADS`. The reconstructions, the mask
 filter, the redshift-space correction and the table readers and writers of
 `otswap.io` release the GIL while they run.

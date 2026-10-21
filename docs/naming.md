@@ -1,7 +1,8 @@
 # Names side by side
 
 The two APIs are one library. A C++ name in camelCase is the Python name in
-snake_case; a C++ configuration struct becomes keyword arguments; a flat
+snake_case; a C++ configuration struct is a Python class of the same name,
+passed as `config=` or `correction=`; a flat
 `std::vector<double>` of `3 * N` entries becomes a NumPy array of shape
 (N, 3). Python angles are in the `angle_unit` given, C++ angles in radians.
 
@@ -17,13 +18,12 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 
 | C++ | Python | Notes |
 |---|---|---|
-| `Config::nRealizations`, `convergence`, `seed`, `cellSize` | keywords `n_realizations`, `convergence`, `seed`, `cell_size` | of `reconstruct_box` and `reconstruct_lightcone` |
-| `Config::rejectCrossings`, `maxUnobservedPixelsCrossed` | keywords `reject_crossings`, `max_unobserved_pixels_crossed` | of `reconstruct_lightcone` |
-| `Config::verbosity`, `CorrectionConfig::verbosity` | keyword `verbosity` | `Verbosity::Detailed` is `"detailed"` |
+| `Config`, its fields | `Config`, `n_realizations`, `convergence`, `seed`, `cell_size`, `reject_crossings`, `max_unobserved_pixels_crossed`, `verbosity` | keyword `config` of `reconstruct_box` and `reconstruct_lightcone`, and of `Result.from_arrays` |
+| `CorrectionConfig`, its fields | `CorrectionConfig`, `weight_by_realizations`, `verbosity` | keyword `correction` of `real_space_lightcone` and `real_space_box` |
+| `Verbosity` | `"silent"`, `"normal"`, `"detailed"` | the `verbosity` field; the `verbosity` keyword of `measure_mps_profile` |
 | `Config::log`, `CorrectionConfig::log`, the `log` of `measureMpsProfile` | — | Python prints to `sys.stdout` |
-| `CorrectionConfig::weightByRealizations` | keyword `weight_by_realizations` | |
-| `RedshiftCut` | keyword `redshift_cut`, a `(min, max)` tuple | |
-| `BoxLimits`, `lower`, `upper` | `BoxLimits`, `lower`, `upper`; keyword `box` | `box=` also takes a pair `((x0, y0, z0), (x1, y1, z1))` |
+| `RedshiftCut`, `min`, `max` | `RedshiftCut`, `min`, `max`; keyword `redshift_cut` | also a pair `(min, max)` |
+| `BoxLimits`, `lower`, `upper` | `BoxLimits`, `lower`, `upper`; keyword `box` | also a pair `((x0, y0, z0), (x1, y1, z1))` |
 | `Geometry` | `"box"`, `"lightcone"` | the `geometry` property |
 | `PixelOrdering` | keyword `nest` of `Mask.from_array` | |
 
@@ -64,8 +64,8 @@ snake_case; a C++ configuration struct becomes keyword arguments; a flat
 |---|---|---|
 | `Result` fields, camelCase | `Result` properties, snake_case | read-only views in Python |
 | `Result::ids`, empty without IDs | `Result.ids`, 0..n_objects-1 without IDs | settable in Python, checked on assignment; a new copy on each access |
-| `Result::config` | `Result.seed` | the seed used; the other parameters are those of the call |
-| `Result::distances` | — | kept inside the Python result |
+| `Result::config` | `Result.config` | a copy; `seed` is the one used |
+| `Result::distances` | `Result.distances` | a copy; None in a box |
 | — | `Result.angle_unit` | the unit of `tracers_sky` and `lagrangian_sky` |
 | — | `Result.from_arrays` | a result from arrays read back from a file |
 | `Result::mps`, NaN in a lightcone | `Result.mps`, None in a lightcone | |

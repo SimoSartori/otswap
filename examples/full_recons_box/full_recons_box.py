@@ -71,8 +71,8 @@ def main():
     # As in the box example: 8 realizations, a convergence threshold of
     # 1e-2, a fixed seed, and the mean particle separation of the tracers'
     # bounding box, computed by otswap and printed with "detailed"
-    result = otswap.reconstruct_box(tracers, randoms, n_realizations=8, convergence=1e-2,
-                                    seed=12345, verbosity="detailed")
+    config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, verbosity="detailed")
+    result = otswap.reconstruct_box(tracers, randoms, config=config)
 
     # ----------------------------------------------------
     # ------------ Set the cosmological model ------------
@@ -92,16 +92,17 @@ def main():
 
     # sigma, the width of the gaussian average in Mpc/h: 10 Mpc/h is a
     # reasonable starting value, but the best value depends on the sample
-    # and should be checked in each analysis. With
-    # weight_by_realizations=True, each neighbour would be weighted by its
-    # number of valid realizations.
+    # and should be checked in each analysis. The options are an
+    # otswap.CorrectionConfig: with weight_by_realizations=True, each
+    # neighbour would be weighted by its number of valid realizations.
     #
     # The correction reads the tracers from the result. A tracer with no
     # valid neighbour within 3 sigma, which in a box happens only for an
     # isolated one, is left uncorrected, with NaN coordinates;
     # catalogue.status says which
+    correction = otswap.CorrectionConfig(weight_by_realizations=False)
     catalogue = otswap.real_space_box(result, axis=axis, redshift=redshift, distances=distances,
-                                      bias=bias, sigma=10.0, weight_by_realizations=False)
+                                      bias=bias, sigma=10.0, correction=correction)
 
     # ----------------------------------------------
     # ------------ Summarize the result ------------

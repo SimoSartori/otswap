@@ -116,12 +116,31 @@ int main ()
 
   group("out-of-range parameters raise");
   {
-    check_throws([] { DistanceTable(0., 0.7, -1., 0., 0., 1.); }, "OmegaM of zero");
-    check_throws([] { DistanceTable(1.5, 0.7, -1., 0., 0., 1.); }, "OmegaM above one");
-    check_throws([] { DistanceTable(0.3, 0., -1., 0., 0., 1.); }, "a non-positive h");
-    check_throws([] { DistanceTable(0.3, 0.7, -1., 0., -0.1, 1.); }, "a negative zMin");
-    check_throws([] { DistanceTable(0.3, 0.7, -1., 0., 1., 1.); }, "zMax equal to zMin");
-    check_throws([] { DistanceTable(0.3, 0.7, -1., 0., 0., 1., 1); }, "a single sample");
+    const double nan = std::nan("");
+    throws_with([] { DistanceTable(0., 0.7, -1., 0., 0., 1.); },
+                "the matter density parameter is 0.000000; it must lie in (0, 1]", "OmegaM of zero");
+    throws_with([] { DistanceTable(1.5, 0.7, -1., 0., 0., 1.); },
+                "the matter density parameter is 1.500000; it must lie in (0, 1]", "OmegaM above one");
+    throws_with([] { DistanceTable(0.3, 0., -1., 0., 0., 1.); },
+                "the dimensionless Hubble parameter is 0.000000; it must be positive", "a non-positive h");
+    throws_with([&] { DistanceTable(0.3, 0.7, nan, 0., 0., 1.); },
+                "the parameters of the dark-energy equation of state are nan and 0.000000; both must be "
+                "finite", "a NaN w0");
+    throws_with([] { DistanceTable(0.3, 0.7, -1., 0., -0.1, 1.); },
+                "the lowest redshift of the distance table is -0.100000; it must be finite and non-negative",
+                "a negative zMin");
+    throws_with([&] { DistanceTable(0.3, 0.7, -1., 0., nan, 1.); },
+                "the lowest redshift of the distance table is nan; it must be finite and non-negative",
+                "a NaN zMin");
+    throws_with([] { DistanceTable(0.3, 0.7, -1., 0., 1., 1.); },
+                "the highest redshift of the distance table is 1.000000; it must be finite and above the "
+                "lowest, 1.000000", "zMax equal to zMin");
+    throws_with([&] { DistanceTable(0.3, 0.7, -1., 0., 0., nan); },
+                "the highest redshift of the distance table is nan; it must be finite and above the lowest, "
+                "0.000000", "a NaN zMax");
+    throws_with([] { DistanceTable(0.3, 0.7, -1., 0., 0., 1., 1); },
+                "the number of redshift samples of the distance table is 1; it must be at least 2",
+                "a single sample");
   }
 
   group("a caller-supplied table is validated");

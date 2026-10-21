@@ -230,15 +230,15 @@ otswap::BoxLimits otswap::internal::bounding_box (const std::vector<double>& pos
 unsigned otswap::internal::check_config (const Config& config)
 {
   if (config.nRealizations == 0)
-    throw Error("config.nRealizations is zero; at least one realization is required");
+    throw Error("the number of realizations is 0; it must be at least 1");
 
   if (!std::isfinite(config.convergence) || config.convergence <= 0. || config.convergence >= 1.)
-    throw Error("config.convergence is " + std::to_string(config.convergence) +
+    throw Error("the convergence threshold is " + std::to_string(config.convergence) +
                 "; it must lie strictly between 0 and 1");
 
   if (!std::isfinite(config.cellSize) || config.cellSize <= 0.)
-    throw Error("config.cellSize is " + std::to_string(config.cellSize) +
-                "; it must be positive");
+    throw Error("the grid cell size is " + std::to_string(config.cellSize) +
+                " mean particle separations; it must be positive");
 
   if (config.seed != 0) return config.seed;
 

@@ -16,6 +16,7 @@ in the environment variable OTSWAP_CPP_REFERENCE, and are skipped without it.
 import gc
 import math
 import os
+import re
 import subprocess
 import threading
 import time
@@ -109,6 +110,10 @@ def box_catalogue(n_side=8, spacing=10.0, seed=1):
 
 
 TABLE_ARGS = dict(omega_m=0.3, h=0.7, z_min=0.0, z_max=1.5, n_samples=4000)
+# The names a message for a wrong value must not hold, in either language.
+IDENTIFIERS = ("nRealizations", "n_realizations", "config.", "nBins", "n_bins", "zMin", "z_min", "zMax",
+               "z_max", "nSamples", "n_samples", "cellSize", "cell_size", "convergence =", "OmegaM",
+               "omega_m", "w0", "sigma")
 RA_DEG = (10.0, 40.0)
 DEC_DEG = (-15.0, 15.0)
 Z_RANGE = (0.3, 0.6)
@@ -145,7 +150,7 @@ def lightcone(table):
 def lightcone_result(table, lightcone, **kwargs):
     tracers_sky, randoms_sky = lightcone
     options = dict(sky_area_deg2=patch_area_deg2(), n_bins=3, distances=table,
-                   angle_unit="deg", n_realizations=2, seed=5)
+                   angle_unit="deg", config=otswap.Config(n_realizations=2, seed=5))
     options.update(kwargs)
     return otswap.reconstruct_lightcone(tracers_sky, randoms_sky, **options)
 
@@ -166,8 +171,9 @@ def result_arrays(result):
 
 def test_exports():
     assert sorted(otswap.__all__) == sorted([
-        "AngleUnit", "BiasTable", "BoxLimits", "CorrectionStatus", "DistanceTable", "Error", "ExtrapolationWarning", "Mask",
-        "MpsProfile", "NeighbourAverage", "RealSpaceCatalog", "Result", "SelectionCounts",
+        "AngleUnit", "BiasTable", "BoxLimits", "Config", "CorrectionConfig", "CorrectionStatus", "DistanceTable",
+        "Error", "ExtrapolationWarning", "Mask", "MpsProfile", "NeighbourAverage", "RealSpaceCatalog",
+        "RedshiftCut", "Result", "SelectionCounts",
         "axis_projection", "measure_mps_profile", "neighbour_average", "radial_projection",
         "real_space_box", "real_space_lightcone", "recompute_means", "reconstruct_box",
         "reconstruct_lightcone", "reject_mask_crossings", "rsd_factor", "rsd_factor_box",
@@ -287,6 +293,27 @@ def test_table_arrays(table):
 def test_distance_table_errors(call):
     with pytest.raises(otswap.Error):
         call()
+
+
+@pytest.mark.parametrize("kwargs, text", [
+    (dict(omega_m=-0.1), "the matter density parameter is -0.100000; it must lie in (0, 1]"),
+    (dict(h=0.0), "the dimensionless Hubble parameter is 0.000000; it must be positive"),
+    (dict(wa=math.inf),
+     "the parameters of the dark-energy equation of state are -1.000000 and inf; both must be finite"),
+    (dict(z_min=-0.1),
+     "the lowest redshift of the distance table is -0.100000; it must be finite and non-negative"),
+    (dict(z_min=2.0, z_max=1.0),
+     "the highest redshift of the distance table is 1.000000; it must be finite and above the lowest, "
+     "2.000000"),
+    (dict(n_samples=1), "the number of redshift samples of the distance table is 1; it must be at least 2"),
+])
+def test_distance_table_messages_name_no_argument(kwargs, text):
+    """The library's messages, as in C++, with no name of either language."""
+    assert not any(name in text for name in IDENTIFIERS), text
+    args = dict(omega_m=0.3, h=0.7)
+    args.update(kwargs)
+    with pytest.raises(otswap.Error, match="^" + re.escape(text) + "$"):
+        otswap.DistanceTable.flat(**args)
 
 
 def test_lookups_raise_outside_the_table(table):
@@ -624,7 +651,7 @@ def test_stub_lists_from_array():
 
 def test_reconstruct_box_result():
     tracers = box_catalogue()
-    result = otswap.reconstruct_box(tracers, mps=10.0, n_realizations=3, seed=7)
+    result = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=3, seed=7))
     assert isinstance(result, otswap.Result)
     n = len(tracers)
     assert result.n_objects == n and result.n_realizations == 3
@@ -652,7 +679,8 @@ def test_reconstruct_box_with_randoms_uses_them():
     tracers = box_catalogue()
     rng = np.random.default_rng(3)
     randoms = rng.uniform(0, 80, (2 * len(tracers), 3))
-    result = otswap.reconstruct_box(tracers, randoms, mps=10.0, n_realizations=2, seed=4)
+    result = otswap.reconstruct_box(tracers, randoms, mps=10.0,
+                                    config=otswap.Config(n_realizations=2, seed=4))
     matched = result.matched_random.reshape(-1, 3)
     pool = {tuple(p) for p in randoms}
     assert all(tuple(p) in pool for p in matched)
@@ -663,14 +691,14 @@ def test_reconstruct_box_with_randoms_uses_them():
 
 def test_reconstruct_box_options_and_array_likes():
     tracers = box_catalogue()
-    base = otswap.reconstruct_box(tracers, mps=10.0, seed=9)
-    again = otswap.reconstruct_box(tracers.tolist(), None, mps=10, seed=np.int64(9))
+    base = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(seed=9))
+    again = otswap.reconstruct_box(tracers.tolist(), None, mps=10, config=otswap.Config(seed=np.int64(9)))
     assert same_bytes(base.displacement, again.displacement)
-    fortran = otswap.reconstruct_box(np.asfortranarray(tracers), mps=10.0, seed=9)
+    fortran = otswap.reconstruct_box(np.asfortranarray(tracers), mps=10.0, config=otswap.Config(seed=9))
     assert same_bytes(base.displacement, fortran.displacement)
-    other_seed = otswap.reconstruct_box(tracers, mps=10.0, seed=10)
+    other_seed = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(seed=10))
     assert not same_bytes(base.displacement, other_seed.displacement)
-    loose = otswap.reconstruct_box(tracers, mps=10.0, seed=9, convergence=0.5)
+    loose = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(seed=9, convergence=0.5))
     assert loose.displacement.shape == base.displacement.shape
 
 
@@ -680,8 +708,9 @@ def test_box_cell_size_affects_speed_only(with_randoms):
     randoms = None
     if with_randoms:
         randoms = np.random.default_rng(6).uniform(0, 80, (2 * len(tracers), 3))
-    results = [otswap.reconstruct_box(tracers, randoms, mps=10.0, n_realizations=2, seed=9,
-                                      cell_size=cell_size) for cell_size in (1.0, 2.0, 4.0, 8.0)]
+    results = [otswap.reconstruct_box(tracers, randoms, mps=10.0,
+                                      config=otswap.Config(n_realizations=2, seed=9, cell_size=cell_size))
+               for cell_size in (1.0, 2.0, 4.0, 8.0)]
     for result in results[1:]:
         for name, array in result_arrays(result).items():
             assert same_bytes(array, getattr(results[0], name)), name
@@ -695,10 +724,10 @@ def test_reconstruct_box_needs_keywords():
 
 def test_reconstruct_box_computes_the_mps_when_not_given():
     tracers = box_catalogue()
-    computed = otswap.reconstruct_box(tracers, n_realizations=2, seed=3)
+    computed = otswap.reconstruct_box(tracers, config=otswap.Config(n_realizations=2, seed=3))
     volume = np.prod(tracers.max(axis=0) - tracers.min(axis=0))
     assert computed.mps == pytest.approx((volume / len(tracers)) ** (1 / 3), rel=1e-13)
-    given = otswap.reconstruct_box(tracers, n_realizations=2, seed=3, mps=computed.mps)
+    given = otswap.reconstruct_box(tracers, mps=computed.mps, config=otswap.Config(n_realizations=2, seed=3))
     assert same_bytes(computed.displacement, given.displacement) and given.mps == computed.mps
     flat = tracers.copy()
     flat[:, 2] = 1.0
@@ -716,20 +745,104 @@ def test_reconstruct_box_computes_the_mps_when_not_given():
     ((box_catalogue(), np.zeros((600, 4))), dict(mps=10.0)),
     ((box_catalogue(),), dict(mps=0.0)),
     ((box_catalogue(),), dict(mps="ten")),
-    ((box_catalogue(),), dict(mps=10.0, n_realizations=0)),
-    ((box_catalogue(),), dict(mps=10.0, n_realizations=-1)),
-    ((box_catalogue(),), dict(mps=10.0, seed=-1)),
-    ((box_catalogue(),), dict(mps=10.0, seed=2 ** 32)),
-    ((box_catalogue(),), dict(mps=10.0, seed=1.5)),
-    ((box_catalogue(),), dict(mps=10.0, convergence=-0.1)),
-    ((box_catalogue(),), dict(mps=10.0, convergence=None)),
-    ((box_catalogue(),), dict(mps=10.0, cell_size=0.0)),
+    ((box_catalogue(),), dict(mps=10.0, config=otswap.Config(n_realizations=0))),
+    ((box_catalogue(),), dict(mps=10.0, config=otswap.Config(convergence=-0.1))),
+    ((box_catalogue(),), dict(mps=10.0, config=otswap.Config(cell_size=0.0))),
+    ((box_catalogue(),), dict(mps=10.0, config=None)),
+    ((box_catalogue(),), dict(mps=10.0, config=dict(seed=1))),
     (([[1.0, 2.0, np.nan]] * 20,), dict(mps=1.0)),
     (([["a", "b", "c"]],), dict(mps=1.0)),
 ])
 def test_reconstruct_box_errors(args, kwargs):
     with pytest.raises(otswap.Error):
         otswap.reconstruct_box(*args, **kwargs)
+
+
+def test_config_defaults_repr_and_equality():
+    c = otswap.Config()
+    assert (c.n_realizations, c.convergence, c.seed, c.cell_size, c.reject_crossings,
+            c.max_unobserved_pixels_crossed, c.verbosity) == (1, 1e-3, 0, 4.0, True, 0, "normal")
+    assert repr(c) == ("Config(n_realizations=1, convergence=0.001, seed=0, cell_size=4.0, "
+                       "reject_crossings=True, max_unobserved_pixels_crossed=0, verbosity='normal')")
+    other = otswap.Config(n_realizations=3, convergence=0.25, seed=7, cell_size=2.5, reject_crossings=False,
+                          max_unobserved_pixels_crossed=4, verbosity="detailed")
+    assert eval(repr(other), {"Config": otswap.Config}) == other and other != c
+    for name, value in (("n_realizations", 3), ("convergence", 0.25), ("seed", 7), ("cell_size", 2.5),
+                        ("reject_crossings", False), ("max_unobserved_pixels_crossed", 4),
+                        ("verbosity", "detailed")):
+        changed = otswap.Config()
+        setattr(changed, name, value)
+        assert getattr(changed, name) == value and changed != c, name
+        assert changed == otswap.Config(**{name: value}), name
+    assert otswap.Config(convergence=math.nan) != otswap.Config(convergence=math.nan), "NaN is unequal"
+    assert (c == otswap.CorrectionConfig()) is False and c != "Config()"
+    with pytest.raises(TypeError):
+        hash(c)
+    with pytest.raises(TypeError):
+        otswap.Config(2)
+    with pytest.raises(TypeError):
+        otswap.Config(sigma=1.0)
+    with pytest.raises(AttributeError):
+        c.log = None
+    assert otswap.Config(seed=np.int64(9)).seed == 9 and otswap.Config(cell_size=2).cell_size == 2.0
+
+
+@pytest.mark.parametrize("name, value, text", [
+    ("n_realizations", -1, "n_realizations is -1; it must lie in [0, 4294967295]"),
+    ("n_realizations", 1.5, "n_realizations must be an integer"),
+    ("seed", -1, "seed is -1"),
+    ("seed", 2 ** 32, "seed is 4294967296"),
+    ("seed", "1", "seed must be an integer"),
+    ("convergence", None, "convergence must be a real number"),
+    ("cell_size", "4", "cell_size must be a real number"),
+    ("reject_crossings", 1, "reject_crossings must be True or False"),
+    ("max_unobserved_pixels_crossed", -1, "max_unobserved_pixels_crossed is -1"),
+    ("verbosity", "loud", "verbosity must be"),
+    ("verbosity", True, "verbosity must be"),
+])
+def test_config_converts_each_field_when_stored(name, value, text):
+    with pytest.raises(otswap.Error, match=re.escape(text)):
+        otswap.Config(**{name: value})
+    c = otswap.Config()
+    with pytest.raises(otswap.Error, match=re.escape(text)):
+        setattr(c, name, value)
+    assert c == otswap.Config(), "a refused value leaves the object as it was"
+
+
+def test_config_values_are_checked_by_the_call(table, lightcone):
+    """Stored as given, refused by the call with the library's message, which
+    names no identifier of either language and reads as in C++."""
+    stored = otswap.Config(n_realizations=0, convergence=2.0, cell_size=-1.0)
+    assert (stored.n_realizations, stored.convergence, stored.cell_size) == (0, 2.0, -1.0)
+    cases = [
+        (dict(n_realizations=0), "the number of realizations is 0; it must be at least 1"),
+        (dict(convergence=-0.1),
+         "the convergence threshold is -0.100000; it must lie strictly between 0 and 1"),
+        (dict(convergence=math.nan), "the convergence threshold is nan; it must lie strictly between 0 and 1"),
+        (dict(cell_size=0.0),
+         "the grid cell size is 0.000000 mean particle separations; it must be positive"),
+    ]
+    for fields, text in cases:
+        assert not any(name in text for name in IDENTIFIERS), text
+        config = otswap.Config(verbosity="silent", **fields)
+        with pytest.raises(otswap.Error, match="^" + re.escape(text) + "$"):
+            otswap.reconstruct_box(box_catalogue(), mps=10.0, config=config)
+        with pytest.raises(otswap.Error, match="^" + re.escape(text) + "$"):
+            lightcone_result(table, lightcone, config=config)
+
+
+def test_config_is_copied_and_its_keywords_are_gone(capfd):
+    tracers = box_catalogue()
+    config = otswap.Config(n_realizations=2, verbosity="silent")
+    r = otswap.reconstruct_box(tracers, mps=10.0, config=config)
+    assert config.seed == 0 and r.config.seed != 0, "the drawn seed is the result's, not the argument's"
+    assert config == otswap.Config(n_realizations=2, verbosity="silent")
+    otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(seed=1))
+    assert "otswap: reconstructBox" in capfd.readouterr().out, "the default config is \"normal\""
+    for gone in (dict(n_realizations=2), dict(convergence=1e-3), dict(seed=1), dict(cell_size=4.0),
+                 dict(verbosity="silent")):
+        with pytest.raises(TypeError):
+            otswap.reconstruct_box(tracers, mps=10.0, **gone)
 
 
 # Box limits on box_catalogue(): x <= 50 keeps the first five of the eight
@@ -748,12 +861,58 @@ def test_box_limits_class():
                                 ("abc", (1, 1, 1), "lower"), ((0, 0, 0), None, "upper")):
         with pytest.raises(otswap.Error, match=match):
             otswap.BoxLimits(lower, upper)
+    assert limits == otswap.BoxLimits([0, 0, 0], [50, 80, 80]) and limits != otswap.BoxLimits(*LIMITS[::-1])
+    assert otswap.BoxLimits((np.nan, 0, 0), (1, 1, 1)) != otswap.BoxLimits((np.nan, 0, 0), (1, 1, 1))
+    assert (limits == LIMITS) is False and limits != "box"
+    with pytest.raises(TypeError):
+        hash(limits)
+    # the one-argument form, which the implicit conversion of another module's
+    # BoxLimits parameter calls
+    assert otswap.BoxLimits(LIMITS) == limits and otswap.BoxLimits(np.array(LIMITS)) == limits
+    with pytest.raises(TypeError):
+        otswap.BoxLimits(((0, 0), (1, 1)))
+    with pytest.raises(AttributeError):
+        limits.lower = (1.0, 1.0, 1.0)
+
+
+def test_redshift_cut_class():
+    whole = otswap.RedshiftCut()
+    assert whole.min == -math.inf and whole.max == math.inf
+    assert repr(whole) == "RedshiftCut(min=-inf, max=inf)"
+    cut = otswap.RedshiftCut(0.2, 0.8)
+    assert (cut.min, cut.max) == (0.2, 0.8) and repr(cut) == "RedshiftCut(min=0.2, max=0.8)"
+    assert eval(repr(cut), {"RedshiftCut": otswap.RedshiftCut}) == cut
+    assert cut == otswap.RedshiftCut(min=0.2, max=0.8) == otswap.RedshiftCut(0.2, max=0.8)
+    assert otswap.RedshiftCut(0.2).max == math.inf and otswap.RedshiftCut(max=0.8).min == -math.inf
+    assert otswap.RedshiftCut(0, 1) == otswap.RedshiftCut(0.0, 1.0)
+    # the one-argument form, which the implicit conversion of another module's
+    # RedshiftCut parameter calls
+    assert otswap.RedshiftCut((0.2, 0.8)) == cut and otswap.RedshiftCut([0, 1]) == otswap.RedshiftCut(0, 1)
+    assert otswap.RedshiftCut(np.array([0.2, 0.8])) == cut
+    cut.min, cut.max = 0.3, 0.6
+    assert cut == otswap.RedshiftCut(0.3, 0.6) and cut != whole
+    assert otswap.RedshiftCut(math.nan) != otswap.RedshiftCut(math.nan)
+    assert (cut == (0.3, 0.6)) is False and cut != otswap.Config()
+    stored = otswap.RedshiftCut(0.8, 0.2)
+    assert (stored.min, stored.max) == (0.8, 0.2), "values are checked by the call"
+    with pytest.raises(TypeError):
+        hash(cut)
+    for args, kwargs, text in (((None,), {}, "min must be a real number"), (("a",), {}, "min must be"),
+                               (((0.2, 0.5, 0.8),), {}, "min must be a real number"),
+                               ((0.2, "b"), {}, "max must be a real number"),
+                               (((0.2, 0.8), 1.0), {}, "min must be a real number")):
+        with pytest.raises(otswap.Error, match=text):
+            otswap.RedshiftCut(*args, **kwargs)
+    with pytest.raises(otswap.Error, match="max must be a real number"):
+        cut.max = None
+    assert cut == otswap.RedshiftCut(0.3, 0.6)
 
 
 def test_reconstruct_box_limits():
     tracers = box_catalogue()
     limits = otswap.BoxLimits(*LIMITS)
-    r = otswap.reconstruct_box(tracers, box=limits, n_realizations=2, seed=3, verbosity="silent")
+    r = otswap.reconstruct_box(tracers, box=limits,
+                               config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
     outside = tracers[:, 0] > 50.0
     assert outside.sum() == 192
     flags = r.outside_box
@@ -774,16 +933,17 @@ def test_reconstruct_box_limits():
     assert s.redshift_cut is None and not s.mask_applied
     assert repr(s) == "otswap: kept 320 of 512 tracers: 192 outside the box [0, 50] x [0, 80] x [0, 80]"
 
-    pair = otswap.reconstruct_box(tracers, box=((0, 0, 0), np.array([50.0, 80.0, 80.0])), n_realizations=2,
-                                  seed=3, verbosity="silent")
+    pair = otswap.reconstruct_box(tracers, box=((0, 0, 0), np.array([50.0, 80.0, 80.0])),
+                                  config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
     assert same_bytes(pair.displacement, r.displacement), "a pair of corners is the same box"
-    given_mps = otswap.reconstruct_box(tracers, box=limits, mps=r.mps, n_realizations=2, seed=3,
-                                       verbosity="silent")
+    given_mps = otswap.reconstruct_box(tracers, box=limits, mps=r.mps,
+                                       config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
     assert same_bytes(given_mps.displacement, r.displacement)
 
     randoms = np.random.default_rng(5).uniform(-10.0, 90.0, (3000, 3))
     inside = np.all((randoms >= LIMITS[0]) & (randoms <= LIMITS[1]), axis=1)
-    g = otswap.reconstruct_box(tracers, randoms, box=LIMITS, n_realizations=2, seed=3, verbosity="silent")
+    g = otswap.reconstruct_box(tracers, randoms, box=LIMITS,
+                               config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
     pool = {tuple(p) for p in randoms[inside]}
     assert all(tuple(p) in pool for p in g.matched_random[:, ~outside].reshape(-1, 3)), \
         "only the given randoms inside the limits are used"
@@ -793,7 +953,8 @@ def test_reconstruct_box_limits():
 def test_reconstruct_box_without_limits_records_the_bounding_box():
     tracers = box_catalogue()
     for kwargs in (dict(), dict(mps=10.0)):
-        r = otswap.reconstruct_box(tracers, n_realizations=2, seed=3, verbosity="silent", **kwargs)
+        r = otswap.reconstruct_box(tracers,
+                                   config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"), **kwargs)
         assert r.box.lower == tuple(tracers.min(axis=0)) and r.box.upper == tuple(tracers.max(axis=0))
         assert not r.outside_box.any() and r.selection.box_limits is None
         assert r.selection.tracers == 0 and repr(r.selection) == "SelectionCounts(no selection)"
@@ -804,8 +965,10 @@ def test_box_limits_on_the_bounding_box_change_nothing(with_randoms):
     tracers = box_catalogue()
     lo, hi = tracers.min(axis=0), tracers.max(axis=0)
     randoms = np.random.default_rng(8).uniform(lo, hi, (1500, 3)) if with_randoms else None
-    a = otswap.reconstruct_box(tracers, randoms, box=(lo, hi), n_realizations=2, seed=3, verbosity="silent")
-    b = otswap.reconstruct_box(tracers, randoms, n_realizations=2, seed=3, verbosity="silent")
+    a = otswap.reconstruct_box(tracers, randoms, box=(lo, hi),
+                               config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
+    b = otswap.reconstruct_box(tracers, randoms,
+                               config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
     for name in ("displacement", "matched_random", "mean_displacement"):
         assert same_bytes(getattr(a, name), getattr(b, name)), name
     assert a.mps == b.mps
@@ -819,17 +982,19 @@ def test_box_limits_on_the_bounding_box_change_nothing(with_randoms):
     (LIMITS, np.full((600, 3), 10.0), "keeps 600 of 600 randoms \\(0 dropped\\), for 320 tracers kept; "
                                       "2 realizations need 640"),
     ("box", None, "box cannot be converted"),
-    (((0, 0), (1, 1)), None, "box must be an otswap.BoxLimits or a pair"),
+    (((0, 0), (1, 1)), None, "^box must be an otswap.BoxLimits or a pair of corners \\(\\(x0, y0, z0\\), "
+                              "\\(x1, y1, z1\\)\\); it has shape \\(2, 2\\)$"),
     (((0, 0, 0), (1, 1, 1), (2, 2, 2)), None, "box must be an otswap.BoxLimits or a pair"),
 ])
 def test_reconstruct_box_limit_errors(box, randoms, match):
     with pytest.raises(otswap.Error, match=match):
-        otswap.reconstruct_box(box_catalogue(), randoms, box=box, n_realizations=2, verbosity="silent")
+        otswap.reconstruct_box(box_catalogue(), randoms, box=box,
+                               config=otswap.Config(n_realizations=2, verbosity="silent"))
 
 
 def test_box_limits_report(capfd):
     tracers = box_catalogue()
-    r = otswap.reconstruct_box(tracers, box=LIMITS, seed=2)
+    r = otswap.reconstruct_box(tracers, box=LIMITS, config=otswap.Config(seed=2))
     out, err = capfd.readouterr()
     box = "[0, 50] x [0, 80] x [0, 80]"
     assert out == (f"otswap: kept 320 of 512 tracers: 192 outside the box {box}\n"
@@ -837,18 +1002,19 @@ def test_box_limits_report(capfd):
     assert "; 192 without a valid displacement" in out and err == ""
     randoms = np.random.default_rng(9).uniform(0.0, 100.0, (2000, 3))
     dropped = int((~np.all((randoms >= LIMITS[0]) & (randoms <= LIMITS[1]), axis=1)).sum())
-    otswap.reconstruct_box(tracers, randoms, box=LIMITS, seed=2, verbosity="detailed")
+    otswap.reconstruct_box(tracers, randoms, box=LIMITS, config=otswap.Config(seed=2, verbosity="detailed"))
     lines = capfd.readouterr()[0].splitlines()
     assert lines[1] == f"otswap: kept {2000 - dropped} of 2000 randoms: {dropped} outside the box {box}"
     assert lines[2].endswith(" Mpc/h (from the box limits)") and len(lines) == 4
-    otswap.reconstruct_box(tracers, randoms, box=LIMITS, seed=2, verbosity="silent")
+    otswap.reconstruct_box(tracers, randoms, box=LIMITS, config=otswap.Config(seed=2, verbosity="silent"))
     assert capfd.readouterr() == ("", "")
 
 
 def test_real_space_box_leaves_out_the_tracers_outside_the_limits(table):
-    r = otswap.reconstruct_box(box_catalogue(), box=LIMITS, n_realizations=2, seed=3, verbosity="silent")
+    r = otswap.reconstruct_box(box_catalogue(), box=LIMITS,
+                               config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
     c = otswap.real_space_box(r, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=10.0,
-                              verbosity="silent")
+                              correction=otswap.CorrectionConfig(verbosity="silent"))
     out = r.outside_box
     assert (c.status[out] == otswap.CorrectionStatus.LEFT_OUT).all()
     assert (c.status[~out] != otswap.CorrectionStatus.LEFT_OUT).all()
@@ -856,7 +1022,7 @@ def test_real_space_box_leaves_out_the_tracers_outside_the_limits(table):
 
 
 def test_result_views_are_read_only():
-    result = otswap.reconstruct_box(box_catalogue(), mps=10.0, n_realizations=2, seed=1)
+    result = otswap.reconstruct_box(box_catalogue(), mps=10.0, config=otswap.Config(n_realizations=2, seed=1))
     for name, array in result_arrays(result).items():
         assert not array.flags.writeable, name
         with pytest.raises(ValueError):
@@ -871,13 +1037,13 @@ def test_result_views_are_read_only():
 
 
 def test_result_views_share_the_result_memory():
-    result = otswap.reconstruct_box(box_catalogue(), mps=10.0, n_realizations=2, seed=1)
+    result = otswap.reconstruct_box(box_catalogue(), mps=10.0, config=otswap.Config(n_realizations=2, seed=1))
     for name, array in result_arrays(result).items():
         assert np.shares_memory(array, getattr(result, name)), name
 
 
 def test_result_views_outlive_the_result():
-    result = otswap.reconstruct_box(box_catalogue(), mps=10.0, n_realizations=2, seed=1)
+    result = otswap.reconstruct_box(box_catalogue(), mps=10.0, config=otswap.Config(n_realizations=2, seed=1))
     views = result_arrays(result)
     copies = {name: array.copy() for name, array in views.items()}
     del result
@@ -885,7 +1051,8 @@ def test_result_views_outlive_the_result():
     # allocate and free memory of the same size, so that freed memory would
     # be overwritten
     for _ in range(3):
-        junk = otswap.reconstruct_box(box_catalogue(seed=2), mps=10.0, n_realizations=2, seed=2)
+        junk = otswap.reconstruct_box(box_catalogue(seed=2), mps=10.0,
+                                      config=otswap.Config(n_realizations=2, seed=2))
         del junk
         gc.collect()
     for name, array in views.items():
@@ -924,8 +1091,8 @@ def test_reconstruct_neighbour_search_error(table, lightcone):
     can count."""
     for mps in (10.0, None):
         with pytest.raises(otswap.Error, match="^meshsearch: "):
-            otswap.reconstruct_box(box_catalogue(), mps=mps, cell_size=1e-12, seed=1,
-                                   verbosity="silent")
+            otswap.reconstruct_box(box_catalogue(), mps=mps,
+                                   config=otswap.Config(cell_size=1e-12, seed=1, verbosity="silent"))
     tracers_sky, randoms_sky = lightcone
     tracers = otswap.to_cartesian(tracers_sky, table, angle_unit="deg")
     randoms = otswap.to_cartesian(randoms_sky, table, angle_unit="deg")
@@ -933,8 +1100,8 @@ def test_reconstruct_neighbour_search_error(table, lightcone):
     for area in (dict(), dict(sky_area_deg2=None, mask=full_sky)):
         for cartesian in (dict(), dict(tracers=tracers, randoms=randoms)):
             with pytest.raises(otswap.Error, match="^meshsearch: "):
-                lightcone_result(table, lightcone, cell_size=1e-12, verbosity="silent",
-                                 **area, **cartesian)
+                tiny = otswap.Config(n_realizations=2, seed=5, cell_size=1e-12, verbosity="silent")
+                lightcone_result(table, lightcone, config=tiny, **area, **cartesian)
 
 
 def test_reconstruct_lightcone_deg_and_rad_are_identical(table, lightcone):
@@ -963,7 +1130,8 @@ def test_reconstruct_lightcone_with_cartesian_coordinates(table, lightcone):
 
 
 def test_lightcone_cell_size_affects_speed_only(table, lightcone):
-    results = [lightcone_result(table, lightcone, cell_size=cell_size)
+    results = [lightcone_result(table, lightcone,
+                                config=otswap.Config(n_realizations=2, seed=5, cell_size=cell_size))
                for cell_size in (1.0, 2.0, 4.0, 8.0)]
     for result in results[1:]:
         for name, array in result_arrays(result).items():
@@ -987,8 +1155,9 @@ def test_reconstruct_lightcone_needs_keywords(table, lightcone):
     dict(sky_area_deg2=-1.0),
     dict(sky_area_deg2="big"),
     dict(distances=None),
-    dict(n_realizations=5),
-    dict(seed="1"),
+    dict(config=otswap.Config(n_realizations=5)),
+    dict(config=None),
+    dict(config=otswap.CorrectionConfig()),
     dict(tracers=np.zeros((1600, 3))),
     dict(randoms=np.zeros((4800, 3))),
     dict(tracers=np.zeros((1600, 3)), randoms=np.zeros((10, 3))),
@@ -997,6 +1166,25 @@ def test_reconstruct_lightcone_needs_keywords(table, lightcone):
 def test_reconstruct_lightcone_errors(table, lightcone, kwargs):
     with pytest.raises(otswap.Error):
         lightcone_result(table, lightcone, **kwargs)
+
+
+def test_zero_bins_message_names_no_argument(table, lightcone):
+    text = "the number of redshift bins is 0; it must be at least 1"
+    assert not any(name in text for name in IDENTIFIERS)
+    with pytest.raises(otswap.Error, match="^" + re.escape(text) + "$"):
+        lightcone_result(table, lightcone, n_bins=0)
+    with pytest.raises(otswap.Error, match="^" + re.escape(text) + "$"):
+        otswap.measure_mps_profile(lightcone[0], sky_area_deg2=patch_area_deg2(), n_bins=0, distances=table,
+                                   angle_unit="deg")
+
+
+def test_reconstruct_lightcone_config_keywords_are_gone(table, lightcone):
+    for gone in (dict(n_realizations=2), dict(convergence=1e-3), dict(seed=1), dict(cell_size=4.0),
+                 dict(reject_crossings=False), dict(max_unobserved_pixels_crossed=1),
+                 dict(verbosity="silent")):
+        with pytest.raises(TypeError):
+            otswap.reconstruct_lightcone(*lightcone, sky_area_deg2=patch_area_deg2(), n_bins=3,
+                                         distances=table, angle_unit="deg", **gone)
 
 
 def test_reconstruct_lightcone_input_errors(table, lightcone):
@@ -1028,10 +1216,10 @@ MASK_CUT = (0.35, 0.55)
 def test_lightcone_mask_flags_rows_and_area(table, lightcone):
     tracers_sky, randoms_sky = lightcone
     mask = nine_mask()
-    options = dict(n_bins=1, distances=table, angle_unit="deg", n_realizations=2, seed=5,
-                   redshift_cut=MASK_CUT, verbosity="silent")
+    options = dict(n_bins=1, distances=table, angle_unit="deg", redshift_cut=MASK_CUT)
     plain = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask,
-                                         reject_crossings=False, **options)
+                                         config=otswap.Config(n_realizations=2, seed=5, reject_crossings=False,
+                                                              verbosity="silent"), **options)
 
     def outside(sky):
         cut = ~((sky[:, 2] >= MASK_CUT[0]) & (sky[:, 2] <= MASK_CUT[1]))
@@ -1047,7 +1235,7 @@ def test_lightcone_mask_flags_rows_and_area(table, lightcone):
     random_cut, random_masked = outside(randoms_sky)
     kept = otswap.reconstruct_lightcone(tracers_sky[keep], randoms_sky[~random_cut & ~random_masked],
                                         sky_area_deg2=mask.sky_area_deg2, n_bins=1, distances=table,
-                                        angle_unit="deg", n_realizations=2, seed=5)
+                                        angle_unit="deg", config=otswap.Config(n_realizations=2, seed=5))
     for name, array in result_arrays(kept).items():
         full = getattr(plain, name)
         rows = full[:, keep] if full.ndim > 1 and full.shape[1] == 1600 else full[keep]
@@ -1057,17 +1245,19 @@ def test_lightcone_mask_flags_rows_and_area(table, lightcone):
 
 def test_lightcone_mask_filters_the_result(table, lightcone):
     mask = nine_mask()
-    options = dict(mask=mask, n_bins=1, distances=table, angle_unit="deg", n_realizations=2,
-                   seed=5, verbosity="silent")
-    filtered = otswap.reconstruct_lightcone(*lightcone, **options)
-    by_hand = otswap.reconstruct_lightcone(*lightcone, reject_crossings=False, **options)
+    options = dict(mask=mask, n_bins=1, distances=table, angle_unit="deg")
+    config = otswap.Config(n_realizations=2, seed=5, verbosity="silent")
+    unfiltered = otswap.Config(n_realizations=2, seed=5, reject_crossings=False, verbosity="silent")
+    filtered = otswap.reconstruct_lightcone(*lightcone, config=config, **options)
+    by_hand = otswap.reconstruct_lightcone(*lightcone, config=unfiltered, **options)
     assert by_hand.filtered_nside == 0 and filtered.filtered_nside == 64
     otswap.reject_mask_crossings(by_hand, mask)
     assert np.array_equal(filtered.valid, by_hand.valid)
     assert 0 < (~filtered.valid[:, ~filtered.outside_mask]).sum()
 
-    two = otswap.reconstruct_lightcone(*lightcone, max_unobserved_pixels_crossed=2, **options)
-    by_hand_two = otswap.reconstruct_lightcone(*lightcone, reject_crossings=False, **options)
+    config.max_unobserved_pixels_crossed = 2
+    two = otswap.reconstruct_lightcone(*lightcone, config=config, **options)
+    by_hand_two = otswap.reconstruct_lightcone(*lightcone, config=unfiltered, **options)
     otswap.reject_mask_crossings(by_hand_two, mask, max_unobserved_pixels_crossed=2)
     assert np.array_equal(two.valid, by_hand_two.valid)
     assert two.selection.max_unobserved_pixels_crossed == 2
@@ -1076,8 +1266,8 @@ def test_lightcone_mask_filters_the_result(table, lightcone):
 def test_lagrangian_sky(table, lightcone):
     tracers_sky, randoms_sky = lightcone
     mask = nine_mask()
-    options = dict(mask=mask, n_bins=1, distances=table, n_realizations=2, seed=5,
-                   redshift_cut=MASK_CUT, verbosity="silent")
+    options = dict(mask=mask, n_bins=1, distances=table, redshift_cut=MASK_CUT,
+                   config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     deg = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, angle_unit="deg", **options)
     rad = otswap.reconstruct_lightcone(to_radians(tracers_sky), to_radians(randoms_sky),
                                        angle_unit="rad", **options)
@@ -1094,8 +1284,8 @@ def test_lagrangian_sky(table, lightcone):
 
     otswap.reject_mask_crossings(deg, mask)
     assert same_bytes(deg.lagrangian_sky, sky), "a filter that rejects nothing keeps it"
-    unfiltered = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, angle_unit="deg",
-                                              reject_crossings=False, **options)
+    options["config"].reject_crossings = False
+    unfiltered = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, angle_unit="deg", **options)
     before = unfiltered.lagrangian_sky
     assert not np.array_equal(before, sky, equal_nan=True)
     otswap.reject_mask_crossings(unfiltered, mask)
@@ -1111,13 +1301,14 @@ def test_lightcone_selection_counts(table, lightcone):
     tracers_sky, randoms_sky = lightcone
     mask = nine_mask()
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, n_bins=1,
-                                          distances=table, angle_unit="deg", n_realizations=2,
-                                          seed=5, redshift_cut=MASK_CUT, verbosity="silent")
+                                          distances=table, angle_unit="deg", redshift_cut=MASK_CUT,
+                                          config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     s = result.selection
     assert isinstance(s, otswap.SelectionCounts)
     cut = result.outside_redshift_cut
     masked = result.outside_mask
-    assert s.redshift_cut == MASK_CUT and s.mask_applied
+    assert isinstance(s.redshift_cut, otswap.RedshiftCut) and s.redshift_cut == otswap.RedshiftCut(*MASK_CUT)
+    assert s.redshift_cut is not s.redshift_cut and s.mask_applied
     assert (s.tracers, s.tracers_outside_redshift_cut, s.tracers_outside_mask,
             s.tracers_outside_both) == (1600, cut.sum(), masked.sum(), (cut & masked).sum())
     random_masked = ~mask.allows(randoms_sky[:, 0], randoms_sky[:, 1], angle_unit="deg")
@@ -1146,7 +1337,7 @@ def test_lightcone_selection_counts(table, lightcone):
     assert p.max_unobserved_pixels_crossed is None and p.displacements == 0
     assert p.tracers == 1600 and p.tracers_outside_mask == 0
     assert not plain.outside_mask.any() and repr(p) == "SelectionCounts(no selection)"
-    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, seed=3)
+    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, config=otswap.Config(seed=3))
     assert box.selection.tracers == 0 and not box.outside_mask.any()
     with pytest.raises(TypeError):
         otswap.SelectionCounts()
@@ -1160,26 +1351,29 @@ def call_line(name, result):
 
 def test_lightcone_report_is_printed_from_python(table, lightcone, capfd):
     mask = nine_mask()
-    options = dict(n_bins=1, distances=table, angle_unit="deg", n_realizations=2, seed=5)
-    result = otswap.reconstruct_lightcone(*lightcone, mask=mask, redshift_cut=MASK_CUT, **options)
+    config = otswap.Config(n_realizations=2, seed=5)
+    options = dict(n_bins=1, distances=table, angle_unit="deg")
+    result = otswap.reconstruct_lightcone(*lightcone, mask=mask, redshift_cut=MASK_CUT, config=config, **options)
     out, err = capfd.readouterr()
     assert out == repr(result.selection) + "\n" + call_line("reconstructLightcone", result) + "\n"
     assert len(out.splitlines()) == 4
     assert err == "", "nothing is written to the process's stderr"
 
-    otswap.reconstruct_lightcone(*lightcone, mask=mask, verbosity="silent", **options)
+    otswap.reconstruct_lightcone(*lightcone, mask=mask, config=otswap.Config(n_realizations=2, seed=5,
+                                                                            verbosity="silent"), **options)
     assert capfd.readouterr() == ("", "")
-    area = otswap.reconstruct_lightcone(*lightcone, sky_area_deg2=patch_area_deg2(), **options)
+    area = otswap.reconstruct_lightcone(*lightcone, sky_area_deg2=patch_area_deg2(), config=config, **options)
     assert capfd.readouterr() == (call_line("reconstructLightcone", area) + "\n", "")
 
     cut = otswap.reconstruct_lightcone(*lightcone, sky_area_deg2=patch_area_deg2(),
-                                       redshift_cut=MASK_CUT, **options)
+                                       redshift_cut=MASK_CUT, config=config, **options)
     out, err = capfd.readouterr()
     assert out.splitlines() == repr(cut.selection).split("\n") + [call_line("reconstructLightcone", cut)]
     assert "outside the redshift cut [0.35, 0.55]" in out and "mask" not in out and err == ""
 
-    detailed = otswap.reconstruct_lightcone(*lightcone, sky_area_deg2=patch_area_deg2(),
-                                            verbosity="detailed", **options)
+    config.verbosity = "detailed"
+    detailed = otswap.reconstruct_lightcone(*lightcone, sky_area_deg2=patch_area_deg2(), config=config,
+                                            **options)
     p = detailed.mps_profile
     assert capfd.readouterr() == (
         f"otswap: mps(z) from {p.mps[0]:g} to {p.mps[0]:g} Mpc/h in 1 bin over "
@@ -1188,18 +1382,20 @@ def test_lightcone_report_is_printed_from_python(table, lightcone, capfd):
 
 def test_box_and_correction_reports(table, lightcone, capfd):
     tracers = box_catalogue()
-    box = otswap.reconstruct_box(tracers, n_realizations=2, seed=1, verbosity="detailed")
+    box = otswap.reconstruct_box(tracers,
+                                 config=otswap.Config(n_realizations=2, seed=1, verbosity="detailed"))
     out, err = capfd.readouterr()
     assert out == (f"otswap: mean particle separation {box.mps:g} Mpc/h (from the tracers' bounding box)\n"
                    + call_line("reconstructBox", box) + "\n") and err == ""
-    otswap.reconstruct_box(tracers, mps=10.0, verbosity="detailed")
+    otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(verbosity="detailed"))
     assert capfd.readouterr()[0].startswith("otswap: mean particle separation 10 Mpc/h (given)\n")
 
-    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
+    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     capfd.readouterr()
     with pytest.warns(otswap.ExtrapolationWarning):
         c = otswap.real_space_lightcone(r, distances=table, bias=otswap.BiasTable([0.4, 0.5], [1.2, 1.6]),
-                                        sigma=10.0, verbosity="detailed")
+                                        sigma=10.0, correction=otswap.CorrectionConfig(verbosity="detailed"))
     out, err = capfd.readouterr()
     lines = out.splitlines()
     uncorrected = int((c.status >= 2).sum())
@@ -1216,7 +1412,7 @@ def test_box_and_correction_reports(table, lightcone, capfd):
     assert err == ""
     with pytest.warns(otswap.ExtrapolationWarning):
         otswap.real_space_lightcone(r, distances=table, bias=otswap.BiasTable([0.4, 0.5], [1.2, 1.6]),
-                                    sigma=10.0, verbosity="silent")
+                                    sigma=10.0, correction=otswap.CorrectionConfig(verbosity="silent"))
     assert capfd.readouterr() == ("", ""), "silent prints nothing, and still warns"
     b = otswap.real_space_box(box, axis=1, redshift=0.5, distances=table, bias=1.5, sigma=8.0)
     n, u = len(tracers), int((b.status >= 2).sum())
@@ -1224,14 +1420,14 @@ def test_box_and_correction_reports(table, lightcone, capfd):
                                   f"{b.elapsed_seconds:.2f} s; {u} left uncorrected\n", "")
     for bad in (True, "loud", None):
         with pytest.raises(otswap.Error, match="verbosity must be"):
-            otswap.reconstruct_box(tracers, mps=10.0, verbosity=bad)
+            otswap.Config(verbosity=bad)
 
 
 def test_lightcone_cartesian_with_mask(table, lightcone):
     tracers_sky, randoms_sky = lightcone
     mask = nine_mask()
-    options = dict(mask=mask, n_bins=1, distances=table, angle_unit="deg", n_realizations=2,
-                   seed=5, redshift_cut=MASK_CUT, verbosity="silent")
+    options = dict(mask=mask, n_bins=1, distances=table, angle_unit="deg", redshift_cut=MASK_CUT,
+                   config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     sky = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, **options)
     cartesian = otswap.reconstruct_lightcone(
         tracers_sky, randoms_sky, tracers=otswap.to_cartesian(tracers_sky, table, angle_unit="deg"),
@@ -1248,11 +1444,8 @@ def test_lightcone_cartesian_with_mask(table, lightcone):
     (dict(mask="mask.fits"), "mask must be an otswap.Mask"),
     (dict(mask=None), "one is required"),
     (dict(mask=True, sky_area_deg2=None), "mask must be an otswap.Mask"),
-    (dict(sky_area_deg2=900.0, reject_crossings=1), "reject_crossings must be True or False"),
-    (dict(sky_area_deg2=900.0, verbosity=True), "verbosity must be"),
-    (dict(sky_area_deg2=900.0, verbosity="loud"), "verbosity must be"),
-    (dict(sky_area_deg2=900.0, max_unobserved_pixels_crossed=-1),
-     "max_unobserved_pixels_crossed is -1"),
+    (dict(sky_area_deg2=900.0, config="silent"), "config must be an otswap.Config"),
+    (dict(sky_area_deg2=900.0, config=None), "config must be an otswap.Config"),
 ])
 def test_lightcone_mask_argument_errors(table, lightcone, kwargs, text):
     kwargs = {k: (nine_mask() if v == "mask" else v) for k, v in kwargs.items()}
@@ -1287,10 +1480,12 @@ def test_measure_mps_profile_is_the_reconstruction_profile(table, lightcone, sel
     if unit == "rad":
         tracers_sky, randoms_sky = (np.column_stack([np.deg2rad(s[:, 0]), np.deg2rad(s[:, 1]), s[:, 2]])
                                     for s in lightcone)
-    options = dict(n_bins=n_bins, distances=table, angle_unit=unit, verbosity="silent", **selection)
-    profile = otswap.measure_mps_profile(tracers_sky, **options)
+    options = dict(n_bins=n_bins, distances=table, angle_unit=unit, **selection)
+    profile = otswap.measure_mps_profile(tracers_sky, verbosity="silent", **options)
     assert isinstance(profile, otswap.MpsProfile)
-    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, n_realizations=2, seed=5, **options)
+    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky,
+                                          config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"),
+                                          **options)
     assert same_profile(profile, result.mps_profile)
 
 
@@ -1303,11 +1498,12 @@ def test_measure_mps_profile_is_the_reconstruction_profile(table, lightcone, sel
 def test_measure_mps_profile_fails_as_the_reconstruction(table, lightcone, selection, n_bins, text):
     selection = {k: {"area": patch_area_deg2(), "mask": nine_mask()}.get(v, v) if isinstance(v, str)
                  else v for k, v in selection.items()}
-    options = dict(n_bins=n_bins, distances=table, angle_unit="deg", verbosity="silent", **selection)
+    options = dict(n_bins=n_bins, distances=table, angle_unit="deg", **selection)
     with pytest.raises(otswap.Error, match=text) as measured:
-        otswap.measure_mps_profile(lightcone[0], **options)
+        otswap.measure_mps_profile(lightcone[0], verbosity="silent", **options)
     with pytest.raises(otswap.Error) as reconstructed:
-        otswap.reconstruct_lightcone(*lightcone, n_realizations=2, seed=5, **options)
+        otswap.reconstruct_lightcone(*lightcone, **options,
+                                     config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     assert type(measured.value) is type(reconstructed.value) is otswap.Error
     assert str(measured.value) == str(reconstructed.value)
 
@@ -1315,8 +1511,9 @@ def test_measure_mps_profile_fails_as_the_reconstruction(table, lightcone, selec
 def test_measure_mps_profile_report(table, lightcone, capfd):
     mask = nine_mask()
     options = dict(n_bins=1, distances=table, angle_unit="deg")
-    result = otswap.reconstruct_lightcone(*lightcone, mask=mask, redshift_cut=MASK_CUT, n_realizations=2,
-                                          seed=5, verbosity="silent", **options)
+    result = otswap.reconstruct_lightcone(*lightcone, mask=mask, redshift_cut=MASK_CUT,
+                                          config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"),
+                                          **options)
     profile = otswap.measure_mps_profile(lightcone[0], mask=mask, redshift_cut=MASK_CUT, **options)
     call = (f"otswap: measureMpsProfile: 1 bin over [{profile.redshift_min:g}, "
             f"{profile.redshift_max:g}]")
@@ -1407,11 +1604,29 @@ def test_stub_lists_the_mask_keywords():
     with open(stub) as f:
         text = f.read()
     for line in ("    sky_area_deg2: Optional[float] = None,", "    mask: Optional[Mask] = None,",
-                 "    reject_crossings: bool = True,", "    max_unobserved_pixels_crossed: int = 0,",
-                 "    verbosity: Verbosity = \"normal\",", "class SelectionCounts:",
+                 "        reject_crossings: bool = True,", "        max_unobserved_pixels_crossed: int = 0,",
+                 "        verbosity: Verbosity = \"normal\",", "class SelectionCounts:",
                  "    def outside_mask(self) -> NDArray[np.bool_]:"):
         assert line in text, line
     assert "max_forbidden_pixels" not in text
+
+
+def test_stub_lists_the_configuration_classes():
+    stub = os.path.join(os.path.dirname(otswap.__file__), "__init__.pyi")
+    with open(stub) as f:
+        text = f.read()
+    for line in ("class Config:", "class CorrectionConfig:", "class RedshiftCut:",
+                 "    def __init__(self, min: float = -inf, max: float = inf) -> None: ...",
+                 "    config: Config = Config(),", "    correction: CorrectionConfig = CorrectionConfig(),",
+                 "        config: Optional[Config] = None,", "    def config(self) -> Config:",
+                 "    def distances(self) -> Optional[\"DistanceTable\"]:",
+                 "    def redshift_cut(self) -> Optional[RedshiftCut]:",
+                 "    redshift_cut: Optional[Union[RedshiftCut, tuple[float, float]]] = None,"):
+        assert line in text, line
+    assert text.count("    config: Config = Config(),") == 2
+    assert text.count("    correction: CorrectionConfig = CorrectionConfig(),") == 2
+    from_arrays = text.split("    def from_arrays(")[1].split(") -> \"Result\":")[0]
+    assert "def seed(" not in text and "seed" not in from_arrays
 
 
 # --------------------------------------------------------------------------
@@ -1477,7 +1692,7 @@ def test_reject_mask_crossings_errors(table, lightcone, sieve_mask, full_mask32)
         otswap.reject_mask_crossings(result, sieve_mask)
     with pytest.raises(otswap.Error):
         otswap.reject_mask_crossings("result", otswap.Mask(sieve_mask))
-    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, seed=1, verbosity="silent")
+    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, config=otswap.Config(seed=1, verbosity="silent"))
     with pytest.raises(otswap.Error, match="box geometry; a box has no sky to filter against"):
         otswap.reject_mask_crossings(box, otswap.Mask(sieve_mask))
     assert box.valid.all() and box.filtered_nside == 0
@@ -1517,11 +1732,11 @@ def largest_pause_while(call):
 
 def test_reconstructions_release_the_gil(table, lightcone, sieve_mask):
     tracers = box_catalogue(n_side=24, spacing=10.0)
-    box = lambda: otswap.reconstruct_box(tracers, mps=10.0, n_realizations=4, seed=1)
-    cone = lambda: lightcone_result(table, lightcone, n_realizations=3)
+    box = lambda: otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=4, seed=1))
+    cone = lambda: lightcone_result(table, lightcone, config=otswap.Config(seed=5, n_realizations=3))
     # The mask filter takes a lightcone result: the box field, with the sky
     # coordinates of its tracers.
-    field = otswap.reconstruct_box(tracers, mps=10.0, n_realizations=4, seed=1)
+    field = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=4, seed=1))
     big = otswap.Result.from_arrays(field.displacement, field.matched_random, field.valid, field.tracers,
                                     tracers_sky=otswap.to_sky(field.tracers, table, angle_unit="deg"),
                                     angle_unit="deg", distances=table)
@@ -1587,9 +1802,9 @@ def test_box_matches_cpp(tmp_path, with_randoms):
     if with_randoms:
         randoms = np.random.default_rng(3).uniform(0, 80, (3 * len(tracers), 3))
         arrays["randoms"] = randoms
-    params = dict(mps=10.0, n_realizations=3, convergence=1e-3, seed=21, cell_size=4.0)
-    out = run_cpp(tmp_path, "box", arrays, **params)
-    result = otswap.reconstruct_box(tracers, randoms, **params)
+    config = dict(n_realizations=3, convergence=1e-3, seed=21, cell_size=4.0)
+    out = run_cpp(tmp_path, "box", arrays, mps=10.0, **config)
+    result = otswap.reconstruct_box(tracers, randoms, mps=10.0, config=otswap.Config(**config))
     assert_same_result(result, read_cpp_result(out, 3, len(tracers)))
 
 
@@ -1608,7 +1823,7 @@ def test_lightcone_matches_cpp(tmp_path, table, lightcone, sieve_mask, cartesian
                   **TABLE_ARGS, **config, mask=sieve_mask, max_unobserved_pixels_crossed=1)
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=patch_area_deg2(),
                                           n_bins=3, distances=table, angle_unit="deg",
-                                          **extra, **config)
+                                          config=otswap.Config(**config), **extra)
     otswap.reject_mask_crossings(result, otswap.Mask(sieve_mask), max_unobserved_pixels_crossed=1)
     assert not result.valid.all()
     assert_same_result(result, read_cpp_result(out, 2, len(tracers_sky)))
@@ -1629,8 +1844,8 @@ def test_lightcone_mask_overload_matches_cpp(tmp_path, table, lightcone, sieve_m
                   mask=sieve_mask, max_unobserved_pixels_crossed=1)
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=otswap.Mask(sieve_mask),
                                           n_bins=3, distances=table, angle_unit="deg",
-                                          max_unobserved_pixels_crossed=1, verbosity="silent",
-                                          **extra, **config)
+                                          config=otswap.Config(max_unobserved_pixels_crossed=1,
+                                                               verbosity="silent", **config), **extra)
     assert result.outside_mask.any() and not result.valid.all()
     assert_same_result(result, read_cpp_result(out, 2, len(tracers_sky)))
     assert same_bytes(result.outside_mask.view(np.uint8),
@@ -1840,15 +2055,22 @@ def test_io_write_matches_cpp(tmp_path, name, precision):
 
 def test_result_fields_box():
     tracers = box_catalogue()
-    r = otswap.reconstruct_box(tracers, mps=10.0, n_realizations=2, seed=7)
-    assert r.geometry == "box" and r.angle_unit is None and r.seed == 7
+    r = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=2, seed=7))
+    assert r.geometry == "box" and r.angle_unit is None and r.distances is None
+    assert isinstance(r.config, otswap.Config) and r.config == otswap.Config(n_realizations=2, seed=7)
+    copy = r.config
+    copy.seed = 8
+    assert r.config.seed == 7 and r.config is not r.config, "a new copy on each access"
+    assert not hasattr(r, "seed")
+    with pytest.raises(AttributeError):
+        r.config = copy
     assert same_bytes(r.tracers, tracers) and not r.tracers.flags.writeable
     assert same_bytes(r.lagrangian, tracers + r.mean_displacement)
     assert r.tracers_sky is None and r.lagrangian_sky is None and r.mps_profile is None
     assert r.mps == 10.0 and r.elapsed_seconds > 0
-    drawn = otswap.reconstruct_box(tracers, mps=10.0, n_realizations=2)
-    assert drawn.seed != 0
-    again = otswap.reconstruct_box(tracers, mps=10.0, n_realizations=2, seed=drawn.seed)
+    drawn = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=2))
+    assert drawn.config.seed != 0
+    again = otswap.reconstruct_box(tracers, mps=10.0, config=drawn.config)
     assert same_bytes(again.displacement, drawn.displacement)
 
 
@@ -1858,9 +2080,15 @@ def test_result_fields_lightcone(table, lightcone, unit):
     given = tracers_sky if unit == "deg" else to_radians(tracers_sky)
     randoms = randoms_sky if unit == "deg" else to_radians(randoms_sky)
     r = otswap.reconstruct_lightcone(given, randoms, sky_area_deg2=patch_area_deg2(), n_bins=2,
-                                     distances=table, angle_unit=unit, n_realizations=2, seed=5,
-                                     redshift_cut=(0.35, 0.55), verbosity="silent")
+                                     distances=table, angle_unit=unit,
+                                     redshift_cut=(0.35, 0.55),
+                                     config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     assert r.geometry == "lightcone" and r.angle_unit == unit and r.mps is None
+    assert r.config == otswap.Config(n_realizations=2, seed=5, verbosity="silent")
+    distances = r.distances
+    assert isinstance(distances, otswap.DistanceTable) and distances is not r.distances
+    for name in ("redshift", "distance", "growth_rate"):
+        assert same_bytes(getattr(distances, name), getattr(table, name)), name
     assert same_bytes(r.tracers, otswap.to_cartesian(given, table, angle_unit=unit))
     sky = r.tracers_sky
     assert not sky.flags.writeable and r.tracers_sky is sky or unit == "rad"
@@ -1898,19 +2126,21 @@ def test_selection_follows_a_later_filter(table, lightcone, sieve_mask):
 
 
 def test_result_from_arrays(table, lightcone, sieve_mask):
-    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
+    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     otswap.reject_mask_crossings(r, otswap.Mask(sieve_mask))
     rebuilt = otswap.Result.from_arrays(r.displacement, r.matched_random, r.valid, r.tracers,
                                         tracers_sky=r.tracers_sky, angle_unit="deg", distances=table,
-                                        outside_redshift_cut=r.outside_redshift_cut, seed=r.seed)
+                                        outside_redshift_cut=r.outside_redshift_cut, config=r.config)
     for name in ("mean_displacement", "valid_realizations", "lagrangian", "lagrangian_sky",
                  "displacement", "matched_random", "valid", "tracers", "outside_redshift_cut",
                  "outside_mask"):
         assert same_bytes(getattr(rebuilt, name), getattr(r, name)), name
-    assert rebuilt.geometry == "lightcone" and rebuilt.seed == r.seed and rebuilt.angle_unit == "deg"
+    assert rebuilt.geometry == "lightcone" and rebuilt.config == r.config and rebuilt.angle_unit == "deg"
+    assert same_bytes(rebuilt.distances.distance, table.distance)
     assert rebuilt.n_realizations == 2 and rebuilt.n_objects == 1600 and rebuilt.mps_profile is None
 
-    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, n_realizations=3, seed=2)
+    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, config=otswap.Config(n_realizations=3, seed=2))
     valid = box.valid.copy()
     valid[1, :20] = False
     valid[:, 5] = False
@@ -1941,21 +2171,38 @@ def test_result_from_arrays(table, lightcone, sieve_mask):
     with pytest.raises(otswap.Error):
         otswap.recompute_means("result")
 
-    limited = otswap.reconstruct_box(box_catalogue(), box=LIMITS, n_realizations=2, seed=2, verbosity="silent")
+    limited = otswap.reconstruct_box(box_catalogue(), box=LIMITS,
+                                     config=otswap.Config(n_realizations=2, seed=2, verbosity="silent"))
     back = otswap.Result.from_arrays(limited.displacement, limited.matched_random, limited.valid,
                                      limited.tracers, outside_box=limited.outside_box.astype(np.uint8))
     for name in ("mean_displacement", "valid_realizations", "lagrangian", "outside_box"):
         assert same_bytes(getattr(back, name), getattr(limited, name)), name
     assert back.box is None and back.selection.box_limits is None
 
+    # config: without it, the defaults with the arrays' n_realizations; given,
+    # stored as is, and its n_realizations must be the arrays'
+    arrays = (limited.displacement, limited.matched_random, limited.valid, limited.tracers)
+    assert back.config == otswap.Config(n_realizations=2) and back.distances is None
+    given = otswap.Config(n_realizations=2, seed=11, cell_size=2.0, reject_crossings=False, verbosity="silent")
+    assert otswap.Result.from_arrays(*arrays, config=given).config == given
+    with pytest.raises(otswap.Error, match=r"^config\.n_realizations is 3 and the arrays hold 2 realizations; "
+                                           "they must be equal$"):
+        otswap.Result.from_arrays(*arrays, config=otswap.Config(n_realizations=3))
+    with pytest.raises(otswap.Error, match="config must be an otswap.Config"):
+        otswap.Result.from_arrays(*arrays, config=dict(seed=1))
+    with pytest.raises(TypeError):
+        otswap.Result.from_arrays(*arrays, seed=3)
+
 
 def test_catalogue_stores_shift_factor_and_valid_realizations(table, lightcone):
     tracers_sky = lightcone[0]
-    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
+    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     with __import__("warnings").catch_warnings():
         __import__("warnings").simplefilter("ignore", otswap.ExtrapolationWarning)
         bias = otswap.BiasTable([0.3, 0.6], [1.2, 1.6])
-        c = otswap.real_space_lightcone(r, distances=table, bias=bias, sigma=10.0, verbosity="silent")
+        c = otswap.real_space_lightcone(r, distances=table, bias=bias, sigma=10.0,
+                                        correction=otswap.CorrectionConfig(verbosity="silent"))
         factor = otswap.rsd_factor(tracers_sky[:, 2], table, bias=bias)
     out = r.outside_redshift_cut
     assert c.geometry == "lightcone" and c.elapsed_seconds >= 0
@@ -1968,9 +2215,9 @@ def test_catalogue_stores_shift_factor_and_valid_realizations(table, lightcone):
     np.testing.assert_allclose(np.linalg.norm(c.cartesian[moved], axis=1),
                                np.linalg.norm(r.tracers[moved], axis=1) + c.shift[moved], rtol=1e-13)
     tracers = box_catalogue()
-    box = otswap.reconstruct_box(tracers, mps=10.0, n_realizations=2, seed=1)
+    box = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=2, seed=1))
     b = otswap.real_space_box(box, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=8.0,
-                              verbosity="silent")
+                              correction=otswap.CorrectionConfig(verbosity="silent"))
     assert b.geometry == "box" and (b.factor == otswap.rsd_factor_box(0.5, table, bias=1.5)).all()
     np.testing.assert_allclose(b.cartesian[:, 2] - tracers[:, 2], b.shift, atol=1e-12)
 
@@ -1980,7 +2227,8 @@ def test_catalogue_stores_shift_factor_and_valid_realizations(table, lightcone):
 
 
 def test_write_displacement_mean(tmp_path, table, lightcone, sieve_mask):
-    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
+    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     path = tmp_path / "d.dat"
     otswap.io.write_displacement_mean(path, r)
     text = path.read_text()
@@ -1999,7 +2247,8 @@ def test_write_displacement_mean(tmp_path, table, lightcone, sieve_mask):
     otswap.io.write_displacement_mean(path, r, groups=["id", "displacement"])
     assert otswap.io.read(path, ["displZ"], integer_columns=["id"]).integers[:, 0].tolist() == \
         list(range(r.n_objects))
-    box = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
+    box = otswap.reconstruct_box(box_catalogue(),
+                                 config=otswap.Config(n_realizations=2, seed=1, verbosity="silent"))
     for groups, match in ((["tracer_sky"], "describes a lightcone"), (["tracer", "tracer"], "twice"),
                           (["nothing"], "unknown group"), ([], "empty"), ("tracer", "sequence")):
         with pytest.raises(otswap.Error, match=match):
@@ -2011,7 +2260,8 @@ def test_write_displacement_mean(tmp_path, table, lightcone, sieve_mask):
     assert not otswap.io.read(path, ["outsideBox"]).values.any(), "written on request, all 0, without limits"
     with pytest.raises(otswap.Error, match="OutsideBox describes a box"):
         otswap.io.write_displacement_mean(path, r, groups=["outside_box"])
-    limited = otswap.reconstruct_box(box_catalogue(), box=LIMITS, n_realizations=2, seed=1, verbosity="silent")
+    limited = otswap.reconstruct_box(box_catalogue(), box=LIMITS,
+                                     config=otswap.Config(n_realizations=2, seed=1, verbosity="silent"))
     otswap.io.write_displacement_mean(path, limited)
     t = otswap.io.read(path, ["tracX"], integer_columns=["nValidRec", "outsideBox"])
     assert np.array_equal(t.integers[:, 1], limited.outside_box), "the default of a box with limits"
@@ -2019,7 +2269,8 @@ def test_write_displacement_mean(tmp_path, table, lightcone, sieve_mask):
 
 @pytest.mark.parametrize("name", ["complete.dat", "complete.fits"])
 def test_write_displacement_complete_round_trip(tmp_path, table, lightcone, sieve_mask, name):
-    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
+    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     otswap.reject_mask_crossings(r, otswap.Mask(sieve_mask))
     path = tmp_path / name
     otswap.io.write_displacement_complete(path, r)
@@ -2037,7 +2288,7 @@ def test_write_displacement_complete_round_trip(tmp_path, table, lightcone, siev
     np.testing.assert_allclose(v[0, :, 9:12], r.tracers_sky, rtol=1e-15, atol=0)
     back = otswap.Result.from_arrays(v[:, :, 6:9], v[:, :, 3:6], k[:, :, 2], v[0, :, 0:3],
                                      tracers_sky=v[0, :, 9:12], angle_unit="deg", distances=table,
-                                     outside_redshift_cut=k[0, :, 3], outside_mask=k[0, :, 4], seed=r.seed)
+                                     outside_redshift_cut=k[0, :, 3], outside_mask=k[0, :, 4], config=r.config)
     for field in ("displacement", "matched_random", "valid", "tracers", "mean_displacement",
                   "valid_realizations", "lagrangian", "lagrangian_sky"):
         assert same_bytes(getattr(back, field), getattr(r, field)), field
@@ -2049,7 +2300,8 @@ def test_write_displacement_complete_round_trip(tmp_path, table, lightcone, siev
 # each declared and with its own PRODUCT; lightcone_tables=False leaves them
 # out; the keywords of the reconstruction, in both displacement files.
 def test_write_displacement_complete_parts(tmp_path, table, lightcone):
-    r = lightcone_result(table, lightcone, n_bins=2, verbosity="silent")
+    r = lightcone_result(table, lightcone, n_bins=2,
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     path = tmp_path / "run.dat"
     otswap.io.write_displacement_complete(path, r)
     text = path.read_text()
@@ -2117,7 +2369,7 @@ def same_result(back, r, exact):
     for field in ("ids", "tracers", "displacement", "matched_random", "valid", "valid_realizations",
                   "mean_displacement", "lagrangian", "outside_redshift_cut", "outside_mask", "outside_box"):
         assert same(getattr(back, field), getattr(r, field)), field
-    for field in ("n_objects", "n_realizations", "geometry", "angle_unit", "seed", "filtered_nside"):
+    for field in ("n_objects", "n_realizations", "geometry", "angle_unit", "config", "filtered_nside"):
         assert getattr(back, field) == getattr(r, field), field
     for field in SELECTION_FIELDS:
         assert getattr(back.selection, field) == getattr(r.selection, field), field
@@ -2141,7 +2393,8 @@ def same_result(back, r, exact):
 # the correction of the Result read is the direct run's.
 @pytest.mark.parametrize("name", ["complete.dat", "complete.fits"])
 def test_read_displacement_complete_round_trip(tmp_path, table, lightcone, sieve_mask, name):
-    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
+    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     otswap.reject_mask_crossings(r, otswap.Mask(sieve_mask))
     r.ids = np.arange(r.n_objects)[::-1] * 7 + 3
     path = tmp_path / name
@@ -2155,8 +2408,10 @@ def test_read_displacement_complete_round_trip(tmp_path, table, lightcone, sieve
     np.testing.assert_allclose(radians.tracers_sky[:, :2], np.deg2rad(r.tracers_sky[:, :2]), rtol=4e-16)
 
     bias = otswap.BiasTable([0.3, 0.6], [1.2, 1.6])
-    direct = otswap.real_space_lightcone(r, distances=table, bias=bias, sigma=10.0, verbosity="silent")
-    moved = otswap.real_space_lightcone(back, distances=table, bias=bias, sigma=10.0, verbosity="silent")
+    direct = otswap.real_space_lightcone(r, distances=table, bias=bias, sigma=10.0,
+                                         correction=otswap.CorrectionConfig(verbosity="silent"))
+    moved = otswap.real_space_lightcone(back, distances=table, bias=bias, sigma=10.0,
+                                        correction=otswap.CorrectionConfig(verbosity="silent"))
     for field in ("cartesian", "shift", "factor", "status", "ids"):
         assert same_values(getattr(moved, field), getattr(direct, field)), field
     np.testing.assert_allclose(moved.sky, direct.sky, rtol=4e-16, atol=0)
@@ -2169,7 +2424,8 @@ def test_read_displacement_complete_round_trip(tmp_path, table, lightcone, sieve
 
 @pytest.mark.parametrize("name", ["box.dat", "box.fits"])
 def test_read_displacement_complete_box(tmp_path, name):
-    r = otswap.reconstruct_box(box_catalogue(), box=LIMITS, n_realizations=2, seed=1, verbosity="silent")
+    r = otswap.reconstruct_box(box_catalogue(), box=LIMITS,
+                               config=otswap.Config(n_realizations=2, seed=1, verbosity="silent"))
     path = tmp_path / name
     otswap.io.write_displacement_complete(path, r)
     back = otswap.io.read_displacement_complete(path, angle_unit="rad")
@@ -2182,18 +2438,19 @@ def test_read_displacement_complete_box(tmp_path, name):
 @pytest.mark.parametrize("ext", [".dat", ".fits"])
 def test_read_displacement_complete_v010(ext):
     box = otswap.io.read_displacement_complete(os.path.join(DATA, "v0.1.0_box" + ext), angle_unit="deg")
-    assert box.geometry == "box" and box.n_objects == 500 and box.n_realizations == 2 and box.seed == 2026
+    assert box.geometry == "box" and box.n_objects == 500 and box.n_realizations == 2 and box.config.seed == 2026
     assert np.array_equal(box.ids, np.arange(500)) and not box.outside_box.any()
     t = box.tracers
     assert repr(box.box) == repr(otswap.BoxLimits(t.min(axis=0), t.max(axis=0)))
     lc = otswap.io.read_displacement_complete(os.path.join(DATA, "v0.1.0_lightcone" + ext), angle_unit="deg")
     assert lc.geometry == "lightcone" and lc.tracers_sky is None and lc.lagrangian_sky is None
-    assert lc.mps_profile is None and lc.filtered_nside == 16 and lc.selection.redshift_cut == (0.25, 0.65)
+    assert lc.mps_profile is None and lc.filtered_nside == 16 and lc.selection.redshift_cut == otswap.RedshiftCut(0.25, 0.65)
     assert lc.outside_mask.any() and lc.outside_redshift_cut.any() and lc.selection.tracers == 0
 
 
 def test_read_displacement_complete_errors(tmp_path, table, lightcone):
-    r = lightcone_result(table, lightcone, n_bins=2, verbosity="silent")
+    r = lightcone_result(table, lightcone, n_bins=2,
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     path = tmp_path / "run.dat"
     otswap.io.write_displacement_complete(path, r)
     with pytest.raises(TypeError):
@@ -2211,10 +2468,11 @@ def test_read_displacement_complete_errors(tmp_path, table, lightcone):
 # A result built from arrays records no selection counts: its flags are read
 # back without a check against them.
 def test_read_displacement_complete_from_arrays(tmp_path, table, lightcone):
-    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55), verbosity="silent")
+    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     built = otswap.Result.from_arrays(r.displacement, r.matched_random, r.valid, r.tracers,
                                       tracers_sky=r.tracers_sky, angle_unit="deg", distances=table,
-                                      outside_redshift_cut=r.outside_redshift_cut, seed=r.seed)
+                                      outside_redshift_cut=r.outside_redshift_cut, config=r.config)
     path = tmp_path / "built.fits"
     otswap.io.write_displacement_complete(path, built)
     back = otswap.io.read_displacement_complete(path, angle_unit="deg")
@@ -2224,9 +2482,10 @@ def test_read_displacement_complete_from_arrays(tmp_path, table, lightcone):
 
 
 def test_write_catalogue_and_profile(tmp_path, table, lightcone):
-    r = lightcone_result(table, lightcone, n_bins=2, verbosity="silent")
+    r = lightcone_result(table, lightcone, n_bins=2,
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     c = otswap.real_space_lightcone(r, distances=table, bias=otswap.BiasTable([0.3, 0.6], [1.2, 1.6]),
-                                    sigma=10.0, verbosity="silent")
+                                    sigma=10.0, correction=otswap.CorrectionConfig(verbosity="silent"))
     path = tmp_path / "c.fits"
     otswap.io.write_real_space_catalog(path, c, groups=["id", "sky", "shift", "status"])
     t = otswap.io.read(path, ["tracRA", "tracDec", "tracRed", "shift", "rsdFactor"],
@@ -2248,9 +2507,10 @@ def test_write_catalogue_and_profile(tmp_path, table, lightcone):
     with pytest.raises(otswap.Error):
         otswap.io.write_mps_profile(profile, r)
 
-    box = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
+    box = otswap.reconstruct_box(box_catalogue(),
+                                 config=otswap.Config(n_realizations=2, seed=1, verbosity="silent"))
     b = otswap.real_space_box(box, axis=1, redshift=0.5, distances=table, bias=1.5, sigma=8.0,
-                              verbosity="silent")
+                              correction=otswap.CorrectionConfig(verbosity="silent"))
     assert (b.axis, b.box_redshift, b.box_bias) == (1, 0.5, 1.5)
     otswap.io.write_real_space_catalog(tmp_path / "b.dat", b)
     text = (tmp_path / "b.dat").read_text()
@@ -2260,7 +2520,8 @@ def test_write_catalogue_and_profile(tmp_path, table, lightcone):
 # Result.ids: 0..n-1 without IDs, a new read-only copy on each access; the
 # setter's conversion, checks and messages; None, empty and 0..n-1 store none.
 def test_result_ids():
-    r = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
+    r = otswap.reconstruct_box(box_catalogue(),
+                               config=otswap.Config(n_realizations=2, seed=1, verbosity="silent"))
     n = r.n_objects
     ids = r.ids
     assert ids.dtype == np.int64 and np.array_equal(ids, np.arange(n)), "the reconstruction sets none"
@@ -2305,7 +2566,8 @@ def test_result_ids():
 # The id column: the IDs set, or the rows; among the default columns only
 # when IDs are set; the real-space catalogue copies them, read-only.
 def test_ids_in_files_and_catalogues(tmp_path, table):
-    r = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
+    r = otswap.reconstruct_box(box_catalogue(),
+                               config=otswap.Config(n_realizations=2, seed=1, verbosity="silent"))
     n = r.n_objects
     path = tmp_path / "d.dat"
     otswap.io.write_displacement_mean(path, r)
@@ -2330,7 +2592,7 @@ def test_ids_in_files_and_catalogues(tmp_path, table):
     assert " id" not in path.read_text().split("###")[-1].splitlines()[0], "groups given, as given"
 
     c = otswap.real_space_box(r, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=8.0,
-                              verbosity="silent")
+                              correction=otswap.CorrectionConfig(verbosity="silent"))
     assert np.array_equal(c.ids, ids) and not c.ids.flags.writeable and c.ids is not c.ids
     with pytest.raises(AttributeError):
         c.ids = ids
@@ -2342,7 +2604,7 @@ def test_ids_in_files_and_catalogues(tmp_path, table):
     assert "###   displX   displY   displZ   id\n" in path.read_text(), "id requested goes where it is given"
     r.ids = None
     c = otswap.real_space_box(r, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=8.0,
-                              verbosity="silent")
+                              correction=otswap.CorrectionConfig(verbosity="silent"))
     assert np.array_equal(c.ids, np.arange(n))
     otswap.io.write_real_space_catalog(path, c, groups=["id", "cartesian"])
     assert np.array_equal(otswap.io.read(path, ["tracX"], integer_columns=["id"]).integers[:, 0], np.arange(n))
@@ -2354,14 +2616,15 @@ def test_ids_in_files_and_catalogues(tmp_path, table):
 
 # Result.from_arrays(ids=): the setter's conversion, checks and storage.
 def test_from_arrays_ids():
-    r = otswap.reconstruct_box(box_catalogue(), n_realizations=2, seed=1, verbosity="silent")
+    r = otswap.reconstruct_box(box_catalogue(),
+                               config=otswap.Config(n_realizations=2, seed=1, verbosity="silent"))
     n = r.n_objects
     arrays = (r.displacement, r.matched_random, r.valid, r.tracers)
     assert np.array_equal(otswap.Result.from_arrays(*arrays).ids, np.arange(n))
     assert np.array_equal(otswap.Result.from_arrays(*arrays, ids=None).ids, np.arange(n))
     ids = np.arange(n) * -5 - 1
-    back = otswap.Result.from_arrays(*arrays, ids=ids.astype(float), seed=3)
-    assert np.array_equal(back.ids, ids) and back.seed == 3
+    back = otswap.Result.from_arrays(*arrays, ids=ids.astype(float), config=otswap.Config(n_realizations=2, seed=3))
+    assert np.array_equal(back.ids, ids) and back.config.seed == 3
     with pytest.raises(otswap.Error, match=f"^ids holds 2 entries for {n} objects; give one per object, or none$"):
         otswap.Result.from_arrays(*arrays, ids=[1, 2])
     with pytest.raises(otswap.Error, match="^ids holds -1 twice, at entries 0 and 4; each object needs its own ID$"):
@@ -2377,7 +2640,8 @@ def test_writers_match_cpp(tmp_path, table, lightcone, sieve_mask):
                   mask=sieve_mask, max_unobserved_pixels_crossed=1, write=1)
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=otswap.Mask(sieve_mask),
                                           n_bins=3, distances=table, angle_unit="deg",
-                                          max_unobserved_pixels_crossed=1, verbosity="silent", **config)
+                                          config=otswap.Config(max_unobserved_pixels_crossed=1,
+                                                               verbosity="silent", **config))
     otswap.io.write_displacement_mean(tmp_path / "py.displacements.dat", result)
     otswap.io.write_displacement_complete(tmp_path / "py.complete.fits", result)
     otswap.io.write_displacement_complete(tmp_path / "py.complete.dat", result)

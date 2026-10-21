@@ -156,17 +156,28 @@ int main ()
   {
     Config bad;
     bad.nRealizations = 0;
-    check_throws([&] { internal::check_config(bad); }, "zero realizations raise");
+    throws_with([&] { internal::check_config(bad); },
+                "the number of realizations is 0; it must be at least 1", "zero realizations raise");
 
     Config c;
     c.convergence = 0.;
-    check_throws([&] { internal::check_config(c); }, "a non-positive convergence raises");
+    throws_with([&] { internal::check_config(c); },
+                "the convergence threshold is 0.000000; it must lie strictly between 0 and 1",
+                "a non-positive convergence raises");
     c.convergence = 1.;
-    check_throws([&] { internal::check_config(c); }, "a convergence of one raises");
+    throws_with([&] { internal::check_config(c); },
+                "the convergence threshold is 1.000000; it must lie strictly between 0 and 1",
+                "a convergence of one raises");
+    c.convergence = std::nan("");
+    throws_with([&] { internal::check_config(c); },
+                "the convergence threshold is nan; it must lie strictly between 0 and 1",
+                "a NaN convergence raises");
 
     Config d;
     d.cellSize = 0.;
-    check_throws([&] { internal::check_config(d); }, "a non-positive cell size raises");
+    throws_with([&] { internal::check_config(d); },
+                "the grid cell size is 0.000000 mean particle separations; it must be positive",
+                "a non-positive cell size raises");
 
     Config e;
     e.seed = 4242;

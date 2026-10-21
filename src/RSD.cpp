@@ -346,7 +346,8 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
     throw Error("validRealizations holds " + std::to_string(validRealizations.size()) +
                 " entries for " + std::to_string(n) + " objects");
   if (!std::isfinite(sigma) || sigma < 0.)
-    throw Error("sigma is " + std::to_string(sigma) + "; it must be finite and non-negative");
+    throw Error("the smoothing width is " + std::to_string(sigma) +
+                " Mpc/h; it must be finite and non-negative");
 
   for (std::size_t i = 0; i < n; ++i)
     if (validRealizations[i] > 0 && !std::isfinite(values[i]))
@@ -574,7 +575,8 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
   if (!distances.hasGrowthRate())
     throw Error("the distance table carries no growth rate, which the correction needs");
   if (!std::isfinite(sigma) || sigma < 0.)
-    throw Error("sigma is " + std::to_string(sigma) + "; it must be finite and non-negative");
+    throw Error("the smoothing width is " + std::to_string(sigma) +
+                " Mpc/h; it must be finite and non-negative");
 
   const std::size_t n = result.nObjects;
   const std::vector<std::size_t> keep = kept_tracers(result, n);

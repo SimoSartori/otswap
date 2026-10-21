@@ -14,6 +14,18 @@ Errors
 
 .. autoapiexception:: otswap.ExtrapolationWarning
 
+Configuration
+~~~~~~~~~~~~~
+
+.. autoapiclass:: otswap.Config
+   :members:
+
+.. autoapiclass:: otswap.CorrectionConfig
+   :members:
+
+.. autoapiclass:: otswap.RedshiftCut
+   :members:
+
 Distances
 ~~~~~~~~~
 

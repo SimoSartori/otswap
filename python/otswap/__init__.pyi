@@ -24,7 +24,8 @@ whole chain; the four steps are also available on their own.
 """
 
 from enum import IntEnum
-from typing import Literal, NamedTuple, Optional, Union
+from math import inf
+from typing import ClassVar, Literal, NamedTuple, Optional, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -64,6 +65,117 @@ class ExtrapolationWarning(UserWarning):
 
 
 # ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+class Config:
+    """Free parameters of the reconstruction, as ``otswap::Config``: the
+    ``config`` of ``reconstruct_box`` and ``reconstruct_lightcone``.
+
+    Every field is a keyword of the constructor, with the default of the C++
+    struct, and a read/write attribute. A value is converted to the field's
+    C++ type when it is stored, and raises ``Error`` if it cannot be; its
+    rules (``n_realizations`` at least 1, ...) are checked by the call that
+    reads it, which refuses it with the library's message. Each call works
+    on its own copy, so the object passed is never changed. ``repr`` gives
+    the constructor call; two configs compare equal when every field is
+    equal. Unhashable, being mutable.
+    """
+
+    def __init__(
+        self,
+        *,
+        n_realizations: int = 1,
+        convergence: float = 1e-3,
+        seed: int = 0,
+        cell_size: float = 4.0,
+        reject_crossings: bool = True,
+        max_unobserved_pixels_crossed: int = 0,
+        verbosity: Verbosity = "normal",
+    ) -> None: ...
+
+    n_realizations: int
+    """Independent reconstructions to run."""
+
+    convergence: float
+    """The sweeps stop once the fraction of successful swaps in a sweep,
+    swaps per tracer visited, no longer exceeds this threshold."""
+
+    seed: int
+    """Seed of the random streams; 0 draws one at random. With a fixed seed
+    the result does not depend on the number of threads."""
+
+    cell_size: float
+    """Grid cell size in units of the mps. Affects speed only."""
+
+    reject_crossings: bool
+    """With a mask given to ``reconstruct_lightcone``, filter the result with
+    ``reject_mask_crossings``. Read by ``reconstruct_lightcone`` with a mask
+    only."""
+
+    max_unobserved_pixels_crossed: int
+    """The threshold of that filter. To filter with another threshold, set
+    it here: a second filter with the same mask and a higher threshold
+    changes nothing, since the filter only marks displacements invalid. Read
+    by ``reconstruct_lightcone`` with a mask only."""
+
+    verbosity: Verbosity
+    """What the call prints; see ``Verbosity`` and each function."""
+
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    __hash__: ClassVar[None]  # type: ignore[assignment]
+
+
+class CorrectionConfig:
+    """Options of ``real_space_lightcone`` and ``real_space_box``, as
+    ``otswap::CorrectionConfig``: their ``correction``. Keywords,
+    attributes, ``repr`` and equality as ``Config``.
+    """
+
+    def __init__(
+        self,
+        *,
+        weight_by_realizations: bool = False,
+        verbosity: Verbosity = "normal",
+    ) -> None: ...
+
+    weight_by_realizations: bool
+    """Weight each neighbour by its number of valid realizations as well."""
+
+    verbosity: Verbosity
+    """What the call prints; see ``Verbosity`` and each function."""
+
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    __hash__: ClassVar[None]  # type: ignore[assignment]
+
+
+class RedshiftCut:
+    """A closed redshift range for ``reconstruct_lightcone`` and
+    ``measure_mps_profile``, as ``otswap::RedshiftCut``. The default,
+    (-inf, +inf), cuts nothing. Wherever a RedshiftCut is taken, a
+    ``(min, max)`` pair is accepted too.
+
+    ``min`` and ``max`` are read/write; the call that reads the cut checks
+    them (neither NaN, ``min`` not above ``max``). ``repr`` and equality as
+    ``Config``.
+    """
+
+    def __init__(self, min: float = -inf, max: float = inf) -> None: ...
+
+    min: float
+    """The lowest redshift kept."""
+
+    max: float
+    """The highest redshift kept."""
+
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    __hash__: ClassVar[None]  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
 # Result
 # ---------------------------------------------------------------------------
 
@@ -100,7 +212,7 @@ class Result:
         outside_mask: Optional[ArrayLike] = None,
         outside_box: Optional[ArrayLike] = None,
         ids: Optional[ArrayLike] = None,
-        seed: int = 0,
+        config: Optional[Config] = None,
     ) -> "Result":
         """Build a result from its arrays, as read back from a file.
 
@@ -124,8 +236,10 @@ class Result:
         ids : array_like, shape (n_objects,), optional
             The IDs, checked and stored as by assigning ``Result.ids``; none
             when omitted.
-        seed : int, optional
-            The seed to record.
+        config : Config, optional
+            The configuration to record, as ``Result.config``; its
+            ``n_realizations`` must equal the arrays'. When omitted, the
+            defaults with the arrays' ``n_realizations``.
 
         Notes
         -----
@@ -151,9 +265,15 @@ class Result:
         ``angle_unit`` of the call that made the result. None for a box."""
 
     @property
-    def seed(self) -> int:
-        """The seed used: the one drawn when ``seed=0`` was given, so that the
-        result can be reproduced."""
+    def config(self) -> Config:
+        """The parameters of the run: a new copy on each access, so changing
+        it changes nothing in the result. ``seed`` is the one used: the one
+        drawn when 0 was given, so that the result can be reproduced."""
+
+    @property
+    def distances(self) -> Optional["DistanceTable"]:
+        """The distance table of a lightcone result, a new copy on each
+        access; None for a box."""
 
     @property
     def ids(self) -> NDArray[np.int64]:
@@ -341,8 +461,9 @@ class SelectionCounts:
     """
 
     @property
-    def redshift_cut(self) -> Optional[tuple[float, float]]:
-        """The (min, max) of the redshift cut; None when no cut was applied."""
+    def redshift_cut(self) -> Optional[RedshiftCut]:
+        """The redshift cut applied, a new ``RedshiftCut`` on each access;
+        None when no cut was applied."""
 
     @property
     def mask_applied(self) -> bool:
@@ -391,7 +512,7 @@ class SelectionCounts:
     @property
     def max_unobserved_pixels_crossed(self) -> Optional[int]:
         """The threshold of the latest mask filter applied to the result, by
-        ``reconstruct_lightcone`` (``reject_crossings``) or by
+        ``reconstruct_lightcone`` (``config.reject_crossings``) or by
         ``reject_mask_crossings`` afterwards; None when none was."""
 
     @property
@@ -584,6 +705,10 @@ class BoxLimits:
     """The closed limits of a box for ``reconstruct_box``: the points with
     ``lower[k] <= x[k] <= upper[k]`` on each axis k, in Mpc/h. Read-only.
 
+    Wherever a BoxLimits is taken, a pair of corners
+    ``((x0, y0, z0), (x1, y1, z1))`` is accepted too. Two box limits compare
+    equal when both corners are equal; unhashable.
+
     Parameters
     ----------
     lower, upper : array_like, shape (3,)
@@ -603,6 +728,8 @@ class BoxLimits:
         """x, y, z of the upper corner."""
 
     def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    __hash__: ClassVar[None]  # type: ignore[assignment]
 
 
 def reconstruct_box(
@@ -611,11 +738,7 @@ def reconstruct_box(
     *,
     mps: Optional[float] = None,
     box: Optional[Union[BoxLimits, tuple[ArrayLike, ArrayLike]]] = None,
-    n_realizations: int = 1,
-    convergence: float = 1e-3,
-    seed: int = 0,
-    cell_size: float = 4.0,
-    verbosity: Verbosity = "normal",
+    config: Config = Config(),
 ) -> Result:
     """Reconstruct in box geometry, with a constant mean particle separation.
 
@@ -624,10 +747,10 @@ def reconstruct_box(
     tracers : array_like, shape (N, 3)
         Cartesian coordinates.
     randoms : array_like, shape (M, 3), optional
-        Cartesian coordinates, M >= n_realizations * N, both counted inside
-        ``box`` when it is given; each realization uses a disjoint subset. If
-        omitted, n_realizations * N randoms are drawn uniformly in ``box``, or
-        without it in the bounding box of the tracers.
+        Cartesian coordinates, M >= R * N with R ``config.n_realizations``,
+        both counted inside ``box`` when it is given; each realization uses a
+        disjoint subset. If omitted, R * N randoms are drawn uniformly in
+        ``box``, or without it in the bounding box of the tracers.
     mps : float, optional
         Mean particle separation, in the units of the coordinates. If
         omitted, (V / N)^(1/3), with V the volume of ``box``, or without it of
@@ -639,19 +762,13 @@ def reconstruct_box(
         The tracers outside it take no part in the reconstruction and are
         flagged in ``Result.outside_box``, the randoms given outside it are
         dropped, and the neighbour grids span it. ``Result.box`` holds it.
-    n_realizations : int, optional
-        Independent reconstructions to run.
-    convergence : float, optional
-        The sweeps stop once the fraction of successful swaps in a sweep,
-        swaps per tracer visited, no longer exceeds this threshold.
-    seed : int, optional
-        Seed of the random streams; 0 draws one at random. With a fixed seed
-        the result does not depend on the number of threads.
-    cell_size : float, optional
-        Grid cell size in units of the mps. Affects speed only.
-    verbosity : Verbosity, optional
-        What the call prints; see ``Verbosity``. ``"normal"`` prints one
-        line, ``"detailed"`` the mps and its source before it. With ``box``,
+    config : Config, optional
+        ``n_realizations``, ``convergence``, ``seed``, ``cell_size`` and
+        ``verbosity``; ``reject_crossings`` and
+        ``max_unobserved_pixels_crossed`` are not read. With
+        ``n_realizations`` R, the randoms given must number at least R N.
+        ``verbosity``: see ``Verbosity``; ``"normal"`` prints one line,
+        ``"detailed"`` the mps and its source before it. With ``box``,
         ``"normal"`` prints first what the box left out::
 
             otswap: kept <n> of <N> tracers: <a> outside the box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
@@ -662,13 +779,16 @@ def reconstruct_box(
     Raises
     ------
     Error
+        If a field of ``config`` is out of range, the message describing the
+        quantity and its rule.
+    Error
         If a bound of ``box`` is not finite or a lower bound is not below the
         upper one, or if ``box`` keeps too few tracers or randoms; the
         message names the box.
     Error
         From the neighbour search, with a message starting
         ``"meshsearch: "``, if its grid cannot be built: a cell of
-        ``cell_size`` mps so small against the extent of the tracers and
+        ``config.cell_size`` mps so small against the extent of the tracers and
         randoms that the grid would need more cells than it can count.
 
     Notes
@@ -689,14 +809,8 @@ def reconstruct_lightcone(
     angle_unit: AngleUnit,
     tracers: Optional[ArrayLike] = None,
     randoms: Optional[ArrayLike] = None,
-    n_realizations: int = 1,
-    convergence: float = 1e-3,
-    seed: int = 0,
-    cell_size: float = 4.0,
-    redshift_cut: Optional[tuple[float, float]] = None,
-    reject_crossings: bool = True,
-    max_unobserved_pixels_crossed: int = 0,
-    verbosity: Verbosity = "normal",
+    redshift_cut: Optional[Union[RedshiftCut, tuple[float, float]]] = None,
+    config: Config = Config(),
 ) -> Result:
     """Reconstruct in lightcone geometry.
 
@@ -717,8 +831,8 @@ def reconstruct_lightcone(
     randoms_sky : array_like, shape (M, 3)
         Sky coordinates of the randoms. Their number is checked after the
         redshift cut and the mask: the randoms kept must number at least
-        ``n_realizations`` times the tracers kept, which is
-        M >= n_realizations * N when nothing is left out.
+        ``config.n_realizations`` times the tracers kept, which is
+        M >= R * N when nothing is left out.
     sky_area_deg2 : float, optional
         Effective survey area, when no mask is given: the published value.
         Give exactly one of ``sky_area_deg2`` and ``mask``.
@@ -727,10 +841,10 @@ def reconstruct_lightcone(
         the mask is applied twice. Before the reconstruction, tracers and
         randoms on unobserved pixels are left out, as ``Mask.allows`` decides:
         the randoms are dropped, and the tracers keep their row, flagged in
-        ``Result.outside_mask``. After it, with ``reject_crossings``,
+        ``Result.outside_mask``. After it, with ``config.reject_crossings``,
         ``reject_mask_crossings`` is applied with
-        ``max_unobserved_pixels_crossed``. The mask and the redshift cut are
-        both evaluated on every object; the objects kept pass both.
+        ``config.max_unobserved_pixels_crossed``. The mask and the redshift
+        cut are both evaluated on every object; the objects kept pass both.
     n_bins : int
         Redshift bins used to measure mps(z).
     distances : DistanceTable
@@ -743,22 +857,17 @@ def reconstruct_lightcone(
         Cartesian coordinates already computed, shape (N, 3) and (M, 3). Give
         both or neither; when given, the conversion is skipped, and their
         agreement with the sky coordinates is not checked.
-    redshift_cut : tuple of two floats, optional
-        (min, max). Tracers and randoms whose redshift lies outside this
-        closed range are left out of the reconstruction, before anything
-        else: the randoms are dropped, and the tracers keep their row,
-        flagged in ``Result.outside_redshift_cut``. mps(z) is measured on the
-        tracers kept, and only their redshifts need lie in the distance
-        table. None, the default, cuts nothing.
-    reject_crossings : bool, optional
-        With a mask, filter the result with ``reject_mask_crossings``.
-        Ignored without a mask.
-    max_unobserved_pixels_crossed : int, optional
-        The threshold of that filter. To filter with another threshold, set
-        it here: a second filter with the same mask and a higher threshold
-        changes nothing, since the filter only marks displacements invalid.
-    verbosity : Verbosity, optional
-        What the call prints; see ``Verbosity``. With ``"normal"``, when a
+    redshift_cut : RedshiftCut or (min, max), optional
+        Tracers and randoms whose redshift lies outside this closed range
+        are left out of the reconstruction, before anything else: the
+        randoms are dropped, and the tracers keep their row, flagged in
+        ``Result.outside_redshift_cut``. mps(z) is measured on the tracers
+        kept, and only their redshifts need lie in the distance table. None,
+        the default, and ``RedshiftCut()`` cut nothing.
+    config : Config, optional
+        Every field; ``reject_crossings`` and
+        ``max_unobserved_pixels_crossed`` are read only with a mask.
+        ``verbosity``: see ``Verbosity``. With ``"normal"``, when a
         mask or a cut with a finite bound is applied, what was left out: one
         line for the tracers, one for the randoms, one for the rejected
         crossings, as ``Result.selection`` records them; then the line of the
@@ -770,14 +879,14 @@ def reconstruct_lightcone(
             otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
 
         ``"detailed"`` adds the mps(z) profile before the last line.
-    n_realizations, convergence, seed, cell_size
-        As in ``reconstruct_box``.
 
     Raises
     ------
     Error
+        If a field of ``config`` is out of range, as in ``reconstruct_box``.
+    Error
         From the neighbour search, as in ``reconstruct_box``, the cell being
-        ``cell_size`` mean particle separations.
+        ``config.cell_size`` mean particle separations.
     """
 
 
@@ -788,7 +897,7 @@ def measure_mps_profile(
     mask: Optional[Mask] = None,
     n_bins: int,
     distances: DistanceTable,
-    redshift_cut: Optional[tuple[float, float]] = None,
+    redshift_cut: Optional[Union[RedshiftCut, tuple[float, float]]] = None,
     angle_unit: AngleUnit,
     verbosity: Verbosity = "normal",
 ) -> MpsProfile:
@@ -821,10 +930,10 @@ def measure_mps_profile(
     distances : DistanceTable
         The redshift to distance relation; it must cover the redshifts of
         the tracers kept.
-    redshift_cut : tuple of two floats, optional
-        (min, max), as in ``reconstruct_lightcone``: the tracers whose
-        redshift lies outside this closed range are left out. None, the
-        default, cuts nothing.
+    redshift_cut : RedshiftCut or (min, max), optional
+        As in ``reconstruct_lightcone``: the tracers whose redshift lies
+        outside this closed range are left out. None, the default, cuts
+        nothing.
     angle_unit : AngleUnit
         Unit of right ascension and declination. A declination outside
         [-90, 90] degrees ([-pi/2, pi/2] radians) raises, the message giving
@@ -1144,8 +1253,7 @@ def real_space_lightcone(
     distances: DistanceTable,
     bias: BiasTable,
     sigma: float,
-    weight_by_realizations: bool = False,
-    verbosity: Verbosity = "normal",
+    correction: CorrectionConfig = CorrectionConfig(),
 ) -> RealSpaceCatalog:
     """Move a lightcone catalogue, the tracers of ``result``, from redshift
     space to real space.
@@ -1173,10 +1281,10 @@ def real_space_lightcone(
         Width of the average, in Mpc/h; 0 for none. 10 Mpc/h is a reasonable
         starting value; the best value depends on the sample, and should be
         checked in each analysis.
-    weight_by_realizations : bool, optional
-        Weight each neighbour by its number of valid realizations as well.
-    verbosity : Verbosity, optional
-        What the call prints; see ``Verbosity``. ``"normal"`` prints the line
+    correction : CorrectionConfig, optional
+        ``weight_by_realizations``: weight each neighbour by its number of
+        valid realizations as well. ``verbosity``: what the call prints; see
+        ``Verbosity``. ``"normal"`` prints the line
         of the call; ``"detailed"`` before it how many of the corrected moved
         with their neighbours' average, having no valid realization, and how
         many of the uncorrected were left out of the reconstruction or had no
@@ -1211,8 +1319,7 @@ def real_space_box(
     distances: DistanceTable,
     bias: float,
     sigma: float,
-    weight_by_realizations: bool = False,
-    verbosity: Verbosity = "normal",
+    correction: CorrectionConfig = CorrectionConfig(),
 ) -> RealSpaceCatalog:
     """Move a box catalogue, the tracers of ``result``, from redshift space to
     real space, with the line of sight along ``axis``: the chain of

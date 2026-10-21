@@ -128,7 +128,7 @@ otswap::internal::mps_profile (const std::vector<double>& tracersSky,
   const std::size_t nObjects = tracersSky.size() / 3;
 
   if (nBins == 0)
-    throw Error("nBins is zero; at least one redshift bin is required");
+    throw Error("the number of redshift bins is 0; it must be at least 1");
 
   if (!std::isfinite(skyAreaDeg2) || skyAreaDeg2 <= 0. || skyAreaDeg2 > kFullSkyDeg2)
     throw Error("the sky area is " + std::to_string(skyAreaDeg2) +

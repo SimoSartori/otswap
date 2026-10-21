@@ -66,6 +66,9 @@ def main():
     # ------------ Set the parameters of the reconstruction ------------
     # ------------------------------------------------------------------
 
+    # They are the fields of an otswap.Config, the struct otswap::Config of
+    # C++, passed to the call as config; a field left out keeps its default.
+    #
     # n_realizations: independent realizations. Each one consumes N
     # randoms, disjoint from those of the others, so the random catalogue
     # must hold at least n_realizations x N objects: the catalogue read here
@@ -77,9 +80,9 @@ def main():
     # Larger values are faster and less accurate; the default is 1e-3.
     #
     # seed: a fixed seed makes the run reproducible; 0 draws a new seed at
-    # each run, and Result.seed records the one drawn. The number of threads
-    # follows OMP_NUM_THREADS, and with a fixed seed the result is the same
-    # whatever the number of threads.
+    # each run, and result.config.seed records the one drawn. The number
+    # of threads follows OMP_NUM_THREADS, and with a fixed seed the result
+    # is the same whatever the number of threads.
     #
     # cell_size: the grid cell, in units of mps, affects the speed only,
     # never the result; the default is 4.
@@ -87,8 +90,8 @@ def main():
     # verbosity: what the reconstruction prints; "detailed" adds, before the
     # line of the call, a line with the mean particle separation and its
     # source
-    options = dict(n_realizations=8, convergence=1e-2, seed=12345, cell_size=4.0,
-                   verbosity="detailed")
+    config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, cell_size=4.0,
+                           verbosity="detailed")
 
     # ------------------------------------------------
     # ------------ Run the reconstruction ------------
@@ -101,7 +104,7 @@ def main():
     # search for swap partners, so it must describe the whole catalogue:
     # with a strongly varying density use the lightcone geometry, which
     # measures it as a function of redshift
-    result = otswap.reconstruct_box(tracers, randoms, **options)
+    result = otswap.reconstruct_box(tracers, randoms, config=config)
 
     # ----------------------------------------------
     # ------------ Summarize the result ------------

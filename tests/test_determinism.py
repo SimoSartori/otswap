@@ -141,6 +141,7 @@ def compute():
     out["distance_table.redshift_at"] = digest(table.redshift_at(d))
 
     lc_table = otswap.DistanceTable.flat(0.3, 0.7, z_min=0.0, z_max=1.5, n_samples=4000)
+    lc_config = otswap.Config(n_realizations=3, seed=6789, verbosity="silent")
     tracers_sky = sky_points(1200, 11)
     randoms_sky = sky_points(4 * 1200, 12)
     out["to_cartesian"] = digest(otswap.to_cartesian(tracers_sky, lc_table, angle_unit="deg"))
@@ -154,15 +155,14 @@ def compute():
     tracers = box_points(600, 100.0, 21)
     randoms = box_points(4 * 600, 100.0, 22)
     mps = 11.85                         # (100^3 / 600)^(1/3), written out: no libm
+    config = otswap.Config(n_realizations=3, seed=12345, verbosity="silent")
     for label, given in (("generated", None), ("given", randoms)):
-        box = otswap.reconstruct_box(tracers, given, mps=mps, n_realizations=3, seed=12345,
-                                     verbosity="silent")
+        box = otswap.reconstruct_box(tracers, given, mps=mps, config=config)
         out[f"reconstruct_box.{label}.displacement"] = digest(box.displacement)
         out[f"reconstruct_box.{label}.mean_displacement"] = digest(box.mean_displacement)
 
     # The mps of the tracers' bounding box, computed by the library.
-    computed = otswap.reconstruct_box(tracers, randoms, n_realizations=3, seed=12345,
-                                      verbosity="silent")
+    computed = otswap.reconstruct_box(tracers, randoms, config=config)
     out["reconstruct_box.computed_mps.mps"] = digest([computed.mps])
     out["reconstruct_box.computed_mps.displacement"] = digest(computed.displacement)
 
@@ -171,8 +171,7 @@ def compute():
     # limits, and the mps computed from their volume.
     limits = ((5.0, 0.0, 10.0), (95.0, 80.0, 100.0))
     for label, given in (("generated", None), ("given", randoms)):
-        limited = otswap.reconstruct_box(tracers, given, box=limits, n_realizations=3, seed=12345,
-                                         verbosity="silent")
+        limited = otswap.reconstruct_box(tracers, given, box=limits, config=config)
         out[f"reconstruct_box.limits.{label}.displacement"] = digest(limited.displacement)
         out[f"reconstruct_box.limits.{label}.valid"] = digest(limited.valid)
         out[f"reconstruct_box.limits.{label}.outside_box"] = digest(limited.outside_box)
@@ -185,15 +184,14 @@ def compute():
     lattice_randoms = np.array([[3.125 + 6.25 * i, 3.125 + 6.25 * j, 3.125 + 12.5 * k]
                                 for i in range(16) for j in range(16) for k in range(8)])
     for label, given in (("generated", None), ("given", lattice_randoms)):
-        tied = otswap.reconstruct_box(lattice, given, mps=12.5, n_realizations=3, seed=12345,
-                                      verbosity="silent")
+        tied = otswap.reconstruct_box(lattice, given, mps=12.5, config=config)
         out[f"reconstruct_box.lattice.{label}.displacement"] = digest(tied.displacement)
         out[f"reconstruct_box.lattice.{label}.mean_displacement"] = digest(tied.mean_displacement)
 
     def lightcone():
         return otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0,
                                             n_bins=2, distances=lc_table, angle_unit="deg",
-                                            n_realizations=3, seed=6789, verbosity="silent")
+                                            config=lc_config)
 
     r = lightcone()
     out["reconstruct_lightcone.displacement"] = digest(r.displacement)
@@ -249,8 +247,7 @@ def compute():
         for label, cut in (("mask", None), ("mask_cut", (0.35, 0.55))):
             masked = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, n_bins=2,
                                                   distances=lc_table, angle_unit="deg",
-                                                  n_realizations=3, seed=6789, redshift_cut=cut,
-                                                  verbosity="silent")
+                                                  redshift_cut=cut, config=lc_config)
             out[f"reconstruct_lightcone.{label}.displacement"] = digest(masked.displacement)
             out[f"reconstruct_lightcone.{label}.valid"] = digest(masked.valid)
             out[f"reconstruct_lightcone.{label}.outside_mask"] = digest(masked.outside_mask)
@@ -287,8 +284,9 @@ def compute():
         out["rsd.shift.axis"] = digest(otswap.shift_along_axis(tracers, 0.4 * along, 2))
 
         for sigma, weighted in ((0.0, False), (10.0, False), (10.0, True)):
+            correction = otswap.CorrectionConfig(weight_by_realizations=weighted, verbosity="silent")
             c = otswap.real_space_lightcone(r, distances=lc_table, bias=bias_table, sigma=sigma,
-                                            weight_by_realizations=weighted, verbosity="silent")
+                                            correction=correction)
             key = f"rsd.real_space_lightcone.{sigma:g}.{'weighted' if weighted else 'plain'}"
             out[key + ".positions"] = digest(c.sky)
             out[key + ".n_neighbours"] = digest(c.n_neighbours)
@@ -298,19 +296,18 @@ def compute():
 
         cut = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0,
                                            n_bins=2, distances=lc_table, angle_unit="deg",
-                                           n_realizations=3, seed=6789, redshift_cut=(0.35, 0.55),
-                                           verbosity="silent")
+                                           redshift_cut=(0.35, 0.55), config=lc_config)
         out["reconstruct_lightcone.cut.displacement"] = digest(cut.displacement)
         out["reconstruct_lightcone.cut.outside_redshift_cut"] = digest(cut.outside_redshift_cut)
         out["reconstruct_lightcone.cut.lagrangian_sky"] = digest(cut.lagrangian_sky)
         c = otswap.real_space_lightcone(cut, distances=lc_table, bias=bias_table, sigma=10.0,
-                                        verbosity="silent")
+                                        correction=otswap.CorrectionConfig(verbosity="silent"))
         out["rsd.real_space_lightcone.cut.positions"] = digest(c.sky)
 
         for sigma, weighted in ((0.0, False), (8.0, False), (8.0, True)):
+            correction = otswap.CorrectionConfig(weight_by_realizations=weighted, verbosity="silent")
             c = otswap.real_space_box(box, axis=2, redshift=0.5, distances=lc_table, bias=1.5,
-                                      sigma=sigma, weight_by_realizations=weighted,
-                                      verbosity="silent")
+                                      sigma=sigma, correction=correction)
             key = f"rsd.real_space_box.{sigma:g}.{'weighted' if weighted else 'plain'}"
             out[key + ".positions"] = digest(c.cartesian)
             out[key + ".n_neighbours"] = digest(c.n_neighbours)

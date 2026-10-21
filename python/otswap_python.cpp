@@ -30,7 +30,11 @@
  *  .none(), so that None reaches the conversions and raises otswap.Error
  *  like any other invalid value. Arrays are converted with
  *  numpy.asarray to C-contiguous float64 and their shapes checked; the C++
- *  library then works on its own copy. Right ascension and declination are
+ *  library then works on its own copy. Config, CorrectionConfig,
+ *  RedshiftCut and BoxLimits are the C++ structs themselves, so that
+ *  another nanobind module can take and return them; their setters convert
+ *  each value to its C++ type, and the library checks it at the call.
+ *  Right ascension and declination are
  *  converted from degrees here, so the library only ever sees radians; a
  *  Result records the angle unit of its call, and returns its sky arrays in
  *  it, converted once and kept. The other Result arrays are read-only views
@@ -57,6 +61,8 @@
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/array.h>
+#include <nanobind/stl/pair.h>
 
 #include "otswap/OT.h"
 
@@ -230,6 +236,13 @@ namespace {
                         repr_of(value));
   }
 
+  nb::str verbosity_name (const otswap::Verbosity v)
+  {
+    if (v == otswap::Verbosity::Silent) return nb::str("silent");
+    if (v == otswap::Verbosity::Detailed) return nb::str("detailed");
+    return nb::str("normal");
+  }
+
   /// Print each line of a report with builtins.print, leaving out those of
   /// the extrapolation of b(z), which ExtrapolationWarning carries. Needs
   /// the GIL.
@@ -243,29 +256,49 @@ namespace {
         print(nb::str(text.data() + start, end - start));
   }
 
-  /// The redshift cut from None or a (min, max) pair.
+  /// The redshift cut from None, an otswap.RedshiftCut or a (min, max)
+  /// pair.
   otswap::RedshiftCut to_cut (nb::handle value)
   {
     otswap::RedshiftCut cut;
     if (value.is_none()) return cut;
+    if (nb::isinstance<otswap::RedshiftCut>(value)) return nb::cast<otswap::RedshiftCut>(value);
     const std::vector<double> c = column(value, "redshift_cut");
     if (c.size() != 2)
-      throw otswap::Error("redshift_cut must be a (min, max) pair; it holds " +
+      throw otswap::Error("redshift_cut must be an otswap.RedshiftCut or a (min, max) pair; it holds " +
                           std::to_string(c.size()) + " values");
     cut.min = c[0];
     cut.max = c[1];
     return cut;
   }
 
-  otswap::Config make_config (nb::handle nRealizations, nb::handle convergence,
-                              nb::handle seed, nb::handle cellSize)
+  /// A copy of the otswap.Config argument of a call, its report written to
+  /// report; the argument itself is left alone.
+  otswap::Config config_of (nb::handle value, std::ostream& report)
   {
-    otswap::Config config;
-    config.nRealizations = to_unsigned(nRealizations, "n_realizations");
-    config.convergence = to_double(convergence, "convergence");
-    config.seed = to_unsigned(seed, "seed");
-    config.cellSize = to_double(cellSize, "cell_size");
+    otswap::Config config = instance<otswap::Config>(value, "config", "Config");
+    config.log = &report;
     return config;
+  }
+
+  /// A copy of the otswap.CorrectionConfig argument of a call, as
+  /// config_of.
+  otswap::CorrectionConfig correction_of (nb::handle value, std::ostream& report)
+  {
+    otswap::CorrectionConfig config = instance<otswap::CorrectionConfig>(value, "correction",
+                                                                         "CorrectionConfig");
+    config.log = &report;
+    return config;
+  }
+
+  /// +inf, the default of RedshiftCut's max, created with the module: the
+  /// constructor tells it from an inf given by the caller by identity.
+  PyObject* cut_max_default = nullptr;
+
+  /// A NotImplemented for the comparison operators.
+  nb::object not_implemented ()
+  {
+    return nb::borrow(nb::handle(Py_NotImplemented));
   }
 
   /// A path: a str or an os.PathLike.
@@ -605,10 +638,179 @@ NB_MODULE(_otswap, m)
   if (extrapolation_warning == nullptr) throw nb::python_error();
   m.attr("ExtrapolationWarning") = nb::handle(extrapolation_warning);
 
+  // ------------------------------------------------------------------ Config
+
+  const otswap::Config configDefaults;
+
+  nb::class_<otswap::Config>(m, "Config",
+      "Free parameters of the reconstruction, as otswap::Config. Its fields are checked by the "
+      "call that reads them, not here.")
+    .def("__init__",
+        [] (otswap::Config* self, nb::handle nRealizations, nb::handle convergence, nb::handle seed,
+            nb::handle cellSize, nb::handle rejectCrossings, nb::handle maxUnobservedPixelsCrossed,
+            nb::handle verbosity) {
+          otswap::Config config;
+          config.nRealizations = to_unsigned(nRealizations, "n_realizations");
+          config.convergence = to_double(convergence, "convergence");
+          config.seed = to_unsigned(seed, "seed");
+          config.cellSize = to_double(cellSize, "cell_size");
+          config.rejectCrossings = to_bool(rejectCrossings, "reject_crossings");
+          config.maxUnobservedPixelsCrossed =
+            to_unsigned(maxUnobservedPixelsCrossed, "max_unobserved_pixels_crossed");
+          config.verbosity = to_verbosity(verbosity);
+          new (self) otswap::Config(config);
+        },
+        nb::kw_only(), "n_realizations"_a.none() = configDefaults.nRealizations,
+        "convergence"_a.none() = configDefaults.convergence, "seed"_a.none() = configDefaults.seed,
+        "cell_size"_a.none() = configDefaults.cellSize,
+        "reject_crossings"_a.none() = configDefaults.rejectCrossings,
+        "max_unobserved_pixels_crossed"_a.none() = configDefaults.maxUnobservedPixelsCrossed,
+        "verbosity"_a.none() = verbosity_name(configDefaults.verbosity),
+        "Every field a keyword, with the defaults of otswap::Config.")
+    .def_prop_rw("n_realizations",
+        [] (const otswap::Config& c) { return c.nRealizations; },
+        [] (otswap::Config& c, nb::handle v) { c.nRealizations = to_unsigned(v, "n_realizations"); },
+        nb::for_setter(nb::arg("value").none()), "Independent reconstructions to run.")
+    .def_prop_rw("convergence",
+        [] (const otswap::Config& c) { return c.convergence; },
+        [] (otswap::Config& c, nb::handle v) { c.convergence = to_double(v, "convergence"); },
+        nb::for_setter(nb::arg("value").none()),
+        "The sweeps stop once the fraction of successful swaps in a sweep no longer exceeds it.")
+    .def_prop_rw("seed",
+        [] (const otswap::Config& c) { return c.seed; },
+        [] (otswap::Config& c, nb::handle v) { c.seed = to_unsigned(v, "seed"); },
+        nb::for_setter(nb::arg("value").none()), "Seed of the generator; 0 draws one.")
+    .def_prop_rw("cell_size",
+        [] (const otswap::Config& c) { return c.cellSize; },
+        [] (otswap::Config& c, nb::handle v) { c.cellSize = to_double(v, "cell_size"); },
+        nb::for_setter(nb::arg("value").none()),
+        "Grid cell size, in units of the representative mean particle separation. Affects speed "
+        "only.")
+    .def_prop_rw("reject_crossings",
+        [] (const otswap::Config& c) { return c.rejectCrossings; },
+        [] (otswap::Config& c, nb::handle v) { c.rejectCrossings = to_bool(v, "reject_crossings"); },
+        nb::for_setter(nb::arg("value").none()),
+        "With a mask, filter the result with reject_mask_crossings before returning it.")
+    .def_prop_rw("max_unobserved_pixels_crossed",
+        [] (const otswap::Config& c) { return c.maxUnobservedPixelsCrossed; },
+        [] (otswap::Config& c, nb::handle v) {
+          c.maxUnobservedPixelsCrossed = to_unsigned(v, "max_unobserved_pixels_crossed");
+        },
+        nb::for_setter(nb::arg("value").none()), "The threshold of that filter.")
+    .def_prop_rw("verbosity",
+        [] (const otswap::Config& c) { return verbosity_name(c.verbosity); },
+        [] (otswap::Config& c, nb::handle v) { c.verbosity = to_verbosity(v); },
+        nb::for_setter(nb::arg("value").none()), "What the call reports.")
+    .def("__repr__", [] (const otswap::Config& c) {
+        const std::string text =
+          "Config(n_realizations=" + std::to_string(c.nRealizations) +
+          ", convergence=" + repr_of(nb::float_(c.convergence)) + ", seed=" + std::to_string(c.seed) +
+          ", cell_size=" + repr_of(nb::float_(c.cellSize)) +
+          ", reject_crossings=" + (c.rejectCrossings ? "True" : "False") +
+          ", max_unobserved_pixels_crossed=" + std::to_string(c.maxUnobservedPixelsCrossed) +
+          ", verbosity=" + repr_of(verbosity_name(c.verbosity)) + ")";
+        return nb::str(text.c_str());
+      })
+    .def("__eq__", [] (const otswap::Config& a, nb::handle other) -> nb::object {
+        if (!nb::isinstance<otswap::Config>(other)) return not_implemented();
+        const otswap::Config& b = nb::cast<const otswap::Config&>(other);
+        return nb::bool_(a.nRealizations == b.nRealizations && a.convergence == b.convergence &&
+                         a.seed == b.seed && a.cellSize == b.cellSize &&
+                         a.rejectCrossings == b.rejectCrossings &&
+                         a.maxUnobservedPixelsCrossed == b.maxUnobservedPixelsCrossed &&
+                         a.verbosity == b.verbosity);
+      }, "other"_a.none())
+    .attr("__hash__") = nb::none();
+
+  const otswap::CorrectionConfig correctionDefaults;
+
+  nb::class_<otswap::CorrectionConfig>(m, "CorrectionConfig",
+      "Options of real_space_lightcone and real_space_box, as otswap::CorrectionConfig.")
+    .def("__init__",
+        [] (otswap::CorrectionConfig* self, nb::handle weightByRealizations, nb::handle verbosity) {
+          otswap::CorrectionConfig config;
+          config.weightByRealizations = to_bool(weightByRealizations, "weight_by_realizations");
+          config.verbosity = to_verbosity(verbosity);
+          new (self) otswap::CorrectionConfig(config);
+        },
+        nb::kw_only(), "weight_by_realizations"_a.none() = correctionDefaults.weightByRealizations,
+        "verbosity"_a.none() = verbosity_name(correctionDefaults.verbosity),
+        "Every field a keyword, with the defaults of otswap::CorrectionConfig.")
+    .def_prop_rw("weight_by_realizations",
+        [] (const otswap::CorrectionConfig& c) { return c.weightByRealizations; },
+        [] (otswap::CorrectionConfig& c, nb::handle v) {
+          c.weightByRealizations = to_bool(v, "weight_by_realizations");
+        },
+        nb::for_setter(nb::arg("value").none()),
+        "Weight each neighbour by its count of valid realizations as well.")
+    .def_prop_rw("verbosity",
+        [] (const otswap::CorrectionConfig& c) { return verbosity_name(c.verbosity); },
+        [] (otswap::CorrectionConfig& c, nb::handle v) { c.verbosity = to_verbosity(v); },
+        nb::for_setter(nb::arg("value").none()), "What the call reports.")
+    .def("__repr__", [] (const otswap::CorrectionConfig& c) {
+        const std::string text =
+          std::string("CorrectionConfig(weight_by_realizations=") +
+          (c.weightByRealizations ? "True" : "False") +
+          ", verbosity=" + repr_of(verbosity_name(c.verbosity)) + ")";
+        return nb::str(text.c_str());
+      })
+    .def("__eq__", [] (const otswap::CorrectionConfig& a, nb::handle other) -> nb::object {
+        if (!nb::isinstance<otswap::CorrectionConfig>(other)) return not_implemented();
+        const otswap::CorrectionConfig& b = nb::cast<const otswap::CorrectionConfig&>(other);
+        return nb::bool_(a.weightByRealizations == b.weightByRealizations && a.verbosity == b.verbosity);
+      }, "other"_a.none())
+    .attr("__hash__") = nb::none();
+
+  // ------------------------------------------------------------- RedshiftCut
+
+  cut_max_default = PyFloat_FromDouble(otswap::RedshiftCut().max);
+  if (cut_max_default == nullptr) throw nb::python_error();
+
+  nb::class_<otswap::RedshiftCut>(m, "RedshiftCut",
+      "A closed redshift range for reconstruct_lightcone and measure_mps_profile, as "
+      "otswap::RedshiftCut. The default, (-inf, +inf), cuts nothing. Wherever a RedshiftCut is "
+      "taken, a (min, max) pair is accepted too.")
+    .def("__init__", [] (otswap::RedshiftCut* self, nb::handle min, nb::handle max) {
+          otswap::RedshiftCut cut;
+          // A pair alone: the implicit conversion, or RedshiftCut((min, max)).
+          std::pair<double, double> bounds;
+          if (max.ptr() == cut_max_default && nb::try_cast(min, bounds)) {
+            cut.min = bounds.first;
+            cut.max = bounds.second;
+          }
+          else {
+            cut.min = to_double(min, "min");
+            cut.max = to_double(max, "max");
+          }
+          new (self) otswap::RedshiftCut(cut);
+        }, "min"_a.none() = otswap::RedshiftCut().min, "max"_a.none() = nb::handle(cut_max_default),
+        "The range [min, max]; its bounds are checked by the call that reads it.")
+    .def_prop_rw("min",
+        [] (const otswap::RedshiftCut& c) { return c.min; },
+        [] (otswap::RedshiftCut& c, nb::handle v) { c.min = to_double(v, "min"); },
+        nb::for_setter(nb::arg("value").none()), "The lowest redshift kept.")
+    .def_prop_rw("max",
+        [] (const otswap::RedshiftCut& c) { return c.max; },
+        [] (otswap::RedshiftCut& c, nb::handle v) { c.max = to_double(v, "max"); },
+        nb::for_setter(nb::arg("value").none()), "The highest redshift kept.")
+    .def("__repr__", [] (const otswap::RedshiftCut& c) {
+        const std::string text = "RedshiftCut(min=" + repr_of(nb::float_(c.min)) + ", max=" +
+                                 repr_of(nb::float_(c.max)) + ")";
+        return nb::str(text.c_str());
+      })
+    .def("__eq__", [] (const otswap::RedshiftCut& a, nb::handle other) -> nb::object {
+        if (!nb::isinstance<otswap::RedshiftCut>(other)) return not_implemented();
+        const otswap::RedshiftCut& b = nb::cast<const otswap::RedshiftCut&>(other);
+        return nb::bool_(a.min == b.min && a.max == b.max);
+      }, "other"_a.none())
+    .attr("__hash__") = nb::none();
+  nb::implicitly_convertible<std::pair<double, double>, otswap::RedshiftCut>();
+
   // --------------------------------------------------------------- BoxLimits
 
   nb::class_<otswap::BoxLimits>(m, "BoxLimits",
-      "The closed limits of a box for reconstruct_box, in Mpc/h. Read-only.")
+      "The closed limits of a box for reconstruct_box, in Mpc/h. Read-only. Wherever a BoxLimits "
+      "is taken, a pair of corners ((x0, y0, z0), (x1, y1, z1)) is accepted too.")
     .def("__init__", [] (otswap::BoxLimits* self, nb::handle lower, nb::handle upper) {
           otswap::BoxLimits box;
           box.lower = corner(lower, "lower");
@@ -616,6 +818,13 @@ NB_MODULE(_otswap, m)
           new (self) otswap::BoxLimits(box);
         }, "lower"_a.none(), "upper"_a.none(),
         "The box from its lower and upper corners, (x, y, z) each.")
+    .def("__init__",
+        [] (otswap::BoxLimits* self, const std::pair<std::array<double, 3>, std::array<double, 3>>& corners) {
+          otswap::BoxLimits box;
+          box.lower = corners.first;
+          box.upper = corners.second;
+          new (self) otswap::BoxLimits(box);
+        }, "corners"_a, "The box from a pair of corners, the implicit conversion.")
     .def_prop_ro("lower", [] (const otswap::BoxLimits& b) { return corner_tuple(b.lower); },
                  "x, y, z of the lower corner.")
     .def_prop_ro("upper", [] (const otswap::BoxLimits& b) { return corner_tuple(b.upper); },
@@ -624,7 +833,14 @@ NB_MODULE(_otswap, m)
         const std::string text = "BoxLimits(lower=" + repr_of(corner_tuple(b.lower)) + ", upper=" +
                                  repr_of(corner_tuple(b.upper)) + ")";
         return nb::str(text.c_str());
-      });
+      })
+    .def("__eq__", [] (const otswap::BoxLimits& a, nb::handle other) -> nb::object {
+        if (!nb::isinstance<otswap::BoxLimits>(other)) return not_implemented();
+        const otswap::BoxLimits& b = nb::cast<const otswap::BoxLimits&>(other);
+        return nb::bool_(a.lower == b.lower && a.upper == b.upper);
+      }, "other"_a.none())
+    .attr("__hash__") = nb::none();
+  nb::implicitly_convertible<std::pair<std::array<double, 3>, std::array<double, 3>>, otswap::BoxLimits>();
 
   // --------------------------------------------------------- SelectionCounts
 
@@ -632,8 +848,9 @@ NB_MODULE(_otswap, m)
       "What a reconstruction left out, and why. Read-only.")
     .def_prop_ro("redshift_cut", [] (const otswap::SelectionCounts& c) -> nb::object {
         if (!c.redshiftCut) return nb::none();
-        return nb::make_tuple(c.redshiftCut->min, c.redshiftCut->max);
-      }, "The (min, max) of the redshift cut, or None when no cut was applied.")
+        return nb::cast(*c.redshiftCut);
+      }, "The redshift cut applied, a new RedshiftCut on each access, or None when no cut was "
+         "applied.")
     .def_ro("mask_applied", &otswap::SelectionCounts::maskApplied)
     .def_prop_ro("box_limits", [] (const otswap::SelectionCounts& c) { return box_or_none(c.boxLimits); },
                  "The box limits given to reconstruct_box, or None when none were.")
@@ -691,7 +908,7 @@ NB_MODULE(_otswap, m)
         [] (nb::handle displacement, nb::handle matchedRandom, nb::handle valid, nb::handle tracers,
             nb::handle tracersSky, nb::handle angleUnit, nb::handle distances,
             nb::handle outsideRedshiftCut, nb::handle outsideMask, nb::handle outsideBox,
-            nb::handle ids, nb::handle seed) {
+            nb::handle ids, nb::handle config) {
           const CArray d = as_float64(displacement, "displacement");
           if (d.ndim() != 3 || d.shape(2) != 3 || d.shape(0) == 0 || d.shape(1) == 0)
             throw otswap::Error("displacement must have shape (n_realizations, n_objects, 3), neither "
@@ -714,8 +931,14 @@ NB_MODULE(_otswap, m)
           r.outsideBox = outsideBox.is_none()
             ? std::vector<std::uint8_t>(n, 0) : flags(outsideBox, "outside_box", {n});
           r.ids = ids_value(ids, n);
-          r.config.nRealizations = (unsigned)nRec;
-          r.config.seed = to_unsigned(seed, "seed");
+          if (config.is_none()) r.config.nRealizations = (unsigned)nRec;
+          else {
+            r.config = instance<otswap::Config>(config, "config", "Config");
+            if (r.config.nRealizations != nRec)
+              throw otswap::Error("config.n_realizations is " + std::to_string(r.config.nRealizations) +
+                                  " and the arrays hold " + std::to_string(nRec) +
+                                  " realizations; they must be equal");
+          }
           bool degrees = false;
           if (!tracersSky.is_none()) {
             degrees = in_degrees(angleUnit);
@@ -735,7 +958,7 @@ NB_MODULE(_otswap, m)
         nb::kw_only(), "tracers_sky"_a = nb::none(), "angle_unit"_a = nb::none(),
         "distances"_a = nb::none(), "outside_redshift_cut"_a = nb::none(),
         "outside_mask"_a = nb::none(), "outside_box"_a = nb::none(), "ids"_a = nb::none(),
-        "seed"_a.none() = 0,
+        "config"_a = nb::none(),
         "Build a result from its arrays, as read back from a file; the means are recomputed.")
     .def_prop_ro("n_objects", [] (ResultHandle self) { return result_of(self).nObjects; })
     .def_prop_ro("n_realizations", [] (ResultHandle self) { return result_of(self).nRealizations; })
@@ -747,8 +970,16 @@ NB_MODULE(_otswap, m)
         if (r.geometry == otswap::Geometry::Box) return nb::none();
         return nb::str(r.degrees ? "deg" : "rad");
       }, "The angle_unit of the sky arrays, that of the call; None for a box.")
-    .def_prop_ro("seed", [] (ResultHandle self) { return result_of(self).config.seed; },
-                 "The seed used: the drawn one when 0 was given.")
+    .def_prop_ro("config", [] (const PyResult& r) {
+        otswap::Config config = r.config;
+        config.log = &std::clog;
+        return config;
+      }, "The parameters of the run: a new copy on each access, so changing it changes nothing in "
+         "the result. seed is the one used: the drawn one when 0 was given.")
+    .def_prop_ro("distances", [] (const PyResult& r) -> nb::object {
+        if (!r.distances) return nb::none();
+        return nb::cast(otswap::DistanceTable(*r.distances));
+      }, "The distance table of a lightcone result, a new copy on each access; None for a box.")
     .def_prop_rw("ids",
         [] (const PyResult& r) { return ids_array(r.ids, r.nObjects); },
         [] (PyResult& r, nb::handle value) { r.ids = ids_value(value, r.nObjects); },
@@ -973,9 +1204,7 @@ NB_MODULE(_otswap, m)
   // ---------------------------------------------------------- Reconstruction
 
   m.def("reconstruct_box",
-      [] (nb::handle tracers, nb::handle randoms, nb::handle mps, nb::handle box,
-          nb::handle nRealizations, nb::handle convergence, nb::handle seed, nb::handle cellSize,
-          nb::handle verbosity) {
+      [] (nb::handle tracers, nb::handle randoms, nb::handle mps, nb::handle box, nb::handle configArg) {
         const std::vector<double> t = rows3(tracers, "tracers");
         std::vector<double> r;
         if (!randoms.is_none()) {
@@ -987,10 +1216,8 @@ NB_MODULE(_otswap, m)
         const bool computed = mps.is_none();
         const double separation = computed ? 0. : to_double(mps, "mps");
         const std::optional<otswap::BoxLimits> limits = to_box(box);
-        otswap::Config config = make_config(nRealizations, convergence, seed, cellSize);
-        config.verbosity = to_verbosity(verbosity);
         std::ostringstream report;
-        config.log = &report;
+        const otswap::Config config = config_of(configArg, report);
         otswap::Result result;
         {
           nb::gil_scoped_release released;
@@ -1001,17 +1228,14 @@ NB_MODULE(_otswap, m)
         return PyResult(std::move(result), false);
       },
       "tracers"_a.none(), "randoms"_a = nb::none(), nb::kw_only(), "mps"_a = nb::none(),
-      "box"_a = nb::none(), "n_realizations"_a.none() = 1, "convergence"_a.none() = 1.e-3, "seed"_a.none() = 0,
-      "cell_size"_a.none() = 4., "verbosity"_a.none() = "normal",
+      "box"_a = nb::none(), "config"_a.none() = otswap::Config(),
       "Reconstruct in box geometry, with a constant mean particle separation, given or that of "
       "the tracers' bounding box.");
 
   m.def("reconstruct_lightcone",
       [] (nb::handle tracersSky, nb::handle randomsSky, nb::handle skyAreaDeg2, nb::handle mask,
           nb::handle nBins, nb::handle distances, nb::handle angleUnit, nb::handle tracers,
-          nb::handle randoms, nb::handle nRealizations, nb::handle convergence, nb::handle seed,
-          nb::handle cellSize, nb::handle redshiftCut, nb::handle rejectCrossings,
-          nb::handle maxUnobservedPixelsCrossed, nb::handle verbosity) {
+          nb::handle randoms, nb::handle redshiftCut, nb::handle configArg) {
         const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
         const bool degrees = in_degrees(angleUnit);
         std::vector<double> ts = rows3(tracersSky, "tracers_sky");
@@ -1028,13 +1252,8 @@ NB_MODULE(_otswap, m)
                                        : &instance<otswap::Mask>(mask, "mask", "Mask");
         const double area = footprint ? 0. : to_double(skyAreaDeg2, "sky_area_deg2");
         const unsigned bins = to_unsigned(nBins, "n_bins");
-        otswap::Config config = make_config(nRealizations, convergence, seed, cellSize);
-        config.rejectCrossings = to_bool(rejectCrossings, "reject_crossings");
-        config.maxUnobservedPixelsCrossed =
-          to_unsigned(maxUnobservedPixelsCrossed, "max_unobserved_pixels_crossed");
-        config.verbosity = to_verbosity(verbosity);
         std::ostringstream report;
-        config.log = &report;
+        const otswap::Config config = config_of(configArg, report);
         const otswap::RedshiftCut cut = to_cut(redshiftCut);
         std::vector<double> t, r;
         if (!tracers.is_none()) {
@@ -1057,10 +1276,8 @@ NB_MODULE(_otswap, m)
       },
       "tracers_sky"_a.none(), "randoms_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(),
       "mask"_a = nb::none(), "n_bins"_a.none(), "distances"_a.none(), "angle_unit"_a.none(),
-      "tracers"_a = nb::none(), "randoms"_a = nb::none(), "n_realizations"_a.none() = 1,
-      "convergence"_a.none() = 1.e-3, "seed"_a.none() = 0, "cell_size"_a.none() = 4.,
-      "redshift_cut"_a = nb::none(), "reject_crossings"_a.none() = true,
-      "max_unobserved_pixels_crossed"_a.none() = 0, "verbosity"_a.none() = "normal",
+      "tracers"_a = nb::none(), "randoms"_a = nb::none(), "redshift_cut"_a = nb::none(),
+      "config"_a.none() = otswap::Config(),
       "Reconstruct in lightcone geometry.");
 
   m.def("measure_mps_profile",
@@ -1313,16 +1530,13 @@ NB_MODULE(_otswap, m)
 
   m.def("real_space_lightcone",
       [] (nb::handle result, nb::handle distances, nb::handle bias, nb::handle sigma,
-          nb::handle weightByRealizations, nb::handle verbosity) {
+          nb::handle correction) {
         const PyResult& r = instance<PyResult>(result, "result", "Result");
         const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
         const otswap::BiasTable& b = instance<otswap::BiasTable>(bias, "bias", "BiasTable");
         const double s = to_double(sigma, "sigma");
-        otswap::CorrectionConfig config;
-        config.weightByRealizations = to_bool(weightByRealizations, "weight_by_realizations");
-        config.verbosity = to_verbosity(verbosity);
         std::ostringstream report;
-        config.log = &report;
+        const otswap::CorrectionConfig config = correction_of(correction, report);
         otswap::RealSpaceCatalog catalog;
         {
           nb::gil_scoped_release released;
@@ -1336,23 +1550,20 @@ NB_MODULE(_otswap, m)
         return PyCatalog(std::move(catalog), r.degrees);
       },
       "result"_a.none(), nb::kw_only(), "distances"_a.none(), "bias"_a.none(), "sigma"_a.none(),
-      "weight_by_realizations"_a.none() = false, "verbosity"_a.none() = "normal",
+      "correction"_a.none() = otswap::CorrectionConfig(),
       "Move a lightcone catalogue from redshift space to real space.");
 
   m.def("real_space_box",
       [] (nb::handle result, nb::handle axis, nb::handle redshift, nb::handle distances,
-          nb::handle bias, nb::handle sigma, nb::handle weightByRealizations, nb::handle verbosity) {
+          nb::handle bias, nb::handle sigma, nb::handle correction) {
         const PyResult& r = instance<PyResult>(result, "result", "Result");
         const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
         const unsigned a = to_unsigned(axis, "axis");
         const double z = to_double(redshift, "redshift");
         const double b = to_double(bias, "bias");
         const double s = to_double(sigma, "sigma");
-        otswap::CorrectionConfig config;
-        config.weightByRealizations = to_bool(weightByRealizations, "weight_by_realizations");
-        config.verbosity = to_verbosity(verbosity);
         std::ostringstream report;
-        config.log = &report;
+        const otswap::CorrectionConfig config = correction_of(correction, report);
         otswap::RealSpaceCatalog catalog;
         {
           nb::gil_scoped_release released;
@@ -1362,8 +1573,7 @@ NB_MODULE(_otswap, m)
         return PyCatalog(std::move(catalog), false);
       },
       "result"_a.none(), nb::kw_only(), "axis"_a.none(), "redshift"_a.none(), "distances"_a.none(),
-      "bias"_a.none(), "sigma"_a.none(), "weight_by_realizations"_a.none() = false,
-      "verbosity"_a.none() = "normal",
+      "bias"_a.none(), "sigma"_a.none(), "correction"_a.none() = otswap::CorrectionConfig(),
       "Move a box catalogue from redshift space to real space.");
 
   // ---------------------------------------------------------------------- io

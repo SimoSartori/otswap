@@ -525,8 +525,8 @@ int main ()
             "the message says how many bins the catalog supports");
     }
 
-    check_throws([&] { internal::mps_profile(sky, 1000., 0, distances); },
-                 "zero bins raise");
+    throws_with([&] { internal::mps_profile(sky, 1000., 0, distances); },
+                "the number of redshift bins is 0; it must be at least 1", "zero bins raise");
     check_throws([&] { internal::mps_profile(sky, -1., 4, distances); },
                  "a non-positive sky area raises");
     check_throws([&] { internal::mps_profile(sky, 1.e9, 4, distances); },

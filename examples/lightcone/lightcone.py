@@ -88,6 +88,10 @@ def main():
     # ------------ Set the parameters of the reconstruction ------------
     # ------------------------------------------------------------------
 
+    # The first seven are the fields of an otswap.Config, the struct
+    # otswap::Config of C++, passed to the call as config; a field left out
+    # keeps its default. n_bins and redshift_cut are arguments of the call.
+    #
     # n_realizations: independent realizations. Each one consumes as many
     # randoms as there are tracers, disjoint from those of the others, so
     # the randoms kept must number at least n_realizations times the
@@ -98,9 +102,9 @@ def main():
     # Larger values are faster and less accurate; the default is 1e-3.
     #
     # seed: a fixed seed makes the run reproducible; 0 draws a new seed at
-    # each run, and result.seed records the one drawn. The number of threads
-    # follows OMP_NUM_THREADS, and with a fixed seed the result is the same
-    # whatever the number of threads.
+    # each run, and result.config.seed records the one drawn. The number
+    # of threads follows OMP_NUM_THREADS, and with a fixed seed the result
+    # is the same whatever the number of threads.
     #
     # cell_size: the grid cell, in units of the mean particle separation,
     # affects the speed only, never the result; the default is 4.
@@ -125,10 +129,12 @@ def main():
     #
     # redshift_cut: tracers and randoms outside this redshift range are left
     # out of the reconstruction. The range here spans the whole catalogue:
-    # narrow it to reconstruct a slice. The default, None, cuts nothing
-    options = dict(n_realizations=8, convergence=1e-2, seed=12345, cell_size=4.0,
-                   reject_crossings=True, max_unobserved_pixels_crossed=0, verbosity="normal",
-                   n_bins=30, redshift_cut=(0.885, 1.10))
+    # narrow it to reconstruct a slice. The default, None, cuts nothing; a
+    # (min, max) pair is accepted too
+    config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, cell_size=4.0,
+                           reject_crossings=True, max_unobserved_pixels_crossed=0, verbosity="normal")
+    n_bins = 30
+    redshift_cut = otswap.RedshiftCut(0.885, 1.10)
 
     # ------------------------------------------------
     # ------------ Run the reconstruction ------------
@@ -140,8 +146,9 @@ def main():
     # (tracers), their mean Lagrangian positions (lagrangian, and
     # lagrangian_sky on the sky, in the angle unit of the call) and the
     # measured mps(z) (mps_profile)
-    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, distances=distances,
-                                          angle_unit="deg", **options)
+    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, n_bins=n_bins,
+                                          distances=distances, angle_unit="deg",
+                                          redshift_cut=redshift_cut, config=config)
 
     # ----------------------------------------------
     # ------------ Summarize the result ------------

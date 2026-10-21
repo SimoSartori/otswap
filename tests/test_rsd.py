@@ -11,6 +11,7 @@ The numerics are tested on the C++ side, in tests/test_rsd.cpp.
 """
 
 import math
+import re
 import warnings
 
 import numpy as np
@@ -21,6 +22,8 @@ import otswap
 TABLE_ARGS = dict(omega_m=0.3, h=0.7, z_min=0.0, z_max=1.5, n_samples=4000)
 BIAS = otswap.BiasTable([0.2, 0.8], [1.2, 1.8])
 NARROW = otswap.BiasTable([0.4, 0.5], [1.2, 1.3])
+QUIET = otswap.CorrectionConfig(verbosity="silent")
+WIDTH = "the smoothing width is {} Mpc/h; it must be finite and non-negative"
 
 
 @pytest.fixture(scope="module")
@@ -40,7 +43,7 @@ def lightcone(table):
     tracers, randoms = sky(900), sky(2700)
     result = otswap.reconstruct_lightcone(tracers, randoms, sky_area_deg2=870.0, n_bins=2,
                                           distances=table, angle_unit="deg",
-                                          n_realizations=2, seed=9, verbosity="silent")
+                                          config=otswap.Config(n_realizations=2, seed=9, verbosity="silent"))
     return tracers, result
 
 
@@ -48,8 +51,8 @@ def lightcone(table):
 def box():
     rng = np.random.default_rng(4)
     tracers = rng.uniform(0, 80, (512, 3))
-    return tracers, otswap.reconstruct_box(tracers, mps=10.0, n_realizations=2, seed=3,
-                                           verbosity="silent")
+    return tracers, otswap.reconstruct_box(tracers, mps=10.0,
+                                           config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
 
 
 def test_exports_and_warning_class():
@@ -120,6 +123,21 @@ def test_neighbour_average_errors(kwargs):
         otswap.neighbour_average(positions, values, valid, **args)
 
 
+@pytest.mark.parametrize("sigma, text", [(-1.0, "-1.000000"), (math.nan, "nan")])
+def test_sigma_message_names_no_argument(table, lightcone, box, sigma, text):
+    """The library's message for a wrong sigma, the same from every call, and
+    the same as in C++."""
+    message = "^" + re.escape(WIDTH.format(text)) + "$"
+    p = np.arange(12.0).reshape(4, 3) ** 1.5
+    with pytest.raises(otswap.Error, match=message):
+        otswap.neighbour_average(p, [1.0] * 4, [1] * 4, sigma=sigma)
+    with pytest.raises(otswap.Error, match=message):
+        otswap.real_space_lightcone(lightcone[1], distances=table, bias=BIAS, sigma=sigma, correction=QUIET)
+    with pytest.raises(otswap.Error, match=message):
+        otswap.real_space_box(box[1], axis=2, redshift=0.5, distances=table, bias=1.5, sigma=sigma,
+                              correction=QUIET)
+
+
 def test_rsd_factor_and_the_warning(table):
     inside = otswap.rsd_factor([0.3, 0.5], table, bias=BIAS)
     f = table.growth_rate_at([0.3, 0.5])
@@ -178,8 +196,7 @@ def test_shifts():
 
 def test_real_space_lightcone(table, lightcone):
     tracers, result = lightcone
-    c = otswap.real_space_lightcone(result, distances=table, bias=BIAS, sigma=10.0,
-                                    verbosity="silent")
+    c = otswap.real_space_lightcone(result, distances=table, bias=BIAS, sigma=10.0, correction=QUIET)
     assert c.n_objects == len(tracers) and c.geometry == "lightcone" and c.angle_unit == "deg"
     assert c.sky.shape == (len(tracers), 3) and not c.sky.flags.writeable
     assert c.sky is c.sky, "converted once and kept"
@@ -200,8 +217,7 @@ def test_real_space_lightcone(table, lightcone):
     rad_result = otswap.Result.from_arrays(result.displacement, result.matched_random, result.valid,
                                            result.tracers, tracers_sky=rad, angle_unit="rad",
                                            distances=table)
-    cr = otswap.real_space_lightcone(rad_result, distances=table, bias=BIAS, sigma=10.0,
-                                     verbosity="silent")
+    cr = otswap.real_space_lightcone(rad_result, distances=table, bias=BIAS, sigma=10.0, correction=QUIET)
     assert cr.angle_unit == "rad"
     assert np.array_equal(cr.sky[:, 2], c.sky[:, 2], equal_nan=True)
     assert np.array_equal(cr.sky[ok, :2], rad[ok, :2]), "in radians, the input bits"
@@ -211,8 +227,7 @@ def test_real_space_lightcone(table, lightcone):
 def test_real_space_lightcone_warns_once(table, lightcone):
     _, result = lightcone
     with pytest.warns(otswap.ExtrapolationWarning) as caught:
-        c = otswap.real_space_lightcone(result, distances=table, bias=NARROW, sigma=0.0,
-                                        verbosity="silent")
+        c = otswap.real_space_lightcone(result, distances=table, bias=NARROW, sigma=0.0, correction=QUIET)
     assert len(caught) == 1 and c.n_extrapolated > 0
     assert f"{c.n_extrapolated} of 900 redshifts" in str(caught[0].message)
 
@@ -220,7 +235,7 @@ def test_real_space_lightcone_warns_once(table, lightcone):
 def test_real_space_box(table, box):
     tracers, result = box
     c = otswap.real_space_box(result, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=8.0,
-                              verbosity="silent")
+                              correction=QUIET)
     assert c.cartesian.shape == tracers.shape and c.sky is None and c.angle_unit is None
     assert c.geometry == "box"
     ok = ~np.isnan(c.cartesian[:, 0])
@@ -230,7 +245,7 @@ def test_real_space_box(table, box):
 
 @pytest.mark.parametrize("kwargs", [
     dict(axis=3), dict(bias=0.0), dict(sigma=-1.0), dict(redshift=2.0),
-    dict(weight_by_realizations="no"), dict(verbosity="loud"),
+    dict(correction=None), dict(correction=otswap.Config()),
 ])
 def test_real_space_box_errors(table, box, kwargs):
     _, result = box
@@ -240,9 +255,56 @@ def test_real_space_box_errors(table, box, kwargs):
         otswap.real_space_box(result, **args)
 
 
+def test_correction_config():
+    c = otswap.CorrectionConfig()
+    assert c.weight_by_realizations is False and c.verbosity == "normal"
+    assert c == otswap.CorrectionConfig(weight_by_realizations=False, verbosity="normal")
+    assert repr(c) == "CorrectionConfig(weight_by_realizations=False, verbosity='normal')"
+    w = otswap.CorrectionConfig(weight_by_realizations=True, verbosity="detailed")
+    assert eval(repr(w), {"CorrectionConfig": otswap.CorrectionConfig}) == w and w != c
+    c.weight_by_realizations = True
+    c.verbosity = "detailed"
+    assert c == w
+    assert (c == otswap.Config()) is False and c != "CorrectionConfig()"
+    with pytest.raises(TypeError):
+        hash(c)
+    with pytest.raises(TypeError):
+        otswap.CorrectionConfig(True)
+    with pytest.raises(TypeError):
+        otswap.CorrectionConfig(sigma=1.0)
+    with pytest.raises(AttributeError):
+        c.log = None
+    for kwargs, text in [(dict(weight_by_realizations="no"), "weight_by_realizations must be True or False"),
+                         (dict(weight_by_realizations=None), "weight_by_realizations must be True or False"),
+                         (dict(verbosity="loud"), "verbosity must be"),
+                         (dict(verbosity=1), "verbosity must be")]:
+        with pytest.raises(otswap.Error, match=text):
+            otswap.CorrectionConfig(**kwargs)
+        with pytest.raises(otswap.Error, match=text):
+            setattr(c, *kwargs.popitem())
+    assert c == w, "a refused value leaves the object as it was"
+
+
+def test_correction_is_copied_and_its_keywords_are_gone(table, lightcone, box, capfd):
+    tracers, result = lightcone
+    loud = otswap.CorrectionConfig(verbosity="detailed")
+    otswap.real_space_lightcone(result, distances=table, bias=BIAS, sigma=10.0, correction=loud)
+    assert "otswap: realSpaceLightcone" in capfd.readouterr().out
+    assert loud == otswap.CorrectionConfig(verbosity="detailed")
+    weighted = otswap.real_space_box(box[1], axis=2, redshift=0.5, distances=table, bias=1.5, sigma=8.0,
+                                     correction=otswap.CorrectionConfig(weight_by_realizations=True,
+                                                                        verbosity="silent"))
+    assert weighted.weight_by_realizations is True
+    for gone in (dict(weight_by_realizations=True), dict(verbosity="silent")):
+        with pytest.raises(TypeError):
+            otswap.real_space_lightcone(result, distances=table, bias=BIAS, sigma=10.0, **gone)
+        with pytest.raises(TypeError):
+            otswap.real_space_box(box[1], axis=2, redshift=0.5, distances=table, bias=1.5, sigma=8.0, **gone)
+
+
 def test_real_space_lightcone_errors(table, lightcone, box):
     tracers, result = lightcone
-    base = dict(distances=table, bias=BIAS, sigma=10.0, verbosity="silent")
+    base = dict(distances=table, bias=BIAS, sigma=10.0, correction=QUIET)
     with pytest.raises(otswap.Error):
         otswap.real_space_lightcone("result", **base)
     with pytest.raises(otswap.Error, match="corrects a lightcone result"):
@@ -274,20 +336,20 @@ def test_neighbour_search_error(table):
     plane[:, 2] = 40.0
     with pytest.raises(otswap.Error, match="^meshsearch: "):
         otswap.neighbour_average(plane, np.ones(400), np.ones(400, dtype=np.uint32), sigma=3.0)
-    box = otswap.reconstruct_box(plane, mps=80 / 400 ** (1 / 3), seed=7, verbosity="silent")
+    box = otswap.reconstruct_box(plane, mps=80 / 400 ** (1 / 3),
+                                 config=otswap.Config(seed=7, verbosity="silent"))
     with pytest.raises(otswap.Error, match="^meshsearch: "):
         otswap.real_space_box(box, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=10.0,
-                              verbosity="silent")
+                              correction=QUIET)
     # every tracer at declination 0 lies in the plane z = 0
     tracers = np.column_stack([rng.uniform(10, 40, 600), np.zeros(600), rng.uniform(0.3, 0.6, 600)])
     randoms = np.column_stack([rng.uniform(10, 40, 600), rng.uniform(-15, 15, 600),
                                rng.uniform(0.3, 0.6, 600)])
     light = otswap.reconstruct_lightcone(tracers, randoms, sky_area_deg2=870.0, n_bins=1,
-                                         distances=table, angle_unit="deg", seed=7,
-                                         verbosity="silent")
+                                         distances=table, angle_unit="deg",
+                                         config=otswap.Config(seed=7, verbosity="silent"))
     with pytest.raises(otswap.Error, match="^meshsearch: "):
-        otswap.real_space_lightcone(light, distances=table, bias=BIAS, sigma=10.0,
-                                    verbosity="silent")
+        otswap.real_space_lightcone(light, distances=table, bias=BIAS, sigma=10.0, correction=QUIET)
 
 
 def test_result_agrees_with_its_tracers(table, lightcone, box):
@@ -312,8 +374,13 @@ def test_redshift_cut(table):
 
     tracers, randoms = sky(900), sky(3600)
     options = dict(sky_area_deg2=870.0, n_bins=1, distances=table, angle_unit="deg",
-                   n_realizations=2, seed=4, verbosity="silent")
+                   config=otswap.Config(n_realizations=2, seed=4, verbosity="silent"))
     cut = otswap.reconstruct_lightcone(tracers, randoms, redshift_cut=(0.3, 0.6), **options)
+    for same in (otswap.RedshiftCut(0.3, 0.6), otswap.RedshiftCut(min=0.3, max=0.6), [0.3, 0.6],
+                 np.array([0.3, 0.6])):
+        again = otswap.reconstruct_lightcone(tracers, randoms, redshift_cut=same, **options)
+        assert np.array_equal(again.displacement, cut.displacement, equal_nan=True)
+    assert cut.selection.redshift_cut == otswap.RedshiftCut(0.3, 0.6)
     inside = (tracers[:, 2] >= 0.3) & (tracers[:, 2] <= 0.6)
     flags = cut.outside_redshift_cut
     assert flags.dtype == np.bool_ and flags.shape == (900,) and not flags.flags.writeable
@@ -327,8 +394,11 @@ def test_redshift_cut(table):
 
     plain = otswap.reconstruct_lightcone(tracers, randoms, **options)
     assert not plain.outside_redshift_cut.any()
+    whole = otswap.reconstruct_lightcone(tracers, randoms, redshift_cut=otswap.RedshiftCut(), **options)
+    assert np.array_equal(whole.displacement, plain.displacement)
+    assert whole.selection.redshift_cut is None and plain.selection.redshift_cut is None
 
-    c = otswap.real_space_lightcone(cut, distances=table, bias=BIAS, sigma=10.0, verbosity="silent")
+    c = otswap.real_space_lightcone(cut, distances=table, bias=BIAS, sigma=10.0, correction=QUIET)
     assert (c.status[~inside] == otswap.CorrectionStatus.LEFT_OUT).all()
     assert (c.status[inside] != otswap.CorrectionStatus.LEFT_OUT).all()
     assert [int(v) for v in otswap.CorrectionStatus] == [0, 1, 2, 3]
@@ -336,11 +406,16 @@ def test_redshift_cut(table):
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        otswap.real_space_lightcone(cut, distances=table, bias=NARROW, sigma=10.0, verbosity="silent")
+        otswap.real_space_lightcone(cut, distances=table, bias=NARROW, sigma=10.0, correction=QUIET)
     assert len(caught) == 1 and f" of {inside.sum()} redshifts" in str(caught[0].message)
 
-    for bad in [(0.3,), (0.3, 0.5, 0.6), (math.nan, 0.6), (0.6, 0.3), "low-high"]:
+    for bad in [(0.3,), (0.3, 0.5, 0.6), (math.nan, 0.6), (0.6, 0.3), "low-high",
+                otswap.RedshiftCut(0.6, 0.3), otswap.RedshiftCut(max=math.nan)]:
         with pytest.raises(otswap.Error):
+            otswap.reconstruct_lightcone(tracers, randoms, redshift_cut=bad, **options)
+    for bad, n in [((0.3,), 1), ((0.3, 0.5, 0.6), 3)]:
+        with pytest.raises(otswap.Error, match=f"^redshift_cut must be an otswap.RedshiftCut or a \\(min, max\\) "
+                                               f"pair; it holds {n} values$"):
             otswap.reconstruct_lightcone(tracers, randoms, redshift_cut=bad, **options)
 
 
@@ -358,15 +433,14 @@ def test_mask(table):
     pixels[::9] = 0
     mask = otswap.Mask.from_array(pixels)
     result = otswap.reconstruct_lightcone(tracers, randoms, mask=mask, n_bins=1, distances=table,
-                                          angle_unit="deg", n_realizations=2, seed=4,
-                                          verbosity="silent")
+                                          angle_unit="deg",
+                                          config=otswap.Config(n_realizations=2, seed=4, verbosity="silent"))
     masked = ~mask.allows(tracers[:, 0], tracers[:, 1], angle_unit="deg")
     assert np.array_equal(result.outside_mask, masked) and masked.any()
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        c = otswap.real_space_lightcone(result, distances=table, bias=NARROW, sigma=10.0,
-                                        verbosity="silent")
+        c = otswap.real_space_lightcone(result, distances=table, bias=NARROW, sigma=10.0, correction=QUIET)
     assert (c.status[masked] == 3).all()
     assert (c.n_neighbours[masked] == 0).all() and np.isnan(c.sky[masked]).all()
     assert np.isnan(c.cartesian[masked]).all()

@@ -190,23 +190,26 @@ otswap::DistanceTable::DistanceTable (const double OmegaM, const double h,
                                       const unsigned nSamples)
 {
   if (!std::isfinite(OmegaM) || OmegaM <= 0. || OmegaM > 1.)
-    throw Error("OmegaM is " + std::to_string(OmegaM) + "; it must lie in (0, 1]");
+    throw Error("the matter density parameter is " + std::to_string(OmegaM) + "; it must lie in (0, 1]");
 
   if (!std::isfinite(h) || h <= 0.)
-    throw Error("h is " + std::to_string(h) + "; it must be positive");
+    throw Error("the dimensionless Hubble parameter is " + std::to_string(h) + "; it must be positive");
 
   if (!std::isfinite(w0) || !std::isfinite(wa))
-    throw Error("w0 and wa must both be finite");
+    throw Error("the parameters of the dark-energy equation of state are " + std::to_string(w0) +
+                " and " + std::to_string(wa) + "; both must be finite");
 
   if (!std::isfinite(zMin) || zMin < 0.)
-    throw Error("zMin is " + std::to_string(zMin) + "; it must be finite and non-negative");
+    throw Error("the lowest redshift of the distance table is " + std::to_string(zMin) +
+                "; it must be finite and non-negative");
 
   if (!std::isfinite(zMax) || zMax <= zMin)
-    throw Error("zMax is " + std::to_string(zMax) + "; it must be finite and exceed zMin " +
-                std::to_string(zMin));
+    throw Error("the highest redshift of the distance table is " + std::to_string(zMax) +
+                "; it must be finite and above the lowest, " + std::to_string(zMin));
 
   if (nSamples < 2)
-    throw Error("nSamples is " + std::to_string(nSamples) + "; at least two are required");
+    throw Error("the number of redshift samples of the distance table is " + std::to_string(nSamples) +
+                "; it must be at least 2");
 
   m_redshift.resize(nSamples);
   m_distance.resize(nSamples);

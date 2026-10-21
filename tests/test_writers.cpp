@@ -119,18 +119,6 @@ namespace {
     return sky;
   }
 
-  template <typename F>
-  bool throws_naming (F&& f, const std::string& text)
-  {
-    try {
-      f();
-    }
-    catch (const Error& e) {
-      return std::string(e.what()).find(text) != std::string::npos;
-    }
-    return false;
-  }
-
   // The value of a keyword read by internal::read_keywords, or "missing".
   std::string value_of (const std::vector<io::Keyword>& keywords, const std::string& name)
   {

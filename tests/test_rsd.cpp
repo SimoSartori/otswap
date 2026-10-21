@@ -183,18 +183,6 @@ namespace {
     return n;
   }
 
-  template <typename F>
-  bool throws_naming (F&& f, const std::string& text)
-  {
-    try {
-      f();
-    }
-    catch (const Error& e) {
-      return std::string(e.what()).find(text) != std::string::npos;
-    }
-    return false;
-  }
-
   void write_text (const std::string& file, const std::string& text)
   {
     std::ofstream out(file);
@@ -325,6 +313,16 @@ int main ()
     for (std::size_t i = 0; i < n; ++i)
       diagnostics = diagnostics && nn[i] == (valid[i] > 0 ? 1u : 0u) && nr[i] == valid[i];
     check(diagnostics, "and the diagnostics count the object itself");
+  }
+
+  group("a negative or NaN sigma raises, with a message that names no argument");
+  {
+    throws_with([&] { neighbourAverage(points, values, valid, -1.); },
+                "the smoothing width is -1.000000 Mpc/h; it must be finite and non-negative",
+                "a negative sigma raises");
+    throws_with([&] { neighbourAverage(points, values, valid, kNaN); },
+                "the smoothing width is nan Mpc/h; it must be finite and non-negative",
+                "and a NaN one");
   }
 
   group("an invalid object receives the average of its valid neighbours; NaN only without any");
@@ -591,6 +589,9 @@ int main ()
     const RealSpaceCatalog zero = realSpaceLightcone(r, table, flat, 0.);
     check((uncorrected_of(zero) == std::vector<std::size_t>{1, 3}),
           "with sigma = 0 every invalid tracer is uncorrected");
+    throws_with([&] { realSpaceLightcone(r, table, flat, -1.); },
+                "the smoothing width is -1.000000 Mpc/h; it must be finite and non-negative",
+                "a negative sigma raises");
 
     Result noSky = r;
     noSky.tracersSky.clear();

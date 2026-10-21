@@ -114,7 +114,7 @@ import otswap
 
 tracers = otswap.io.read("tracers.dat", [0, 1, 2]).values   # (N, 3), Mpc/h
 
-result = otswap.reconstruct_box(tracers, n_realizations=8, seed=12345)
+result = otswap.reconstruct_box(tracers, config=otswap.Config(n_realizations=8, seed=12345))
 print(result.mean_displacement[:3])
 
 otswap.io.write_displacement_mean("displacements.dat", result)

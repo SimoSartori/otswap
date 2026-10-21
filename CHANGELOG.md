@@ -12,6 +12,28 @@
   could differ between compilers when distances were tied, as on a lattice.
   Results for inputs with exactly tied distances change on every compiler;
   results without ties are unchanged.
+- The error messages for a wrong value of a configuration field, of the
+  number of redshift bins, of a cosmological parameter, redshift range or
+  sample count of a distance table, or of the smoothing width sigma now
+  describe the quantity instead of naming the C++ field or argument, so they
+  read the same from C++ and Python.
+- Python: the parameters of a reconstruction are an `otswap.Config`, passed
+  as `config=` to `reconstruct_box` and `reconstruct_lightcone`, and the
+  options of the correction an `otswap.CorrectionConfig`, passed as
+  `correction=` to `real_space_lightcone` and `real_space_box`; both are the
+  C++ structs, with every field a keyword of the constructor and a
+  read/write attribute. The keywords they replace (`n_realizations`,
+  `convergence`, `seed`, `cell_size`, `reject_crossings`,
+  `max_unobserved_pixels_crossed`, `verbosity`, `weight_by_realizations`) are
+  removed. `measure_mps_profile` keeps `verbosity`, `reject_mask_crossings`
+  and `neighbour_average` their own arguments.
+- Python: `otswap.RedshiftCut` is a class; `redshift_cut=` takes one, a
+  `(min, max)` pair or None, and `SelectionCounts.redshift_cut` returns one.
+  `BoxLimits` and `RedshiftCut` compare equal by value.
+- Python: `Result.config` and `Result.distances` return copies of the
+  result's configuration and distance table; `Result.seed` is removed, its
+  value is `Result.config.seed`. `Result.from_arrays` takes `config=`, in
+  place of `seed=`.
 
 ## 0.1.0 — 2026-10-08
 

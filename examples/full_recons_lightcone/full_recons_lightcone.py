@@ -86,10 +86,10 @@ def main():
     # a convergence threshold of 1e-2, a fixed seed, 30 redshift bins for
     # the mean particle separation, and the displacements crossing an
     # unobserved pixel of the mask rejected
+    config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, reject_crossings=True,
+                           max_unobserved_pixels_crossed=0, verbosity="normal")
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, n_bins=30,
-                                          distances=distances, angle_unit="deg", n_realizations=8,
-                                          convergence=1e-2, seed=12345, reject_crossings=True,
-                                          max_unobserved_pixels_crossed=0, verbosity="normal")
+                                          distances=distances, angle_unit="deg", config=config)
 
     # ---------------------------------------------
     # ------------ Read the bias table ------------
@@ -107,19 +107,21 @@ def main():
 
     # sigma, the width of the gaussian average in Mpc/h: 10 Mpc/h is a
     # reasonable starting value, but the best value depends on the sample
-    # and should be checked in each analysis. With
-    # weight_by_realizations=True, each neighbour would be weighted by its
-    # number of valid realizations. "detailed" prints, besides the line of
-    # the call, how many tracers moved with their neighbours' average and
-    # why the others were left uncorrected.
+    # and should be checked in each analysis. The options are an
+    # otswap.CorrectionConfig: with weight_by_realizations=True, each
+    # neighbour would be weighted by its number of valid realizations.
+    # "detailed" prints, besides the line of the call, how many tracers
+    # moved with their neighbours' average and why the others were left
+    # uncorrected.
     #
     # The correction reads the tracers from the result. A tracer without a
     # valid realization still receives the average of its neighbours; one
     # with no valid neighbour within 3 sigma, or left out of the
     # reconstruction by the mask, is left uncorrected, with NaN coordinates;
     # catalogue.status says which
+    correction = otswap.CorrectionConfig(weight_by_realizations=False, verbosity="detailed")
     catalogue = otswap.real_space_lightcone(result, distances=distances, bias=bias, sigma=10.0,
-                                            weight_by_realizations=False, verbosity="detailed")
+                                            correction=correction)
 
     # ----------------------------------------------
     # ------------ Summarize the result ------------
