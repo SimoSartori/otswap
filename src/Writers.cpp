@@ -539,7 +539,6 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
   check_size(result.tracers.size(), 3 * n, "tracers");
   if (lightcone) check_size(result.tracersSky.size(), 3 * n, "tracersSky");
   check_size(result.displacement.size(), 3 * rows, "displacement");
-  check_size(result.matchedRandom.size(), 3 * rows, "matchedRandom");
   check_size(result.valid.size(), rows, "valid");
   internal::check_flags(result);
   internal::check_ids(result.ids, n);
@@ -561,11 +560,9 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
   const std::size_t xyz = columns.size();
   for (const char* c : kXyz) columns.push_back(column(std::string("trac") + c, 'D',
                                                       "comoving position of the tracer", "Mpc/h"));
-  for (const char* c : kXyz) columns.push_back(column(std::string("lagr") + c, 'D',
-                                                      "the random matched in this realization", "Mpc/h"));
   for (const char* c : kXyz)
-    columns.push_back(column(std::string("displ") + c, 'D', "displacement in this realization, lagr - trac",
-                             "Mpc/h"));
+    columns.push_back(column(std::string("displ") + c, 'D', "displacement in this realization: the random "
+                             "matched to the tracer, minus the tracer", "Mpc/h"));
   columns.push_back(column("valid", 'J', "1 valid, 0 rejected by a filter or left out"));
   columns.push_back(column("outsideRedshiftCut", 'J', "1 if left out of the reconstruction by the redshift cut"));
   columns.push_back(column("outsideMask", 'J', "1 if left out of the reconstruction by the mask"));
@@ -592,13 +589,12 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
     }
     for (std::size_t c = 0; c < 3; ++c) {
       values[xyz+c] = r->tracers[3*i+c];
-      values[xyz+3+c] = r->matchedRandom[3*row+c];
-      values[xyz+6+c] = r->displacement[3*row+c];
+      values[xyz+3+c] = r->displacement[3*row+c];
     }
-    values[xyz+9] = (double)r->valid[row];
-    values[xyz+10] = r->outsideRedshiftCut.empty() ? 0. : (double)r->outsideRedshiftCut[i];
-    values[xyz+11] = r->outsideMask.empty() ? 0. : (double)r->outsideMask[i];
-    values[xyz+12] = r->outsideBox.empty() ? 0. : (double)r->outsideBox[i];
+    values[xyz+6] = (double)r->valid[row];
+    values[xyz+7] = r->outsideRedshiftCut.empty() ? 0. : (double)r->outsideRedshiftCut[i];
+    values[xyz+8] = r->outsideMask.empty() ? 0. : (double)r->outsideMask[i];
+    values[xyz+9] = r->outsideBox.empty() ? 0. : (double)r->outsideBox[i];
   };
 
   std::vector<internal::TablePart> parts {primary};
@@ -736,7 +732,7 @@ otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
 
   std::vector<std::string> columns;
   if (sky) columns = {"tracRA", "tracDec", "tracRed"};
-  for (const char* p : {"trac", "lagr", "displ"})
+  for (const char* p : {"trac", "displ"})
     for (const char* c : kXyz) columns.push_back(std::string(p) + c);
   std::vector<std::string> integerColumns {"realization", v010 ? "index" : "id", "valid", "outsideRedshiftCut",
                                            "outsideMask"};
@@ -749,7 +745,6 @@ otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
   const std::size_t xyz = sky ? 3 : 0;
   std::vector<double> skyDegrees(sky ? 3 * n : 0);
   r.tracers.resize(3 * n);
-  r.matchedRandom.resize(3 * rows);
   r.displacement.resize(3 * rows);
   r.valid.resize(rows);
   r.outsideRedshiftCut.resize(n);
@@ -763,10 +758,7 @@ otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
       h.fail("row " + std::to_string(row) + " (from 0) holds realization " + std::to_string(k[0]) + ", where " +
              std::to_string(row / n) + " is expected: the rows are the NOBJECTS = " + std::to_string(n) +
              " objects of realization 0, then those of realization 1, and so on");
-    for (std::size_t c = 0; c < 3; ++c) {
-      r.matchedRandom[3*row+c] = v[xyz+3+c];
-      r.displacement[3*row+c] = v[xyz+6+c];
-    }
+    for (std::size_t c = 0; c < 3; ++c) r.displacement[3*row+c] = v[xyz+3+c];
     r.valid[row] = flag_of(h, k[2], "valid", row);
     if (row >= n) continue;
     for (std::size_t c = 0; c < 3; ++c) {

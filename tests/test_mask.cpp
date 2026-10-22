@@ -171,7 +171,7 @@ namespace {
     r.geometry = Geometry::Lightcone;
     r.nObjects = eulerian.size() / 3;
     r.nRealizations = 1;
-    r.matchedRandom = lagrangian;
+    r.tracers = eulerian;
     r.displacement.resize(lagrangian.size());
     for (std::size_t k = 0; k < lagrangian.size(); ++k)
       r.displacement[k] = lagrangian[k] - eulerian[k];
@@ -379,14 +379,17 @@ namespace {
     const Result arcs = result_of(eulerian, lagrangian);
     const std::size_t n = arcs.nObjects;
 
-    // The directions exactly as rejectMaskCrossings forms them.
+    // The endpoints and directions exactly as rejectMaskCrossings forms
+    // them: the tracer, and the tracer plus its displacement.
     std::vector<vec3> from(n), to(n);
-    std::vector<double> e(3 * n);
+    std::vector<double> e(3 * n), l(3 * n);
     for (std::size_t i = 0; i < n; ++i) {
-      for (int k = 0; k < 3; ++k)
-        e[3*i+k] = arcs.matchedRandom[3*i+k] - arcs.displacement[3*i+k];
+      for (int k = 0; k < 3; ++k) {
+        e[3*i+k] = arcs.tracers[3*i+k];
+        l[3*i+k] = e[3*i+k] + arcs.displacement[3*i+k];
+      }
       from[i] = unit(e[3*i], e[3*i+1], e[3*i+2]);
-      to[i] = unit(arcs.matchedRandom[3*i], arcs.matchedRandom[3*i+1], arcs.matchedRandom[3*i+2]);
+      to[i] = unit(l[3*i], l[3*i+1], l[3*i+2]);
     }
 
     std::size_t crossing = 0, cblDisagree = 0, filterDisagree = 0, misses = 0;
@@ -406,7 +409,7 @@ namespace {
     for (std::size_t i = 0; i < n; ++i) {
       const bool cbl = cbl_reference::arc_crosses_mask(
         map, e[3*i], e[3*i+1], e[3*i+2],
-        arcs.matchedRandom[3*i], arcs.matchedRandom[3*i+1], arcs.matchedRandom[3*i+2], pixelSize);
+        l[3*i], l[3*i+1], l[3*i+2], pixelSize);
       const bool ours = internal::arc_unobserved_pixels(bytes, vec_of(from[i]), vec_of(to[i]), 0, found) > 0;
       if (cbl) ++crossing;
       if (cbl != ours) ++cblDisagree;
@@ -918,14 +921,15 @@ int main ()
   {
     const Mask mask(file);
 
-    // One object, two realizations: the first clear of the band, the
-    // second across it.
+    // One object, two realizations from the same tracer: the first clear
+    // of the band, the second across it.
     std::vector<double> e, l;
     add_arc(e, l, 1.0, 0.8, 1.0, 0.9);
-    add_arc(e, l, 1.0, -0.6, 1.0, 0.6);
+    add_arc(e, l, 1.0, 0.8, 1.0, -0.6);
     Result two = result_of(e, l);
     two.nObjects = 1;
     two.nRealizations = 2;
+    two.tracers.resize(3);
     two.valid.assign(2, 1);
     internal::summarize(two);
 
@@ -1007,13 +1011,49 @@ int main ()
     ragged.nObjects = 2;
     ragged.nRealizations = 1;
     ragged.displacement.resize(3);
-    ragged.matchedRandom.resize(6);
+    ragged.tracers.resize(6);
     ragged.valid.assign(2, 1);
     check_throws([&] { rejectMaskCrossings(ragged, mask); },
                  "arrays of the wrong size raise");
 
+    auto names = [&mask] (Result r, const std::string& text) {
+      try {
+        rejectMaskCrossings(r, mask);
+      }
+      catch (const Error& x) {
+        return std::string(x.what()).find(text) != std::string::npos;
+      }
+      return false;
+    };
+
     std::vector<double> e, l;
     add_arc(e, l, 1.0, 0.8, 1.0, 0.9);
+    add_arc(e, l, 1.0, -0.6, 1.0, 0.6);
+
+    Result noTracers = result_of(e, l);
+    noTracers.tracers.clear();
+    check(names(noTracers, "the result is malformed: tracers holds 0 entries for 2 objects"),
+          "a result without its tracers raises, naming them: the arcs start at the tracers");
+
+    Result nanTracer = result_of(e, l);
+    nanTracer.tracers[4] = std::numeric_limits<double>::quiet_NaN();
+    check(names(nanTracer, "the result is malformed: tracers holds a non-finite coordinate at entry 4"),
+          "a non-finite tracer coordinate raises, naming the entry");
+    nanTracer.outsideMask = {0, 1};
+    nanTracer.valid[1] = 0;
+    bool flaggedRan = true;
+    try {
+      rejectMaskCrossings(nanTracer, mask);
+    }
+    catch (const Error&) {
+      flaggedRan = false;
+    }
+    check(flaggedRan && nanTracer.valid[1] == 0, "but not on a flagged tracer");
+
+    Result nanDisplacement = result_of(e, l);
+    nanDisplacement.displacement[5] = std::numeric_limits<double>::infinity();
+    check(names(nanDisplacement, "the result is malformed: displacement holds a non-finite coordinate at "
+                                 "entry 5"), "a non-finite displacement raises, naming the entry");
     Result noValid = result_of(e, l);
     noValid.valid.clear();
     check_throws([&] { rejectMaskCrossings(noValid, mask); }, "a valid of the wrong size raises");

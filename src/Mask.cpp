@@ -405,11 +405,16 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
   if (nObjects == 0 || nRealizations == 0)
     throw Error("the result is empty");
 
-  if (result.displacement.size() != expected || result.matchedRandom.size() != expected)
-    throw Error("the result is malformed: displacement and matchedRandom should each hold " +
-                std::to_string(expected) + " entries, but hold " +
-                std::to_string(result.displacement.size()) + " and " +
-                std::to_string(result.matchedRandom.size()));
+  if (result.displacement.size() != expected)
+    throw Error("the result is malformed: displacement holds " +
+                std::to_string(result.displacement.size()) + " entries for " +
+                std::to_string(nRealizations) + " realizations of " + std::to_string(nObjects) +
+                " objects");
+
+  if (result.tracers.size() != 3 * nObjects)
+    throw Error("the result is malformed: tracers holds " + std::to_string(result.tracers.size()) +
+                " entries for " + std::to_string(nObjects) + " objects; the arcs start at the "
+                "tracers, which a result returned by reconstructLightcone carries");
 
   if (result.valid.size() != nDisplacements)
     throw Error("the result is malformed: valid holds " + std::to_string(result.valid.size()) +
@@ -422,6 +427,14 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
 
   internal::check_flags(result);
 
+  for (std::size_t i = 0; i < nObjects; ++i) {
+    if (internal::excluded(result, i)) continue;
+    for (std::size_t c = 0; c < 3; ++c)
+      if (!std::isfinite(result.tracers[3*i+c]))
+        throw Error("the result is malformed: tracers holds a non-finite coordinate at entry " +
+                    std::to_string(3*i+c));
+  }
+
   for (std::size_t k = 0; k < nDisplacements; ++k) {
     const std::size_t i = k % nObjects;
     if (internal::excluded(result, i)) {
@@ -432,8 +445,8 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
       continue;
     }
     for (std::size_t c = 0; c < 3; ++c)
-      if (!std::isfinite(result.displacement[3*k+c]) || !std::isfinite(result.matchedRandom[3*k+c]))
-        throw Error("the result is malformed: a non-finite coordinate at entry " +
+      if (!std::isfinite(result.displacement[3*k+c]))
+        throw Error("the result is malformed: displacement holds a non-finite coordinate at entry " +
                     std::to_string(3*k+c));
   }
 
@@ -460,13 +473,13 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
 
         const std::size_t at = 3 * d;
 
-        const double lx = result.matchedRandom[at];
-        const double ly = result.matchedRandom[at+1];
-        const double lz = result.matchedRandom[at+2];
+        const double ex = result.tracers[3*i];
+        const double ey = result.tracers[3*i+1];
+        const double ez = result.tracers[3*i+2];
 
-        const double ex = lx - result.displacement[at];
-        const double ey = ly - result.displacement[at+1];
-        const double ez = lz - result.displacement[at+2];
+        const double lx = ex + result.displacement[at];
+        const double ly = ey + result.displacement[at+1];
+        const double lz = ez + result.displacement[at+2];
 
         const double r0 = std::sqrt(ex*ex + ey*ey + ez*ez);
         const double r1 = std::sqrt(lx*lx + ly*ly + lz*lz);

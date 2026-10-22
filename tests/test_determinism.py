@@ -234,7 +234,7 @@ def compute():
         out["reject_mask_crossings.2.mean_displacement"] = digest(r2.mean_displacement)
 
         # A result rebuilt from its arrays has the reconstruction's means.
-        rebuilt = otswap.Result.from_arrays(r2.displacement, r2.matched_random, r2.valid, r2.tracers,
+        rebuilt = otswap.Result.from_arrays(r2.displacement, r2.valid, r2.tracers,
                                             tracers_sky=tracers_sky, angle_unit="deg",
                                             distances=lc_table)
         assert digest(rebuilt.mean_displacement) == out["reject_mask_crossings.2.mean_displacement"] \

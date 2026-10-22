@@ -303,7 +303,8 @@ NB_MODULE(_otswap_crosstest, m)
     otswap::Result r = small_lightcone_result();
     if (what == "n_realizations") r.config.nRealizations += 1;
     else if (what == "mean_displacement") r.meanDisplacement.resize(r.meanDisplacement.size() - 3);
-    else if (what == "matched_random") r.matchedRandom.resize(r.matchedRandom.size() - 3);
+    else if (what == "displacement") r.displacement.resize(r.displacement.size() - 3);
+    else if (what == "tracers") r.tracers.resize(r.tracers.size() - 3);
     else throw otswap::Error("broken_result: unknown member " + what);
     return r;
   }, "what"_a);

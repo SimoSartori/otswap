@@ -55,8 +55,8 @@
  *  keywords PRODUCT and SEED.
  *
  *  Input files hold native float64 values, flat and row-major; sky angles
- *  are in radians. A reconstruction writes P.displacement, P.matched_random
- *  and P.mean_displacement (float64), P.valid and P.outside_mask (uint8) and
+ *  are in radians. A reconstruction writes P.displacement and
+ *  P.mean_displacement (float64), P.valid and P.outside_mask (uint8) and
  *  P.valid_realizations (uint32), and P.lagrangian_sky (float64) when the
  *  result carries it; cartesian writes P.xyz and sky P.sky (float64). The
  *  table of a lightcone is DistanceTable(omega_m, h, -1, 0, z_min, z_max,
@@ -147,7 +147,6 @@ namespace {
       otswap::rejectMaskCrossings(result, otswap::Mask(arg("mask")),
                                   integer("max_unobserved_pixels_crossed"));
     write("displacement", result.displacement);
-    write("matched_random", result.matchedRandom);
     write("mean_displacement", result.meanDisplacement);
     write("valid", result.valid);
     write("outside_mask", result.outsideMask);

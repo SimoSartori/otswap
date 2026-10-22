@@ -307,9 +307,9 @@ namespace otswap {
                                    const Selection& selection);
 
     /// The result of the kept tracers, expanded to one row per input
-    /// tracer: a tracer left out has NaN displacement and matchedRandom
-    /// rows, no valid realization, and its flags set. The fields that
-    /// follow from valid are left to summarize.
+    /// tracer: a tracer left out has NaN displacement rows, no valid
+    /// realization, and its flags set. The fields that follow from valid
+    /// are left to summarize.
     Result expand (const Result& kept, const Selection& selection, std::size_t nObjects);
 
     /// Check a b(z) table: at least two nodes, equal lengths, redshifts

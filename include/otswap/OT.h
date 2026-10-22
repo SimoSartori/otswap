@@ -107,7 +107,7 @@ namespace otswap {
    *  the one the algorithm walks, and the one a numpy array maps onto
    *  without a copy. The arrays of a Result and of a RealSpaceCatalog:
    *
-   *      [realization][object][3]  Result::displacement, Result::matchedRandom
+   *      [realization][object][3]  Result::displacement
    *      [realization][object]     Result::valid (uint8, 0 or 1)
    *      [object][3]               Result::tracers, tracersSky, meanDisplacement,
    *                                lagrangian, lagrangianSky;
@@ -375,13 +375,10 @@ namespace otswap {
     /// size 3 * nObjects in a lightcone result, empty in a box result.
     std::vector<double> tracersSky;
 
-    /// Displacements. Flat, [realization][object][xyz].
+    /// Displacements: the random matched to each object in each
+    /// realization, minus the tracer. Flat, [realization][object][xyz].
     /// Size 3 * nRealizations * nObjects.
     std::vector<double> displacement;
-
-    /// Cartesian coordinates of the random matched to each object.
-    /// Same layout and size as displacement.
-    std::vector<double> matchedRandom;
 
     /// Validity of each displacement: 1 valid, 0 rejected by a filter.
     /// Flat, [realization][object]. Size nRealizations * nObjects. Every
@@ -410,9 +407,9 @@ namespace otswap {
     /// 1 for such a tracer, 0 otherwise. Flat, [object]. Size nObjects, all
     /// 0 when no cut was given and in a box result.
     ///
-    /// A cut tracer has NaN in every component of its displacement and
-    /// matchedRandom rows, valid 0 in every realization, validRealizations
-    /// 0 and meanDisplacement NaN. No filter changes the flag. A Result
+    /// A cut tracer has NaN in every component of its displacement rows,
+    /// valid 0 in every realization, validRealizations 0 and
+    /// meanDisplacement NaN. No filter changes the flag. A Result
     /// built by hand may leave the field empty, which every function reads
     /// as all 0.
     std::vector<std::uint8_t> outsideRedshiftCut;
@@ -1099,7 +1096,8 @@ namespace otswap {
   /**
    *  @brief Reject the displacements whose path crosses masked sky.
    *
-   *  The segment from the Eulerian to the Lagrangian position lies in the
+   *  The segment from the Eulerian position, the tracer (Result::tracers),
+   *  to the Lagrangian one, the tracer plus its displacement, lies in the
    *  plane through the origin and both endpoints, so its projection on
    *  the sky is exactly the great circle arc between them. The arc is
    *  bisected adaptively: a sub-arc whose ends fall in the same pixel is
@@ -1139,15 +1137,16 @@ namespace otswap {
    *  doubles, and the same threshold is a different criterion.
    *
    *  A tracer flagged in Result::outsideRedshiftCut or Result::outsideMask
-   *  is left as it is: its displacement and matchedRandom rows may be NaN,
-   *  and its entries of valid must be 0. Every other displacement must be
-   *  finite.
+   *  is left as it is: its tracers and displacement rows may be NaN, and
+   *  its entries of valid must be 0. Every other tracer and displacement
+   *  must be finite.
    *
    *  @exception Error if the result is a box result, which has no sky to
    *  filter against; if the result is malformed (including a NaN outside
-   *  the flagged tracers' rows, a flagged tracer with a valid entry, or a
-   *  flag, tracers, tracersSky, lagrangian or lagrangianSky array whose
-   *  size is neither 0 nor the one of its layout), if an entry of valid is
+   *  the flagged tracers' rows, a flagged tracer with a valid entry, a
+   *  tracers array without 3 * nObjects entries, or a flag, tracersSky,
+   *  lagrangian or lagrangianSky array whose size is neither 0 nor the one
+   *  of its layout), if an entry of valid is
    *  neither 0 nor 1, or if the result was already filtered against a
    *  mask of a different NSIDE.
    */

@@ -637,7 +637,7 @@ int main ()
           "and below zero distance");
   }
 
-  group("a Result agrees with its tracers: matchedRandom - displacement is the tracer, within rounding");
+  group("a Result agrees with its tracers: Result::tracers is the tracer, within rounding");
   {
     const std::vector<double> tracers = uniform_points(400, 80., rng);
     Config config;
@@ -664,13 +664,10 @@ int main ()
     for (const auto& c : cases) {
       const Result& r = *c.first;
       const std::vector<double>& t = *c.second;
-      double worst = 0.;
-      for (unsigned rec = 0; rec < r.nRealizations; ++rec)
-        for (std::size_t k = 0; k < t.size(); ++k) {
-          const std::size_t at = (std::size_t)rec * t.size() + k;
-          worst = std::max(worst, std::fabs(r.matchedRandom[at] - r.displacement[at] - t[k]));
-        }
-      check(worst <= 1.e-12 * 3000., "every realization, largest difference " + std::to_string(worst));
+      double worst = r.tracers.size() == t.size() ? 0. : HUGE_VAL;
+      for (std::size_t k = 0; k < t.size() && k < r.tracers.size(); ++k)
+        worst = std::max(worst, std::fabs(r.tracers[k] - t[k]));
+      check(worst <= 1.e-12 * 3000., "every tracer, largest difference " + std::to_string(worst));
     }
   }
 
@@ -782,13 +779,12 @@ int main ()
           const std::size_t from = (std::size_t)rec * m + k;
           keptSame = keptSame && withCut.valid[to] == kept.valid[from];
           for (int c = 0; c < 3; ++c)
-            keptSame = keptSame && same_double(withCut.displacement[3*to+c], kept.displacement[3*from+c]) &&
-                       same_double(withCut.matchedRandom[3*to+c], kept.matchedRandom[3*from+c]);
+            keptSame = keptSame && same_double(withCut.displacement[3*to+c], kept.displacement[3*from+c]);
         }
         else {
           cutNaN = cutNaN && withCut.valid[to] == 0;
           for (int c = 0; c < 3; ++c)
-            cutNaN = cutNaN && std::isnan(withCut.displacement[3*to+c]) && std::isnan(withCut.matchedRandom[3*to+c]);
+            cutNaN = cutNaN && std::isnan(withCut.displacement[3*to+c]);
         }
       }
       if (isKept) {
@@ -1011,13 +1007,12 @@ int main ()
           const std::size_t from = (std::size_t)rec * m + k;
           keptSame = keptSame && plain.valid[to] == kept.valid[from];
           for (int c = 0; c < 3; ++c)
-            keptSame = keptSame && same_double(plain.displacement[3*to+c], kept.displacement[3*from+c]) &&
-                       same_double(plain.matchedRandom[3*to+c], kept.matchedRandom[3*from+c]);
+            keptSame = keptSame && same_double(plain.displacement[3*to+c], kept.displacement[3*from+c]);
         }
         else {
           outNaN = outNaN && plain.valid[to] == 0 && masked.valid[to] == 0;
           for (int c = 0; c < 3; ++c)
-            outNaN = outNaN && std::isnan(plain.displacement[3*to+c]) && std::isnan(plain.matchedRandom[3*to+c]);
+            outNaN = outNaN && std::isnan(plain.displacement[3*to+c]);
         }
       }
       if (isKept) ++k;

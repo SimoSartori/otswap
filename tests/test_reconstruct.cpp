@@ -84,17 +84,25 @@ namespace {
     return false;
   }
 
-  double total_cost (const Result& r, const std::vector<double>& tracers,
-                     const unsigned rec)
+  double total_cost (const Result& r, const unsigned rec)
   {
     const std::size_t base = 3 * (std::size_t)rec * r.nObjects;
     double sum = 0.;
     for (std::size_t i = 0; i < r.nObjects; ++i)
       for (int c = 0; c < 3; ++c) {
-        const double d = r.matchedRandom[base + 3*i + c] - tracers[3*i + c];
+        const double d = r.displacement[base + 3*i + c];
         sum += d*d;
       }
     return sum;
+  }
+
+  /// The random matched in displacement d ([realization][object]): the
+  /// tracer plus its displacement, the random within rounding.
+  std::array<double, 3> matched (const Result& r, const std::size_t d)
+  {
+    const std::size_t i = d % r.nObjects;
+    return {r.tracers[3*i] + r.displacement[3*d], r.tracers[3*i+1] + r.displacement[3*d+1],
+            r.tracers[3*i+2] + r.displacement[3*d+2]};
   }
 
 }
@@ -179,7 +187,7 @@ int main ()
     check(result.nObjects == nObjects, "the result reports the object count");
     check(result.nRealizations == 3, "the result reports the realization count");
     check(result.displacement.size() == 3 * 3 * nObjects, "displacement has the stated size");
-    check(result.matchedRandom.size() == 3 * 3 * nObjects, "matchedRandom has the stated size");
+    check(result.tracers.size() == 3 * nObjects, "tracers has the stated size");
     check(result.meanDisplacement.size() == 3 * nObjects,
           "meanDisplacement has the stated size");
     check(result.validRealizations.size() == nObjects,
@@ -204,29 +212,20 @@ int main ()
     check(plainMean, "the mean displacement is the plain mean over the realizations");
 
     for (unsigned rec = 0; rec < 3; ++rec) {
-      const std::size_t base = 3 * (std::size_t)rec * nObjects;
       std::set<std::array<double, 3>> used;
       for (std::size_t i = 0; i < nObjects; ++i)
-        used.insert({result.matchedRandom[base+3*i],
-                     result.matchedRandom[base+3*i+1],
-                     result.matchedRandom[base+3*i+2]});
+        used.insert(matched(result, (std::size_t)rec * nObjects + i));
       check(used.size() == nObjects,
             "no random is matched to two tracers within a realization");
     }
   }
 
-  group("the Lagrangian position is the coordinate plus the displacement");
+  group("with one realization the mean displacement is that realization");
   {
     Config c;
     c.nRealizations = 1;
     c.seed = 7;
     const Result result = reconstructBox(tracers, {}, spacing, c);
-
-    for (std::size_t i = 0; i < nObjects; ++i)
-      for (int k = 0; k < 3; ++k)
-        check_close(result.matchedRandom[3*i+k],
-                    tracers[3*i+k] + result.displacement[3*i+k], 1.e-12,
-                    "matchedRandom equals the tracer plus its displacement");
 
     for (std::size_t i = 0; i < nObjects; ++i)
       for (int k = 0; k < 3; ++k)
@@ -268,7 +267,7 @@ int main ()
     const Result a = reconstructBox(tracers, {}, spacing, loose);
     const Result b = reconstructBox(tracers, {}, spacing, tight);
 
-    check(total_cost(b, tracers, 0) <= total_cost(a, tracers, 0),
+    check(total_cost(b, 0) <= total_cost(a, 0),
           "the tighter run ends at or below the looser one");
   }
 
@@ -294,7 +293,7 @@ int main ()
       internal::reconstruct(tracers, tracers, mps, spacing, c, 4, nullptr, &trace);
 
     const double seeded = trace[0].front();
-    const double reached = total_cost(result, tracers, 0) / (double)nObjects;
+    const double reached = total_cost(result, 0) / (double)nObjects;
 
     check(reached < 0.1 * seeded,
           "the search removes over nine tenths of the cost it started with");
@@ -307,7 +306,7 @@ int main ()
     for (std::size_t i = 0; i < nObjects; ++i) {
       double d = 0.;
       for (int k = 0; k < 3; ++k) {
-        const double e = result.matchedRandom[3*i+k] - tracers[3*i+k];
+        const double e = result.displacement[3*i+k];
         d += e*e;
       }
       if (d == 0.) ++exact;
@@ -339,8 +338,6 @@ int main ()
 
     check(one.displacement == many.displacement,
           "the displacements are bit-identical at one and four threads");
-    check(one.matchedRandom == many.matchedRandom,
-          "the matched randoms are bit-identical at one and four threads");
     check(one.meanDisplacement == many.meanDisplacement,
           "the mean displacement is bit-identical at one and four threads");
 
@@ -365,7 +362,7 @@ int main ()
 #ifdef _OPENMP
     omp_set_num_threads(restore);
 #endif
-    check(givenOne.matchedRandom == givenMany.matchedRandom,
+    check(givenOne.displacement == givenMany.displacement,
           "with randoms given, the result is bit-identical at one and four threads");
 
     Config other = c;
@@ -407,14 +404,11 @@ int main ()
       const Result box = reconstructBox(tracers, {}, spacing, c);
       const Result given = reconstructBox(tracers, supply, spacing, c);
       const Result cone = reconstructLightcone(sky, randomSky, 1500., 3, distances, c);
-      check(box.matchedRandom == boxRef.matchedRandom &&
-            box.displacement == boxRef.displacement,
+      check(box.displacement == boxRef.displacement,
             "box, generated randoms: the same result" + at);
-      check(given.matchedRandom == givenRef.matchedRandom &&
-            given.displacement == givenRef.displacement,
+      check(given.displacement == givenRef.displacement,
             "box, randoms given: the same result" + at);
-      check(cone.matchedRandom == coneRef.matchedRandom &&
-            cone.displacement == coneRef.displacement,
+      check(cone.displacement == coneRef.displacement,
             "lightcone: the same result" + at);
     }
   }
@@ -444,10 +438,8 @@ int main ()
     if (ran)
       for (unsigned rec = 0; rec < 2; ++rec) {
         std::set<std::array<double, 3>> used;
-        const std::size_t base = 3 * (std::size_t)rec * nObjects;
         for (std::size_t i = 0; i < nObjects; ++i)
-          used.insert({r.matchedRandom[base+3*i], r.matchedRandom[base+3*i+1],
-                       r.matchedRandom[base+3*i+2]});
+          used.insert(matched(r, (std::size_t)rec * nObjects + i));
         check(used.size() == nObjects, "and its matching is a permutation");
       }
   }
@@ -600,8 +592,7 @@ int main ()
     // Exactly a permutation: the seeding pass pairs every tracer.
     std::set<std::array<double, 3>> used;
     for (std::size_t i = 0; i < nLc; ++i)
-      used.insert({fromSky.matchedRandom[3*i], fromSky.matchedRandom[3*i+1],
-                   fromSky.matchedRandom[3*i+2]});
+      used.insert(matched(fromSky, i));
     check(used.size() == nLc, "the lightcone matching is a permutation too");
 
     check_throws([&] {
@@ -622,8 +613,7 @@ int main ()
       const Result wide = reconstructLightcone(sky, wideSky, skyAreaDeg2, nBins, distances, c);
       std::set<std::array<double, 3>> wideUsed;
       for (std::size_t i = 0; i < nLc; ++i)
-        wideUsed.insert({wide.matchedRandom[3*i], wide.matchedRandom[3*i+1],
-                         wide.matchedRandom[3*i+2]});
+        wideUsed.insert(matched(wide, i));
       check(wideUsed.size() == nLc, "a lightcone with randoms outside the tracers' box matches a permutation");
     }
     catch (const Error&) {
@@ -756,7 +746,7 @@ int main ()
     for (std::size_t i = 0; i < nObjects; ++i)
       for (unsigned rec = 0; rec < 2; ++rec) {
         const std::size_t d = (std::size_t)rec * nObjects + i;
-        const double* m = &r.matchedRandom[3*d];
+        const std::array<double, 3> m = matched(r, d);
         if (outside[i])
           rows = rows && r.valid[d] == 0 && std::isnan(r.displacement[3*d]) && std::isnan(m[2]) &&
                  r.validRealizations[i] == 0 && std::isnan(r.meanDisplacement[3*i+1]) &&
@@ -764,7 +754,7 @@ int main ()
         else
           rows = rows && r.valid[d] == 1 && r.validRealizations[i] == 2 && std::isfinite(m[0]) &&
                  r.lagrangian[3*i] == boxed[3*i] + r.meanDisplacement[3*i];
-        if (!outside[i]) inside = inside && in_limits(m);
+        if (!outside[i]) inside = inside && in_limits(m.data());
       }
     check(rows, "a flagged tracer has NaN rows and no valid realization; the others are all valid");
     check(inside, "the drawn randoms lie inside the limits");
@@ -793,11 +783,11 @@ int main ()
     std::vector<double> randoms(3 * 3000);
     for (double& v : randoms) v = internal::uniform_real(rng, -10., 80.);
     std::size_t randomsInside = 0;
-    std::set<std::array<double, 3>> insideSet;
+    std::vector<std::array<double, 3>> inside;
     for (std::size_t j = 0; j < 3000; ++j)
       if (in_limits(&randoms[3*j])) {
         ++randomsInside;
-        insideSet.insert({randoms[3*j], randoms[3*j+1], randoms[3*j+2]});
+        inside.push_back({randoms[3*j], randoms[3*j+1], randoms[3*j+2]});
       }
     Config c;
     c.nRealizations = 2;
@@ -807,8 +797,11 @@ int main ()
     bool used = true;
     for (std::size_t d = 0; d < 2 * nObjects; ++d)
       if (!outside[d % nObjects]) {
-        const double* m = &r.matchedRandom[3*d];
-        used = used && insideSet.count({m[0], m[1], m[2]}) == 1;
+        const std::array<double, 3> m = matched(r, d);
+        used = used && std::any_of(inside.begin(), inside.end(), [&m] (const std::array<double, 3>& p) {
+          return std::fabs(p[0] - m[0]) < 1.e-9 && std::fabs(p[1] - m[1]) < 1.e-9 &&
+                 std::fabs(p[2] - m[2]) < 1.e-9;
+        });
       }
     check(used, "every matched random is a given one inside the limits");
     check(r.selection.randoms == 3000 && r.selection.randomsOutsideBox == 3000 - randomsInside &&
@@ -823,8 +816,7 @@ int main ()
     c.verbosity = Verbosity::Silent;
     const BoxLimits bounds = internal::bounding_box(tracers);
     auto same = [] (const Result& a, const Result& b) {
-      return a.displacement == b.displacement && a.matchedRandom == b.matchedRandom &&
-             a.meanDisplacement == b.meanDisplacement && a.mps == b.mps;
+      return a.displacement == b.displacement && a.meanDisplacement == b.meanDisplacement && a.mps == b.mps;
     };
     check(same(reconstructBox(tracers, {}, c, bounds), reconstructBox(tracers, {}, c)),
           "with drawn randoms, mps computed");

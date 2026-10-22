@@ -323,10 +323,16 @@ def test_broken_results_give_the_library_messages(tmp_path, table, bias):
         otswap.real_space_lightcone(result, distances=table, bias=bias, sigma=SIGMA,
                                     correction=QUIET_CORRECTION)
 
-    result = cross.broken_result("matched_random")
+    result = cross.broken_result("displacement")
     with pytest.raises(otswap.Error, match=full_match(
-            "the result is malformed: displacement and matchedRandom should each hold 7200 "
-            "entries, but hold 7200 and 7197")):
+            "the result is malformed: displacement holds 7197 entries for 2 realizations of "
+            "1200 objects")):
+        otswap.reject_mask_crossings(result, cross.make_mask())
+
+    result = cross.broken_result("tracers")
+    with pytest.raises(otswap.Error, match=full_match(
+            "the result is malformed: tracers holds 3597 entries for 1200 objects; the arcs start "
+            "at the tracers, which a result returned by reconstructLightcone carries")):
         otswap.reject_mask_crossings(result, cross.make_mask())
 
 
@@ -337,12 +343,12 @@ def test_getters_of_a_malformed_result_raise():
         result.mean_displacement
     assert result.tracers.shape == (1200, 3)
 
-    result = cross.broken_result("matched_random")
+    result = cross.broken_result("displacement")
     with pytest.raises(otswap.Error, match=full_match(
-            "the result is malformed: matched_random holds 7197 entries for 2 realizations of "
+            "the result is malformed: displacement holds 7197 entries for 2 realizations of "
             "1200 objects")):
-        result.matched_random
-    assert result.displacement.shape == (2, 1200, 3)
+        result.displacement
+    assert result.valid.shape == (2, 1200)
 
 
 # --------------------------------------------------------------------------

@@ -183,7 +183,6 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
   result.nObjects = nObjects;
   result.nRealizations = nRealizations;
   result.displacement.assign(3 * (std::size_t)nRealizations * nObjects, 0.);
-  result.matchedRandom.assign(3 * (std::size_t)nRealizations * nObjects, 0.);
 
   if (sweepCosts != nullptr) sweepCosts->assign(nRealizations, {});
 
@@ -364,9 +363,6 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
       const std::size_t base = 3 * (std::size_t)rec * nObjects;
       for (std::size_t i = 0; i < nObjects; ++i) {
         const unsigned p = partner[i];
-        result.matchedRandom[base + 3*i]   = randomX[p];
-        result.matchedRandom[base + 3*i+1] = randomY[p];
-        result.matchedRandom[base + 3*i+2] = randomZ[p];
         result.displacement[base + 3*i]   = randomX[p] - tracerX[i];
         result.displacement[base + 3*i+1] = randomY[p] - tracerY[i];
         result.displacement[base + 3*i+2] = randomZ[p] - tracerZ[i];

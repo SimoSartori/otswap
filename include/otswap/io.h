@@ -311,10 +311,9 @@ namespace otswap {
      *  Columns: realization (J, from 0); id (K, the object's ID as in
      *  writeDisplacementMean); for a lightcone, tracRA, tracDec (deg) and
      *  tracRed (Result::tracersSky, the right ascension as given, not
-     *  folded into [0, 360)); tracX..tracZ (Result::tracers); lagrX..lagrZ
-     *  (Result::matchedRandom); displX..displZ (Result::displacement); valid
-     *  (J); outsideRedshiftCut, outsideMask, outsideBox (J, 0 or 1, in both
-     *  geometries). The columns of the tracer, id and flags are repeated in
+     *  folded into [0, 360)); tracX..tracZ (Result::tracers); displX..displZ
+     *  (Result::displacement); valid (J); outsideRedshiftCut, outsideMask,
+     *  outsideBox (J, 0 or 1, in both geometries). The columns of the tracer, id and flags are repeated in
      *  every realization.
      *
      *  'D' values are written with 17 significant digits in ASCII, and as
@@ -322,9 +321,8 @@ namespace otswap {
      *  NaN, in both formats. A Result filled from such a file, with
      *  recomputeMeans, has the reconstruction's meanDisplacement,
      *  validRealizations and lagrangian bit for bit, and its lagrangianSky
-     *  given the distance table. displacement also equals lagr - trac bit for
-     *  bit, as the reconstruction computes it. readDisplacementComplete
-     *  reads the file back into a Result.
+     *  given the distance table. readDisplacementComplete reads the file
+     *  back into a Result.
      *
      *  Keywords, those of writeDisplacementMean too: NREC, SEED (the seed
      *  used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE
@@ -379,7 +377,7 @@ namespace otswap {
      *
      *  Read as written: the geometry, ids, config (but log, which is
      *  &std::clog), tracers, tracersSky (degrees to radians), displacement,
-     *  matchedRandom, valid, the three flags, filteredNside, selection, mps,
+     *  valid, the three flags, filteredNside, selection, mps,
      *  box, mpsProfile, and the distance table, as a new table equal to the
      *  one written. Recomputed with recomputeMeans: validRealizations,
      *  meanDisplacement, lagrangian and lagrangianSky. elapsedSeconds is 0.
@@ -402,7 +400,9 @@ namespace otswap {
      *  false, and for a file of otswap 0.1, whose Result has no tracersSky
      *  either, and whose index column is read as the IDs. A box file of
      *  otswap 0.1 gets the bounding box of its tracers as Result::box, the
-     *  box its reconstruction used.
+     *  box its reconstruction used. The columns lagrX..lagrZ, the random
+     *  matched in each realization, which the files of otswap 0.1 and
+     *  earlier ones of this version hold, are not read.
      *
      *  @param file a complete displacement file; its extension sets the
      *  format.

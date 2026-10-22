@@ -243,10 +243,9 @@ def write_displacement_complete(
     Columns: realization; id (``Result.ids`` as in
     ``write_displacement_mean``); for a lightcone, tracRA, tracDec (degrees,
     the right ascension as given, not folded into [0, 360)) and tracRed;
-    tracX..tracZ (``Result.tracers``); lagrX..lagrZ
-    (``Result.matched_random``); displX..displZ (``Result.displacement``);
-    valid; outsideRedshiftCut, outsideMask, outsideBox (0 or 1, in both
-    geometries). The columns of the tracer, id and flags are repeated in
+    tracX..tracZ (``Result.tracers``); displX..displZ
+    (``Result.displacement``); valid; outsideRedshiftCut, outsideMask,
+    outsideBox (0 or 1, in both geometries). The columns of the tracer, id and flags are repeated in
     every realization.
 
     Parameters
@@ -260,9 +259,8 @@ def write_displacement_complete(
     Floating values are written with 17 significant digits in ASCII, and as
     they are in FITS, so every value reads back identical, NaN included, in
     both formats; ``Result.from_arrays`` on the arrays read back gives the
-    reconstruction's means bit for bit. displX..displZ equal lagr - trac bit
-    for bit. ``read_displacement_complete`` reads the file back into a
-    ``Result``.
+    reconstruction's means bit for bit. ``read_displacement_complete`` reads
+    the file back into a ``Result``.
 
     Keywords, those of ``write_displacement_mean`` too: NREC, SEED (the seed
     used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE (silent,
@@ -303,9 +301,9 @@ def read_displacement_complete(file: Path, *, angle_unit: AngleUnit) -> Result:
     ``Result``, its sky arrays in ``angle_unit``.
 
     Read as written: the geometry, ``ids``, the configuration, ``tracers``,
-    ``tracers_sky``, ``displacement``, ``matched_random``, ``valid``, the
-    three flags, the selection counts, the box, the mps(z) profile and the
-    distance table. Recomputed, as ``recompute_means`` does: the valid
+    ``tracers_sky``, ``displacement``, ``valid``, the three flags, the
+    selection counts, the box, the mps(z) profile and the distance table.
+    Recomputed, as ``recompute_means`` does: the valid
     realizations, ``mean_displacement``, ``lagrangian`` and
     ``lagrangian_sky``. ``ids`` reads as having no IDs when the file's IDs
     are 0..n_objects-1. The columns of the tracer, id and flags are taken
@@ -354,7 +352,9 @@ def read_displacement_complete(file: Path, *, angle_unit: AngleUnit) -> Result:
     written with ``lightcone_tables=False``, and for a file of otswap 0.1,
     whose result has no ``tracers_sky`` either, and whose index column is
     read as the IDs. A box file of otswap 0.1 gets the bounding box of its
-    tracers as its box, the box its reconstruction used.
+    tracers as its box, the box its reconstruction used. The columns
+    lagrX..lagrZ, the random matched in each realization, which the files of
+    otswap 0.1 and earlier ones of this version hold, are not read.
     """
 
 

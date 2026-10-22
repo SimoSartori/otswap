@@ -59,6 +59,20 @@
   array properties raise `otswap.Error` when the C++ arrays do not have the
   sizes the object declares.
 
+### Removed
+
+- `Result::matchedRandom` (Python: `Result.matched_random`), the random
+  matched to each tracer in each realization; the tracer plus its
+  displacement gives it within rounding. A result with the default 30
+  realizations takes about 45% less memory.
+  `Result.from_arrays` no longer takes it: its arguments are now
+  `displacement`, `valid`, `tracers`. `rejectMaskCrossings` takes the arcs
+  from the tracers (`Result::tracers`, which it now requires) to the tracer
+  plus its displacement.
+- The columns lagrX, lagrY, lagrZ of the complete displacement file, which
+  held the matched randoms. `readDisplacementComplete` ignores them in the
+  files that have them, those of otswap 0.1 included.
+
 ## 0.1.0 — 2026-10-08
 
 First release.

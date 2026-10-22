@@ -205,7 +205,6 @@ otswap::Result otswap::internal::expand (const Result& kept, const Selection& se
   full.nObjects = nObjects;
   full.nRealizations = nRealizations;
   full.displacement.assign(3 * (std::size_t)nRealizations * nObjects, kNaN);
-  full.matchedRandom.assign(3 * (std::size_t)nRealizations * nObjects, kNaN);
   full.valid.assign((std::size_t)nRealizations * nObjects, 0);
   full.outsideRedshiftCut = selection.outsideCut;
   full.outsideMask = selection.outsideMask;
@@ -219,10 +218,8 @@ otswap::Result otswap::internal::expand (const Result& kept, const Selection& se
       const std::size_t from = (std::size_t)rec * keep.size() + k;
       const std::size_t to = (std::size_t)rec * nObjects + i;
       full.valid[to] = kept.valid[from];
-      for (std::size_t c = 0; c < 3; ++c) {
+      for (std::size_t c = 0; c < 3; ++c)
         full.displacement[3*to+c] = kept.displacement[3*from+c];
-        full.matchedRandom[3*to+c] = kept.matchedRandom[3*from+c];
-      }
     }
   }
 

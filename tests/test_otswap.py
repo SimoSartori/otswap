@@ -162,7 +162,24 @@ def same_bytes(a, b):
 
 def result_arrays(result):
     return {name: getattr(result, name) for name in
-            ("displacement", "matched_random", "valid", "valid_realizations", "mean_displacement")}
+            ("displacement", "valid", "valid_realizations", "mean_displacement")}
+
+
+def matched(result):
+    """The random matched to each tracer in each realization, the tracer plus
+    its displacement: the random within rounding."""
+    return result.tracers + result.displacement
+
+
+def pool_index(points, pool, atol=1e-9):
+    """The row of pool each point is, within atol in every coordinate;
+    fails the test for a point that is none of them."""
+    index = []
+    for p in points.reshape(-1, 3):
+        gap = np.abs(pool - p).max(axis=1)
+        assert gap.min() <= atol, f"{p} is none of the pool"
+        index.append(int(gap.argmin()))
+    return np.array(index)
 
 
 # --------------------------------------------------------------------------
@@ -656,7 +673,7 @@ def test_reconstruct_box_result():
     n = len(tracers)
     assert result.n_objects == n and result.n_realizations == 3
     assert result.displacement.shape == (3, n, 3) and result.displacement.dtype == np.float64
-    assert result.matched_random.shape == (3, n, 3) and result.matched_random.dtype == np.float64
+    assert result.tracers.shape == (n, 3) and result.tracers.dtype == np.float64
     assert result.valid.shape == (3, n) and result.valid.dtype == np.bool_
     assert result.valid.all()
     assert result.valid_realizations.shape == (n,) and result.valid_realizations.dtype == np.uint32
@@ -664,15 +681,13 @@ def test_reconstruct_box_result():
     assert result.mean_displacement.shape == (n, 3) and result.mean_displacement.dtype == np.float64
     np.testing.assert_allclose(result.mean_displacement, result.displacement.mean(axis=0),
                                rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(result.matched_random, tracers + result.displacement,
-                               rtol=1e-12, atol=1e-9)
     assert result.filtered_nside == 0
     # the generated randoms fill the bounding box of the tracers
     lo, hi = tracers.min(axis=0), tracers.max(axis=0)
-    assert np.all(result.matched_random >= lo) and np.all(result.matched_random <= hi)
+    assert np.all(matched(result) >= lo) and np.all(matched(result) <= hi)
     # each realization matches every tracer to a distinct random
     for rec in range(3):
-        assert len(np.unique(result.matched_random[rec], axis=0)) == n
+        assert len(np.unique(matched(result)[rec], axis=0)) == n
 
 
 def test_reconstruct_box_with_randoms_uses_them():
@@ -681,12 +696,10 @@ def test_reconstruct_box_with_randoms_uses_them():
     randoms = rng.uniform(0, 80, (2 * len(tracers), 3))
     result = otswap.reconstruct_box(tracers, randoms, mps=10.0,
                                     config=otswap.Config(n_realizations=2, seed=4))
-    matched = result.matched_random.reshape(-1, 3)
-    pool = {tuple(p) for p in randoms}
-    assert all(tuple(p) in pool for p in matched)
-    # the two realizations use disjoint subsets
-    first = {tuple(p) for p in result.matched_random[0]}
-    assert not first & {tuple(p) for p in result.matched_random[1]}
+    # every matched random is one of them, and the two realizations use
+    # disjoint subsets
+    first, second = (set(pool_index(matched(result)[rec], randoms)) for rec in range(2))
+    assert not first & second
 
 
 def test_reconstruct_box_options_and_array_likes():
@@ -922,10 +935,10 @@ def test_reconstruct_box_limits():
     assert flags.dtype == np.bool_ and flags.shape == (512,) and not flags.flags.writeable
     assert np.array_equal(flags, outside) and not r.outside_mask.any() and not r.outside_redshift_cut.any()
     assert not r.valid[:, outside].any() and r.valid[:, ~outside].all()
-    assert np.isnan(r.displacement[:, outside]).all() and np.isnan(r.matched_random[:, outside]).all()
+    assert np.isnan(r.displacement[:, outside]).all()
     assert np.isnan(r.mean_displacement[outside]).all() and (r.valid_realizations[outside] == 0).all()
     assert same_bytes(r.tracers, tracers)
-    drawn = r.matched_random[:, ~outside]
+    drawn = matched(r)[:, ~outside]
     assert (drawn >= LIMITS[0]).all() and (drawn <= LIMITS[1]).all(), "drawn randoms fill the limits"
     assert r.mps == pytest.approx((50.0 * 80.0 * 80.0 / 320) ** (1 / 3), rel=1e-13)
     assert isinstance(r.box, otswap.BoxLimits) and r.box is not limits
@@ -947,9 +960,7 @@ def test_reconstruct_box_limits():
     inside = np.all((randoms >= LIMITS[0]) & (randoms <= LIMITS[1]), axis=1)
     g = otswap.reconstruct_box(tracers, randoms, box=LIMITS,
                                config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
-    pool = {tuple(p) for p in randoms[inside]}
-    assert all(tuple(p) in pool for p in g.matched_random[:, ~outside].reshape(-1, 3)), \
-        "only the given randoms inside the limits are used"
+    pool_index(matched(g)[:, ~outside], randoms[inside])  # only the given randoms inside the limits
     assert g.selection.randoms == 3000 and g.selection.randoms_outside_box == int((~inside).sum())
 
 
@@ -972,7 +983,7 @@ def test_box_limits_on_the_bounding_box_change_nothing(with_randoms):
                                config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
     b = otswap.reconstruct_box(tracers, randoms,
                                config=otswap.Config(n_realizations=2, seed=3, verbosity="silent"))
-    for name in ("displacement", "matched_random", "mean_displacement"):
+    for name in ("displacement", "mean_displacement"):
         assert same_bytes(getattr(a, name), getattr(b, name)), name
     assert a.mps == b.mps
 
@@ -1076,12 +1087,10 @@ def test_reconstruct_lightcone(table, lightcone):
     assert result.displacement.shape == (2, n, 3)
     assert result.valid.all() and np.all(result.valid_realizations == 2)
     tracers = otswap.to_cartesian(tracers_sky, table, angle_unit="deg")
-    np.testing.assert_allclose(result.matched_random, tracers + result.displacement,
-                               rtol=1e-12, atol=1e-8)
+    np.testing.assert_allclose(result.tracers, tracers, rtol=1e-12, atol=1e-8)
     # every matched random is one of the randoms
     randoms = otswap.to_cartesian(randoms_sky, table, angle_unit="deg")
-    pool = {tuple(p) for p in randoms}
-    assert all(tuple(p) in pool for p in result.matched_random.reshape(-1, 3))
+    pool_index(matched(result), randoms)
     # displacements are of the order of the mean particle separation
     n_per_volume = n / (patch_area_deg2() / SPHERE_DEG2 * 4 / 3 * math.pi *
                         np.diff(table.distance_at(list(Z_RANGE)) ** 3)[0])
@@ -1643,7 +1652,7 @@ def test_reject_mask_crossings_updates_in_place(table, lightcone, sieve_mask):
     mask = otswap.Mask(sieve_mask)
     result = lightcone_result(table, lightcone)
     displacement = result.displacement.copy()
-    matched = result.matched_random.copy()
+    tracers = result.tracers.copy()
     valid = result.valid
     valid_realizations = result.valid_realizations
     mean = result.mean_displacement
@@ -1661,7 +1670,7 @@ def test_reject_mask_crossings_updates_in_place(table, lightcone, sieve_mask):
     assert np.all(valid_realizations == valid.sum(axis=0))
     # the displacements themselves are not touched
     assert same_bytes(result.displacement, displacement)
-    assert same_bytes(result.matched_random, matched)
+    assert same_bytes(result.tracers, tracers)
     # the mean is over the valid realizations only, NaN with none
     none_valid = valid_realizations == 0
     assert np.all(np.isnan(mean[none_valid]))
@@ -1744,7 +1753,7 @@ def test_reconstructions_release_the_gil(table, lightcone, sieve_mask):
     # The mask filter takes a lightcone result: the box field, with the sky
     # coordinates of its tracers.
     field = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=4, seed=1))
-    big = otswap.Result.from_arrays(field.displacement, field.matched_random, field.valid, field.tracers,
+    big = otswap.Result.from_arrays(field.displacement, field.valid, field.tracers,
                                     tracers_sky=otswap.to_sky(field.tracers, table, angle_unit="deg"),
                                     angle_unit="deg", distances=table)
     mask = otswap.Mask(sieve_mask)
@@ -1784,7 +1793,6 @@ def read_cpp_result(out, n_realizations, n_objects):
         return np.fromfile(f"{out}.{suffix}", dtype=dtype).reshape(shape)
     return {
         "displacement": load("displacement", np.float64, (n_realizations, n_objects, 3)),
-        "matched_random": load("matched_random", np.float64, (n_realizations, n_objects, 3)),
         "valid": load("valid", np.uint8, (n_realizations, n_objects)).astype(np.bool_),
         "valid_realizations": load("valid_realizations", np.uint32, (n_objects,)),
         "mean_displacement": load("mean_displacement", np.float64, (n_objects, 3)),
@@ -2136,11 +2144,11 @@ def test_result_from_arrays(table, lightcone, sieve_mask):
     r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
                          config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
     otswap.reject_mask_crossings(r, otswap.Mask(sieve_mask))
-    rebuilt = otswap.Result.from_arrays(r.displacement, r.matched_random, r.valid, r.tracers,
+    rebuilt = otswap.Result.from_arrays(r.displacement, r.valid, r.tracers,
                                         tracers_sky=r.tracers_sky, angle_unit="deg", distances=table,
                                         outside_redshift_cut=r.outside_redshift_cut, config=r.config)
     for name in ("mean_displacement", "valid_realizations", "lagrangian", "lagrangian_sky",
-                 "displacement", "matched_random", "valid", "tracers", "outside_redshift_cut",
+                 "displacement", "valid", "tracers", "outside_redshift_cut",
                  "outside_mask"):
         assert same_bytes(getattr(rebuilt, name), getattr(r, name)), name
     assert rebuilt.geometry == "lightcone" and rebuilt.config == r.config and rebuilt.angle_unit == "deg"
@@ -2151,7 +2159,7 @@ def test_result_from_arrays(table, lightcone, sieve_mask):
     valid = box.valid.copy()
     valid[1, :20] = False
     valid[:, 5] = False
-    partial = otswap.Result.from_arrays(box.displacement, box.matched_random, valid, box.tracers)
+    partial = otswap.Result.from_arrays(box.displacement, valid, box.tracers)
     assert partial.geometry == "box" and partial.lagrangian_sky is None
     expected = (box.displacement * valid[..., None]).sum(axis=0)
     some = partial.valid_realizations > 0
@@ -2162,17 +2170,17 @@ def test_result_from_arrays(table, lightcone, sieve_mask):
     assert partial.box is None and not partial.outside_box.any()
     assert same_bytes(partial.mean_displacement, partial.mean_displacement.copy())
 
-    d, m, v, t = box.displacement, box.matched_random, box.valid, box.tracers
-    for args, kwargs in (((d[0], m, v, t), {}), ((d, m[:, :-1], v, t), {}), ((d, m, v[:, :-1], t), {}),
-                         ((d, m, v.astype(float) * 2, t), {}), ((d, m, v, t[:-1]), {}),
-                         ((d, m, v, t), dict(angle_unit="deg")), ((d, m, v, t), dict(distances=table)),
-                         ((d, m, v, t), dict(tracers_sky=t, angle_unit="deg")),
-                         ((d, m, v, t), dict(tracers_sky=t, distances=table)),
-                         ((d, m, v, t), dict(outside_mask=np.zeros(3))),
-                         ((d, m, v, t), dict(outside_box=np.zeros(3))),
-                         ((d, m, v, t), dict(tracers_sky=t, angle_unit="deg", distances=table,
-                                             outside_box=np.zeros(len(t)))),
-                         ((d[:, :0], m[:, :0], v[:, :0], t[:0]), {})):
+    d, v, t = box.displacement, box.valid, box.tracers
+    for args, kwargs in (((d[0], v, t), {}), ((d, v[:, :-1], t), {}),
+                         ((d, v.astype(float) * 2, t), {}), ((d, v, t[:-1]), {}),
+                         ((d, v, t), dict(angle_unit="deg")), ((d, v, t), dict(distances=table)),
+                         ((d, v, t), dict(tracers_sky=t, angle_unit="deg")),
+                         ((d, v, t), dict(tracers_sky=t, distances=table)),
+                         ((d, v, t), dict(outside_mask=np.zeros(3))),
+                         ((d, v, t), dict(outside_box=np.zeros(3))),
+                         ((d, v, t), dict(tracers_sky=t, angle_unit="deg", distances=table,
+                                          outside_box=np.zeros(len(t)))),
+                         ((d[:, :0], v[:, :0], t[:0]), {})):
         with pytest.raises(otswap.Error):
             otswap.Result.from_arrays(*args, **kwargs)
     with pytest.raises(otswap.Error):
@@ -2180,7 +2188,7 @@ def test_result_from_arrays(table, lightcone, sieve_mask):
 
     limited = otswap.reconstruct_box(box_catalogue(), box=LIMITS,
                                      config=otswap.Config(n_realizations=2, seed=2, verbosity="silent"))
-    back = otswap.Result.from_arrays(limited.displacement, limited.matched_random, limited.valid,
+    back = otswap.Result.from_arrays(limited.displacement, limited.valid,
                                      limited.tracers, outside_box=limited.outside_box.astype(np.uint8))
     for name in ("mean_displacement", "valid_realizations", "lagrangian", "outside_box"):
         assert same_bytes(getattr(back, name), getattr(limited, name)), name
@@ -2188,7 +2196,7 @@ def test_result_from_arrays(table, lightcone, sieve_mask):
 
     # config: without it, the defaults with the arrays' n_realizations; given,
     # stored as is, and its n_realizations must be the arrays'
-    arrays = (limited.displacement, limited.matched_random, limited.valid, limited.tracers)
+    arrays = (limited.displacement, limited.valid, limited.tracers)
     assert back.config == otswap.Config(n_realizations=2) and back.distances is None
     given = otswap.Config(n_realizations=2, seed=11, cell_size=2.0, reject_crossings=False, verbosity="silent")
     assert otswap.Result.from_arrays(*arrays, config=given).config == given
@@ -2283,24 +2291,23 @@ def test_write_displacement_complete_round_trip(tmp_path, table, lightcone, siev
     otswap.io.write_displacement_complete(path, r)
     if name.endswith(".dat"):
         assert path.read_text().startswith("## PRODUCT = complete displacements / what the file holds\n")
-    cols = ["tracX", "tracY", "tracZ", "lagrX", "lagrY", "lagrZ", "displX", "displY", "displZ",
-            "tracRA", "tracDec", "tracRed"]
+    cols = ["tracX", "tracY", "tracZ", "displX", "displY", "displZ", "tracRA", "tracDec", "tracRed"]
     t = otswap.io.read(path, cols, integer_columns=["realization", "id", "valid",
                                                     "outsideRedshiftCut", "outsideMask", "outsideBox"])
     nrec, n = r.n_realizations, r.n_objects
-    v = t.values.reshape(nrec, n, 12)
+    v = t.values.reshape(nrec, n, 9)
     k = t.integers.reshape(nrec, n, 6)
     assert (k[:, :, 0] == np.arange(nrec)[:, None]).all() and (k[:, :, 1] == np.arange(n)).all()
     assert not k[:, :, 5].any(), "outsideBox, 0 in a lightcone"
-    np.testing.assert_allclose(v[0, :, 9:12], r.tracers_sky, rtol=1e-15, atol=0)
-    back = otswap.Result.from_arrays(v[:, :, 6:9], v[:, :, 3:6], k[:, :, 2], v[0, :, 0:3],
-                                     tracers_sky=v[0, :, 9:12], angle_unit="deg", distances=table,
+    np.testing.assert_allclose(v[0, :, 6:9], r.tracers_sky, rtol=1e-15, atol=0)
+    back = otswap.Result.from_arrays(v[:, :, 3:6], k[:, :, 2], v[0, :, 0:3],
+                                     tracers_sky=v[0, :, 6:9], angle_unit="deg", distances=table,
                                      outside_redshift_cut=k[0, :, 3], outside_mask=k[0, :, 4], config=r.config)
-    for field in ("displacement", "matched_random", "valid", "tracers", "mean_displacement",
+    for field in ("displacement", "valid", "tracers", "mean_displacement",
                   "valid_realizations", "lagrangian", "lagrangian_sky"):
         assert same_bytes(getattr(back, field), getattr(r, field)), field
-    finite = ~np.isnan(v[:, :, 6])
-    assert np.array_equal(v[:, :, 6][finite], (v[:, :, 3] - v[:, :, 0])[finite])
+    with pytest.raises(otswap.Error, match="lagrX"):
+        otswap.io.read(path, ["lagrX"])
 
 
 # The parts of a lightcone's complete file: twin files in ASCII, HDUs in FITS,
@@ -2335,7 +2342,7 @@ def test_write_displacement_complete_parts(tmp_path, table, lightcone):
     otswap.io.write_displacement_complete(fits, r)
     header = fits.read_bytes()
     assert header.count(b"EXTNAME = 'MPSPROF ") == 1 and header.count(b"EXTNAME = 'DISTANCE'") == 1
-    back = otswap.Result.from_arrays(r.displacement, r.matched_random, r.valid, r.tracers,
+    back = otswap.Result.from_arrays(r.displacement, r.valid, r.tracers,
                                      tracers_sky=r.tracers_sky, angle_unit="deg", distances=table)
     otswap.io.write_displacement_complete(path, back)
     assert not mps.exists() and distances.exists(), "from_arrays: a table, no profile"
@@ -2373,7 +2380,7 @@ def same_result(back, r, exact):
     """The members a Python Result shows, back as written: bit for bit (NaN
     with its sign in FITS, exact=True), but the sky angles."""
     same = same_bytes if exact else same_values
-    for field in ("ids", "tracers", "displacement", "matched_random", "valid", "valid_realizations",
+    for field in ("ids", "tracers", "displacement", "valid", "valid_realizations",
                   "mean_displacement", "lagrangian", "outside_redshift_cut", "outside_mask", "outside_box"):
         assert same(getattr(back, field), getattr(r, field)), field
     for field in ("n_objects", "n_realizations", "geometry", "angle_unit", "config", "filtered_nside"):
@@ -2477,7 +2484,7 @@ def test_read_displacement_complete_errors(tmp_path, table, lightcone):
 def test_read_displacement_complete_from_arrays(tmp_path, table, lightcone):
     r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
                          config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
-    built = otswap.Result.from_arrays(r.displacement, r.matched_random, r.valid, r.tracers,
+    built = otswap.Result.from_arrays(r.displacement, r.valid, r.tracers,
                                       tracers_sky=r.tracers_sky, angle_unit="deg", distances=table,
                                       outside_redshift_cut=r.outside_redshift_cut, config=r.config)
     path = tmp_path / "built.fits"
@@ -2626,7 +2633,7 @@ def test_from_arrays_ids():
     r = otswap.reconstruct_box(box_catalogue(),
                                config=otswap.Config(n_realizations=2, seed=1, verbosity="silent"))
     n = r.n_objects
-    arrays = (r.displacement, r.matched_random, r.valid, r.tracers)
+    arrays = (r.displacement, r.valid, r.tracers)
     assert np.array_equal(otswap.Result.from_arrays(*arrays).ids, np.arange(n))
     assert np.array_equal(otswap.Result.from_arrays(*arrays, ids=None).ids, np.arange(n))
     ids = np.arange(n) * -5 - 1

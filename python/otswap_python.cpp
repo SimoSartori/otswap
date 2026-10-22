@@ -1007,7 +1007,7 @@ NB_MODULE(_otswap, m)
   nb::class_<otswap::Result>(m, "Result", nb::is_weak_referenceable(),
                              "Displacement field produced by a reconstruction.")
     .def_static("from_arrays",
-        [] (nb::handle displacement, nb::handle matchedRandom, nb::handle valid, nb::handle tracers,
+        [] (nb::handle displacement, nb::handle valid, nb::handle tracers,
             nb::handle tracersSky, nb::handle angleUnit, nb::handle distances,
             nb::handle outsideRedshiftCut, nb::handle outsideMask, nb::handle outsideBox,
             nb::handle ids, nb::handle config) {
@@ -1020,7 +1020,6 @@ NB_MODULE(_otswap, m)
           r.nObjects = n;
           r.nRealizations = (unsigned)nRec;
           r.displacement.assign(d.data(), d.data() + d.size());
-          r.matchedRandom = shaped(matchedRandom, "matched_random", {nRec, n, 3});
           r.valid = flags(valid, "valid", {nRec, n});
           r.tracers = shaped(tracers, "tracers", {n, 3});
           r.outsideRedshiftCut = outsideRedshiftCut.is_none()
@@ -1056,7 +1055,7 @@ NB_MODULE(_otswap, m)
           otswap::recomputeMeans(r);
           return result_object(std::move(r), degrees);
         },
-        "displacement"_a.none(), "matched_random"_a.none(), "valid"_a.none(), "tracers"_a.none(),
+        "displacement"_a.none(), "valid"_a.none(), "tracers"_a.none(),
         nb::kw_only(), "tracers_sky"_a = nb::none(), "angle_unit"_a = nb::none(),
         "distances"_a = nb::none(), "outside_redshift_cut"_a = nb::none(),
         "outside_mask"_a = nb::none(), "outside_box"_a = nb::none(), "ids"_a = nb::none(),
@@ -1094,12 +1093,6 @@ NB_MODULE(_otswap, m)
         return checked_view<double>(self, r.displacement, "result", "displacement", r.nObjects, 3,
                                     r.nRealizations);
       }, "Displacements, shape (n_realizations, n_objects, 3).")
-    .def_prop_ro("matched_random", [] (ResultHandle self) {
-        const otswap::Result& r = result_of(self);
-        return checked_view<double>(self, r.matchedRandom, "result", "matched_random", r.nObjects, 3,
-                                    r.nRealizations);
-      }, "Cartesian position of the random matched to each tracer, shape "
-         "(n_realizations, n_objects, 3).")
     .def_prop_ro("valid", [] (ResultHandle self) {
         const otswap::Result& r = result_of(self);
         return checked_view<bool>(self, r.valid, "result", "valid", r.nObjects, 1, r.nRealizations);

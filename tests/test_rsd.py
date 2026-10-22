@@ -214,7 +214,7 @@ def test_real_space_lightcone(table, lightcone):
 
     rad = tracers.copy()
     rad[:, :2] = np.deg2rad(rad[:, :2])
-    rad_result = otswap.Result.from_arrays(result.displacement, result.matched_random, result.valid,
+    rad_result = otswap.Result.from_arrays(result.displacement, result.valid,
                                            result.tracers, tracers_sky=rad, angle_unit="rad",
                                            distances=table)
     cr = otswap.real_space_lightcone(rad_result, distances=table, bias=BIAS, sigma=10.0, correction=QUIET)
@@ -320,7 +320,7 @@ def test_real_space_lightcone_errors(table, lightcone, box):
     short = otswap.DistanceTable.flat(0.3, 0.7, z_max=0.6, n_samples=2000)
     at_edge = tracers.copy()
     at_edge[:, 2] = 0.6
-    edge = otswap.Result.from_arrays(result.displacement, result.matched_random, result.valid,
+    edge = otswap.Result.from_arrays(result.displacement, result.valid,
                                      otswap.to_cartesian(at_edge, short, angle_unit="deg"),
                                      tracers_sky=at_edge, angle_unit="deg", distances=short)
     with pytest.raises(otswap.Error, match="wider redshift range"):
@@ -353,16 +353,12 @@ def test_neighbour_search_error(table):
 
 
 def test_result_agrees_with_its_tracers(table, lightcone, box):
-    """matched_random - displacement gives back the tracers the result
-    carries, within rounding."""
+    """The result carries the tracers it was reconstructed from."""
     tracers, result = lightcone
     cart = otswap.to_cartesian(tracers, table, angle_unit="deg")
     assert np.array_equal(result.tracers, cart)
-    back = result.matched_random - result.displacement
-    assert np.allclose(back, cart[None], rtol=0, atol=1e-9)
     t, r = box
     assert np.array_equal(r.tracers, t)
-    assert np.allclose(r.matched_random - r.displacement, t[None], rtol=0, atol=1e-9)
 
 
 def test_redshift_cut(table):

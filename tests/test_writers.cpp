@@ -211,7 +211,6 @@ namespace {
     if (!same_bits(read.tracers, expected.tracers)) return "tracers";
     if (!close_sky(read.tracersSky, expected.tracersSky)) return "tracersSky";
     if (!same_bits(read.displacement, expected.displacement)) return "displacement";
-    if (!same_bits(read.matchedRandom, expected.matchedRandom)) return "matchedRandom";
     if (read.valid != expected.valid) return "valid";
     if (!same_bits(read.meanDisplacement, expected.meanDisplacement)) return "meanDisplacement";
     if (read.validRealizations != expected.validRealizations) return "validRealizations";
@@ -415,15 +414,14 @@ int main ()
       const std::string file = temporary(name);
       io::writeDisplacementComplete(file, lc);
       if (name == "complete.dat")
-        check(names_of(file) == "realization id tracRA tracDec tracRed tracX tracY tracZ lagrX lagrY lagrZ "
-                                "displX displY displZ valid outsideRedshiftCut outsideMask outsideBox",
+        check(names_of(file) == "realization id tracRA tracDec tracRed tracX tracY tracZ displX displY displZ "
+                                "valid outsideRedshiftCut outsideMask outsideBox",
               "the columns: " + names_of(file));
       const std::string product = name == "complete.dat" ? text_of(file).substr(0, 38)
                                                          : fits_keyword(file, "PRODUCT");
       check(product == (name == "complete.dat" ? "## PRODUCT = complete displacements / " : "'complete displacements'"),
             name + ": PRODUCT is complete displacements: " + product);
-      const io::Table t = io::read(file, {"tracX", "tracY", "tracZ", "lagrX", "lagrY", "lagrZ",
-                                          "displX", "displY", "displZ"},
+      const io::Table t = io::read(file, {"tracX", "tracY", "tracZ", "displX", "displY", "displZ"},
                                    {"realization", "id", "valid", "outsideRedshiftCut", "outsideMask"});
       check(t.nRows == 3 * n, name + ": one row per realization and tracer");
       Result back;
@@ -432,21 +430,18 @@ int main ()
       back.geometry = Geometry::Lightcone;
       back.distances = std::make_shared<const DistanceTable>(table);
       back.tracers.resize(3 * n);
-      back.matchedRandom.resize(9 * n);
       back.displacement.resize(9 * n);
       back.valid.resize(3 * n);
       back.outsideRedshiftCut.resize(n);
       back.outsideMask.resize(n);
-      bool order = true, difference = true;
+      bool order = true;
       for (std::size_t row = 0; row < 3 * n; ++row) {
-        const double* v = &t.values[9*row];
+        const double* v = &t.values[6*row];
         const std::int64_t* k = &t.integers[5*row];
         order = order && k[0] == (std::int64_t)(row / n) && k[1] == (std::int64_t)(row % n);
         for (std::size_t c = 0; c < 3; ++c) {
           back.tracers[3*(row % n)+c] = v[c];
-          back.matchedRandom[3*row+c] = v[3+c];
-          back.displacement[3*row+c] = v[6+c];
-          if (!std::isnan(v[6+c])) difference = difference && v[6+c] == v[3+c] - v[c];
+          back.displacement[3*row+c] = v[3+c];
         }
         back.valid[row] = (std::uint8_t)k[2];
         back.outsideRedshiftCut[row % n] = (std::uint8_t)k[3];
@@ -471,8 +466,7 @@ int main ()
       check(close, name + ": the sky positions back in radians, within the rounding of the conversion");
       check(inside, name + ": outsideBox 0 in a lightcone");
       check(order, name + ": ordered [realization][object]");
-      check(difference, name + ": displacement = lagr - trac, bit for bit");
-      check(same_bits(back.displacement, lc.displacement) && same_bits(back.matchedRandom, lc.matchedRandom) &&
+      check(same_bits(back.displacement, lc.displacement) &&
             same_bits(back.tracers, lc.tracers) && back.valid == lc.valid &&
             back.outsideMask == lc.outsideMask && back.outsideRedshiftCut == lc.outsideRedshiftCut,
             name + ": every array read back identical");
@@ -808,6 +802,45 @@ int main ()
     }
   }
 
+  group("readDisplacementComplete: the columns lagrX..lagrZ of earlier files of this version are not read");
+  {
+    const std::string written = temporary("complete_box.dat"), older = temporary("complete_box_lagr.dat");
+    io::writeDisplacementComplete(written, box);
+    const std::vector<std::string> doubles {"tracX", "tracY", "tracZ", "displX", "displY", "displZ"};
+    const std::vector<std::string> integers {"realization", "id", "valid", "outsideRedshiftCut", "outsideMask",
+                                             "outsideBox"};
+    const io::Table t = io::read(written, doubles, integers);
+    std::vector<io::Column> columns;
+    auto add = [&columns, &t] (const std::string& name, const char type, const std::size_t at, const bool integer) {
+      io::Column c{name, type, "", "", {}, {}};
+      for (std::size_t row = 0; row < t.nRows; ++row) {
+        if (type == 'K') c.integers.push_back(t.integers[row * t.nIntegerColumns + at]);
+        else c.data.push_back(integer ? (double)t.integers[row * t.nIntegerColumns + at]
+                                      : t.values[row * t.nColumns + at]);
+      }
+      columns.push_back(c);
+    };
+    add("realization", 'J', 0, true);
+    add("id", 'K', 1, true);
+    for (std::size_t c = 0; c < 3; ++c) add(doubles[c], 'D', c, false);
+    for (std::size_t c = 0; c < 3; ++c) {
+      add("lagr" + std::string(1, "XYZ"[c]), 'D', c, false);
+      for (std::size_t row = 0; row < t.nRows; ++row) columns.back().data[row] += t.values[row * t.nColumns + 3 + c];
+    }
+    for (std::size_t c = 3; c < 6; ++c) add(doubles[c], 'D', c, false);
+    for (std::size_t k = 2; k < 6; ++k) add(integers[k], 'J', k, true);
+    io::WriteOptions options;
+    options.precision = 17;
+    options.keywords = internal::read_keywords(written);
+    io::write(older, columns, options);
+    const std::string d = difference(io::readDisplacementComplete(older), io::readDisplacementComplete(written));
+    check(names_of(older) == "realization id tracX tracY tracZ lagrX lagrY lagrZ displX displY displZ valid "
+                             "outsideRedshiftCut outsideMask outsideBox" && d.empty(),
+          "a file with the columns reads as the one without them: " + (d.empty() ? "the same" : d + " differs"));
+    std::remove(written.c_str());
+    std::remove(older.c_str());
+  }
+
   group("readDisplacementComplete: counts checked against the flags only when the file records them (NTRAC)");
   {
     Result handBuilt = lc;
@@ -854,8 +887,8 @@ int main ()
     check(refused(good.substr(0, good.rfind('\n', good.size() - 2) + 1), "it holds 2699 rows"), "a row missing");
     check(refused(with_field(good, 1, 0, "1"), "row 1 (from 0) holds realization 1, where 0 is expected"),
           "a row out of its realization's block");
-    check(refused(with_field(good, 5, 14, "2"), "the column valid holds 2 at row 5"), "valid neither 0 nor 1");
-    check(refused(with_field(good, 4, 17, "2"), "the column outsideBox holds 2 at row 4"), "a flag neither 0 nor 1");
+    check(refused(with_field(good, 5, 11, "2"), "the column valid holds 2 at row 5"), "valid neither 0 nor 1");
+    check(refused(with_field(good, 4, 14, "2"), "the column outsideBox holds 2 at row 4"), "a flag neither 0 nor 1");
     check(refused(with_field(good, 0, 1, "1"), "ids holds 1 twice"), "an ID repeated");
     const std::string cut = count_of("NTRCUT");
     check(refused(replaced(good, "## NTRCUT = " + cut, "## NTRCUT = " + std::to_string(std::stoul(cut) + 1)),

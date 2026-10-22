@@ -209,7 +209,6 @@ class Result:
     @staticmethod
     def from_arrays(
         displacement: ArrayLike,
-        matched_random: ArrayLike,
         valid: ArrayLike,
         tracers: ArrayLike,
         *,
@@ -226,7 +225,7 @@ class Result:
 
         Parameters
         ----------
-        displacement, matched_random : array_like, shape (n_realizations, n_objects, 3)
+        displacement : array_like, shape (n_realizations, n_objects, 3)
         valid : array_like, shape (n_realizations, n_objects)
             Each entry 0 or 1 (or bool).
         tracers : array_like, shape (n_objects, 3)
@@ -355,11 +354,6 @@ class Result:
         """Displacements, shape (n_realizations, n_objects, 3)."""
 
     @property
-    def matched_random(self) -> NDArray[np.float64]:
-        """Cartesian position of the random matched to each tracer, shape
-        (n_realizations, n_objects, 3)."""
-
-    @property
     def valid(self) -> NDArray[np.bool_]:
         """Whether each displacement is valid, shape
         (n_realizations, n_objects). All true unless a filter was applied."""
@@ -382,8 +376,7 @@ class Result:
         """Whether each tracer lay outside the ``redshift_cut`` of
         ``reconstruct_lightcone`` and took no part in the reconstruction,
         shape (n_objects,). All false without a cut. A cut tracer has NaN
-        displacements and matched randoms, no valid realization and a NaN
-        mean displacement."""
+        displacements, no valid realization and a NaN mean displacement."""
 
     @property
     def outside_mask(self) -> NDArray[np.bool_]:
@@ -983,8 +976,8 @@ def reject_mask_crossings(
     ``max_unobserved_pixels_crossed`` distinct unobserved pixels of the mask;
     0 rejects at the first one.
 
-    The path is the great-circle arc between the directions of the tracer and
-    of its matched random. The pixels containing the two endpoints are not
+    The path is the great-circle arc between the directions of the tracer
+    (``result.tracers``) and of the tracer plus its displacement. The pixels containing the two endpoints are not
     tested. The count depends on NSIDE. Updates ``result`` in place; it only
     ever marks displacements invalid, and raises if ``result`` was already
     filtered against a mask of a different NSIDE, or if ``result`` is a box
