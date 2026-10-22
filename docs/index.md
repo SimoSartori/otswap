@@ -29,7 +29,7 @@ cmake --install build --prefix /path/to/prefix
 and use it from your own CMake project:
 
 ```cmake
-find_package(otswap 0.1 CONFIG REQUIRED)
+find_package(otswap 0.2 CONFIG REQUIRED)
 target_link_libraries(your_target PRIVATE otswap::otswap)
 ```
 

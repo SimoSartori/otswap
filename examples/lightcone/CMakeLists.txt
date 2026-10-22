@@ -14,7 +14,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(otswap_example_lightcone LANGUAGES CXX)
 
-find_package(otswap 0.1 CONFIG REQUIRED)
+find_package(otswap 0.2 CONFIG REQUIRED)
 
 add_executable(lightcone lightcone.cpp)
 target_link_libraries(lightcone PRIVATE otswap::otswap)

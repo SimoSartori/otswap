@@ -2251,7 +2251,7 @@ def test_write_displacement_mean(tmp_path, table, lightcone, sieve_mask):
     path = tmp_path / "d.dat"
     otswap.io.write_displacement_mean(path, r)
     text = path.read_text()
-    assert text.startswith("## PRODUCT = displacements / what the file holds\n## OTSWAPV = 0.1.0")
+    assert text.startswith("## PRODUCT = displacements / what the file holds\n## OTSWAPV = 0.2.0")
     assert "## SEED = 5 /" in text and "## ZCUTMIN = 0.35 /" in text
     names = ["tracRA", "tracDec", "tracRed", "lagrRA", "lagrDec", "lagrRed", "tracX", "tracY", "tracZ",
              "lagrX", "lagrY", "lagrZ", "displX", "displY", "displZ"]

@@ -325,7 +325,7 @@ int main ()
                             "lagrZ displX displY displZ nValidRec outsideRedshiftCut outsideMask",
           "the lightcone: " + names_of(file));
     const std::string text = text_of(file);
-    check(text.find("## PRODUCT = displacements / what the file holds\n## OTSWAPV = 0.1.0 / otswap version\n"
+    check(text.find("## PRODUCT = displacements / what the file holds\n## OTSWAPV = 0.2.0 / otswap version\n"
                     "## GEOMETRY = lightcone / geometry of the reconstruction\n"
                     "## NOBJECTS = 900 / number of input objects\n## NREC = 3 / realizations\n"
                     "## SEED = 4321 / seed of the random streams\n") == 0,

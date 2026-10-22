@@ -14,7 +14,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(otswap_example_box LANGUAGES CXX)
 
-find_package(otswap 0.1 CONFIG REQUIRED)
+find_package(otswap 0.2 CONFIG REQUIRED)
 
 add_executable(box box.cpp)
 target_link_libraries(box PRIVATE otswap::otswap)
