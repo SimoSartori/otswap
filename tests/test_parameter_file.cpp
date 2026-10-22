@@ -500,5 +500,19 @@ int main ()
     check(same_entries(file.unread(), {{"b", 2}}), "the read shows in unread()");
   }
 
+  group("line(key) gives the line that sets the key");
+  {
+    const std::string path =
+      file_with("line", "first = 1\n# a comment\n\nmiddle = 2   # after a value\n\n  # indented\nlast = 3");
+    const ParameterFile p(path);
+    check(p.line("first") == 1 && p.line("middle") == 4 && p.line("last") == 7,
+          "the first, a middle and the last key, past comment and blank lines");
+    check(same_entries(p.unread(), {{"first", 1}, {"middle", 4}, {"last", 7}}), "line marks no key read");
+    check_message([&] { p.line("absent"); }, path + ": key 'absent' is missing",
+                  "a key the file does not set is the message of get");
+    check(p.get<int>("middle") == 2 && p.line("middle") == 4, "after get, the same line");
+    check(same_entries(p.unread(), {{"first", 1}, {"last", 7}}), "and only get marked it");
+  }
+
   return report("test_parameter_file");
 }

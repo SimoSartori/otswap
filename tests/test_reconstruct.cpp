@@ -110,6 +110,7 @@ int main ()
   {
     const std::vector<double> tiny(3 * 50, 0.);
     Config c;
+    c.nRealizations = 1;
     check_throws([&] { reconstructBox(tiny, {}, spacing, c); },
                  "fewer objects than the neighbourhood needs raises");
   }
@@ -117,6 +118,7 @@ int main ()
   group("malformed input is refused before any work is done");
   {
     Config c;
+    c.nRealizations = 1;
     check_throws([&] { reconstructBox({}, {}, spacing, c); }, "an empty tracer array");
     check_throws([&] { reconstructBox({1., 2.}, {}, spacing, c); },
                  "a tracer array whose size is not a multiple of three");
@@ -140,6 +142,7 @@ int main ()
     // A cell of 1e-12 mps: the tracer grid would need far more cells along
     // an axis than it can count, and refuses before allocating anything.
     Config c;
+    c.nRealizations = 1;
     c.cellSize = 1.e-12;
     check_nested<meshsearch::Error>([&] { reconstructBox(tracers, {}, spacing, c); },
                                     "meshsearch: ", "reconstructBox with the mps");
@@ -215,6 +218,7 @@ int main ()
   group("the Lagrangian position is the coordinate plus the displacement");
   {
     Config c;
+    c.nRealizations = 1;
     c.seed = 7;
     const Result result = reconstructBox(tracers, {}, spacing, c);
 
@@ -256,6 +260,7 @@ int main ()
   group("a tighter convergence never leaves a worse matching");
   {
     Config loose, tight;
+    loose.nRealizations = tight.nRealizations = 1;
     loose.seed = tight.seed = 555;
     loose.convergence = 5.e-2;
     tight.convergence = 1.e-4;
@@ -279,6 +284,7 @@ int main ()
     // large, monotone reduction towards the known answer, and a majority
     // of pairs recovered exactly.
     Config c;
+    c.nRealizations = 1;
     c.seed = 4;
     c.convergence = 1.e-4;
 
@@ -560,6 +566,7 @@ int main ()
     }
 
     Config c;
+    c.nRealizations = 1;
     c.seed = 606;
     c.convergence = 1.e-2;
 
@@ -836,6 +843,7 @@ int main ()
         "refused, naming the box");
   {
     Config c;
+    c.nRealizations = 1;
     c.verbosity = Verbosity::Silent;
     check(message_contains([&] { reconstructBox(boxed, {}, c, BoxLimits()); },
                            "the box limits hold a bound of nan on axis x; every bound must be finite"),
@@ -869,6 +877,7 @@ int main ()
   group("box limits: the report, Normal, Detailed and Silent");
   {
     Config c;
+    c.nRealizations = 1;
     c.seed = 24;
     std::ostringstream normal, detailed, silent;
     c.log = &normal;

@@ -166,7 +166,7 @@ namespace otswap {
   struct Config {
 
     /// Independent reconstructions to run. Each consumes nObjects randoms.
-    unsigned nRealizations = 1;
+    unsigned nRealizations = 30;
 
     /// The sweeps stop once the fraction of successful swaps in a sweep,
     /// swaps per tracer visited, no longer exceeds this threshold. Every
@@ -499,7 +499,8 @@ namespace otswap {
      *  @brief Build from the parameters of a flat cosmology.
      *
      *  Samples nSamples points over [zMin, zMax] and integrates 1/E(z).
-     *  Non-flat cosmologies are served by the table constructor below.
+     *  The defaults of w0 and wa give flat LCDM. Non-flat cosmologies are
+     *  served by the table constructor below.
      *
      *  With the default range and sampling, for flat LCDM and w0-wa
      *  cosmologies near it, the relative error of distanceAt, redshiftAt
@@ -519,8 +520,8 @@ namespace otswap {
      *
      *  @param OmegaM matter density parameter; must lie in (0, 1]
      *  @param h Hubble constant in units of 100 km/s/Mpc; must be positive
-     *  @param w0 dark energy equation of state, constant term
-     *  @param wa dark energy equation of state, evolution term
+     *  @param w0 dark energy equation of state, constant term; default -1
+     *  @param wa dark energy equation of state, evolution term; default 0
      *  @param zMin lower end of the sampled range; must be non-negative
      *  @param zMax upper end; must exceed zMin
      *  @param nSamples sampling points, uniform in redshift; must be at
@@ -528,7 +529,7 @@ namespace otswap {
      *
      *  @exception Error if any parameter is out of range.
      */
-    DistanceTable (double OmegaM, double h, double w0, double wa,
+    DistanceTable (double OmegaM, double h, double w0 = -1., double wa = 0.,
                    double zMin = 0., double zMax = 10., unsigned nSamples = 50000);
 
     /**

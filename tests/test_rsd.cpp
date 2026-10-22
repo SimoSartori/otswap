@@ -534,6 +534,7 @@ int main ()
     limits.lower = {0., 0., 0.};
     limits.upper = {60., 100., 100.};
     Config quietBox;
+    quietBox.nRealizations = 1;
     quietBox.seed = 9;
     quietBox.verbosity = Verbosity::Silent;
     const Result r = reconstructBox(cart, {}, quietBox, limits);
@@ -680,6 +681,7 @@ int main ()
     const DistanceTable table = linear_table(1.5, 0.8);
     std::mt19937 own(41);
     Config config;
+    config.nRealizations = 1;
     config.seed = 7;
 
     std::vector<double> plane = uniform_points(400, 80., own);

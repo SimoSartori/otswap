@@ -85,7 +85,7 @@ class Config:
     def __init__(
         self,
         *,
-        n_realizations: int = 1,
+        n_realizations: int = 30,
         convergence: float = 1e-3,
         seed: int = 0,
         cell_size: float = 4.0,

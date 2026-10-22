@@ -109,6 +109,11 @@ namespace otswap {
       /// True if the file sets the key. Does not mark it read.
       bool has (const std::string& key) const;
 
+      /// The line, from 1, that sets the key. Does not mark it read.
+      /// @throw otswap::Error if the file does not set the key, with the
+      /// message of get: `run.ini: key 'seed' is missing`
+      std::size_t line (const std::string& key) const;
+
       /// The value of a key the file must set, as a T. Marks the key read.
       /// @throw otswap::Error if the key is missing or its value is not a T
       template <typename T>

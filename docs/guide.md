@@ -120,9 +120,9 @@ filter, the redshift-space correction and the table readers and writers of
 - **`convergence`**, default 1e-3: the sweeps stop once the fraction of
   successful swaps in a sweep, swaps per tracer visited, no longer exceeds
   this threshold. Larger values are faster and less accurate.
-- **`nRealizations`** (`n_realizations`): more realizations bring the mean
-  Lagrangian position closer to the centroid of the tracer's Laguerre cell,
-  and need N more randoms each.
+- **`nRealizations`** (`n_realizations`), default 30: more realizations
+  bring the mean Lagrangian position closer to the centroid of the tracer's
+  Laguerre cell, and need N more randoms each.
 - **`cellSize`** (`cell_size`), default 4 mps: affects the speed only, never
   the result.
 - **σ of the redshift-space correction:** 10 Mpc/h is a reasonable starting

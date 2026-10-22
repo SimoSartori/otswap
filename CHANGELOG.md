@@ -7,11 +7,14 @@
 - `otswap::io::ParameterFile`, in the new header `otswap/ParameterFile.h`: a
   reader of `key = value` parameter files, with typed reads of strings,
   booleans, integers, doubles, characters and lists of each, errors naming
-  the file, line and key, and the list of the keys never read. The syntax is
-  on the "File formats" page. C++ only.
+  the file, line and key, the line that sets a key, and the list of the keys
+  never read. The syntax is on the "File formats" page. C++ only.
+- The cosmology constructor of `DistanceTable` defaults `w0` to -1 and `wa`
+  to 0, flat LCDM; Python's `DistanceTable.flat` already did.
 
 ### Changed
 
+- `Config::nRealizations` (`n_realizations`) defaults to 30, was 1.
 - Requires meshsearch 0.2.1 or a later 0.2.x; 0.2.1 is fetched when none is
   installed.
 - Tracers at exactly the same distance from a tracer, or randoms at exactly

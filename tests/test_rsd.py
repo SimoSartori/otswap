@@ -337,7 +337,7 @@ def test_neighbour_search_error(table):
     with pytest.raises(otswap.Error, match="^meshsearch: "):
         otswap.neighbour_average(plane, np.ones(400), np.ones(400, dtype=np.uint32), sigma=3.0)
     box = otswap.reconstruct_box(plane, mps=80 / 400 ** (1 / 3),
-                                 config=otswap.Config(seed=7, verbosity="silent"))
+                                 config=otswap.Config(n_realizations=1, seed=7, verbosity="silent"))
     with pytest.raises(otswap.Error, match="^meshsearch: "):
         otswap.real_space_box(box, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=10.0,
                               correction=QUIET)
@@ -347,7 +347,7 @@ def test_neighbour_search_error(table):
                                rng.uniform(0.3, 0.6, 600)])
     light = otswap.reconstruct_lightcone(tracers, randoms, sky_area_deg2=870.0, n_bins=1,
                                          distances=table, angle_unit="deg",
-                                         config=otswap.Config(seed=7, verbosity="silent"))
+                                         config=otswap.Config(n_realizations=1, seed=7, verbosity="silent"))
     with pytest.raises(otswap.Error, match="^meshsearch: "):
         otswap.real_space_lightcone(light, distances=table, bias=BIAS, sigma=10.0, correction=QUIET)
 

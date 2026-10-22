@@ -289,6 +289,18 @@ bool otswap::io::ParameterFile::has (const std::string& key) const
 // ============================================================================
 
 
+std::size_t otswap::io::ParameterFile::line (const std::string& key) const
+{
+  const auto found = m_index.find(key);
+  if (found == m_index.end())
+    throw otswap::Error(m_file + ": key '" + key + "' is missing");
+  return m_values[found->second].line;
+}
+
+
+// ============================================================================
+
+
 std::vector<otswap::io::ParameterFile::Entry> otswap::io::ParameterFile::unread () const
 {
   std::vector<Entry> entries;

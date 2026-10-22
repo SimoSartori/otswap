@@ -146,7 +146,7 @@ int main ()
   group("a caller-supplied table is validated");
   {
     check_throws([] { DistanceTable({0., 1.}, {0., 1., 2.}); }, "arrays of different length");
-    check_throws([] { DistanceTable({0.}, {0.}); }, "a table of one point");
+    check_throws([] { DistanceTable(std::vector<double>{0.}, std::vector<double>{0.}); }, "a table of one point");
     check_throws([] { DistanceTable({0., 1., 0.5}, {0., 1., 2.}); },
                  "a redshift array that is not increasing");
     check_throws([] { DistanceTable({0., 1., 2.}, {0., 2., 1.}); },

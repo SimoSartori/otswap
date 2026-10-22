@@ -691,14 +691,17 @@ def test_reconstruct_box_with_randoms_uses_them():
 
 def test_reconstruct_box_options_and_array_likes():
     tracers = box_catalogue()
-    base = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(seed=9))
-    again = otswap.reconstruct_box(tracers.tolist(), None, mps=10, config=otswap.Config(seed=np.int64(9)))
+    base = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=1, seed=9))
+    again = otswap.reconstruct_box(tracers.tolist(), None, mps=10,
+                                   config=otswap.Config(n_realizations=1, seed=np.int64(9)))
     assert same_bytes(base.displacement, again.displacement)
-    fortran = otswap.reconstruct_box(np.asfortranarray(tracers), mps=10.0, config=otswap.Config(seed=9))
+    fortran = otswap.reconstruct_box(np.asfortranarray(tracers), mps=10.0,
+                                     config=otswap.Config(n_realizations=1, seed=9))
     assert same_bytes(base.displacement, fortran.displacement)
-    other_seed = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(seed=10))
+    other_seed = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=1, seed=10))
     assert not same_bytes(base.displacement, other_seed.displacement)
-    loose = otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(seed=9, convergence=0.5))
+    loose = otswap.reconstruct_box(tracers, mps=10.0,
+                                   config=otswap.Config(n_realizations=1, seed=9, convergence=0.5))
     assert loose.displacement.shape == base.displacement.shape
 
 
@@ -761,8 +764,8 @@ def test_reconstruct_box_errors(args, kwargs):
 def test_config_defaults_repr_and_equality():
     c = otswap.Config()
     assert (c.n_realizations, c.convergence, c.seed, c.cell_size, c.reject_crossings,
-            c.max_unobserved_pixels_crossed, c.verbosity) == (1, 1e-3, 0, 4.0, True, 0, "normal")
-    assert repr(c) == ("Config(n_realizations=1, convergence=0.001, seed=0, cell_size=4.0, "
+            c.max_unobserved_pixels_crossed, c.verbosity) == (30, 1e-3, 0, 4.0, True, 0, "normal")
+    assert repr(c) == ("Config(n_realizations=30, convergence=0.001, seed=0, cell_size=4.0, "
                        "reject_crossings=True, max_unobserved_pixels_crossed=0, verbosity='normal')")
     other = otswap.Config(n_realizations=3, convergence=0.25, seed=7, cell_size=2.5, reject_crossings=False,
                           max_unobserved_pixels_crossed=4, verbosity="detailed")
@@ -837,7 +840,7 @@ def test_config_is_copied_and_its_keywords_are_gone(capfd):
     r = otswap.reconstruct_box(tracers, mps=10.0, config=config)
     assert config.seed == 0 and r.config.seed != 0, "the drawn seed is the result's, not the argument's"
     assert config == otswap.Config(n_realizations=2, verbosity="silent")
-    otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(seed=1))
+    otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=1, seed=1))
     assert "otswap: reconstructBox" in capfd.readouterr().out, "the default config is \"normal\""
     for gone in (dict(n_realizations=2), dict(convergence=1e-3), dict(seed=1), dict(cell_size=4.0),
                  dict(verbosity="silent")):
@@ -994,7 +997,7 @@ def test_reconstruct_box_limit_errors(box, randoms, match):
 
 def test_box_limits_report(capfd):
     tracers = box_catalogue()
-    r = otswap.reconstruct_box(tracers, box=LIMITS, config=otswap.Config(seed=2))
+    r = otswap.reconstruct_box(tracers, box=LIMITS, config=otswap.Config(n_realizations=1, seed=2))
     out, err = capfd.readouterr()
     box = "[0, 50] x [0, 80] x [0, 80]"
     assert out == (f"otswap: kept 320 of 512 tracers: 192 outside the box {box}\n"
@@ -1002,11 +1005,13 @@ def test_box_limits_report(capfd):
     assert "; 192 without a valid displacement" in out and err == ""
     randoms = np.random.default_rng(9).uniform(0.0, 100.0, (2000, 3))
     dropped = int((~np.all((randoms >= LIMITS[0]) & (randoms <= LIMITS[1]), axis=1)).sum())
-    otswap.reconstruct_box(tracers, randoms, box=LIMITS, config=otswap.Config(seed=2, verbosity="detailed"))
+    otswap.reconstruct_box(tracers, randoms, box=LIMITS,
+                           config=otswap.Config(n_realizations=1, seed=2, verbosity="detailed"))
     lines = capfd.readouterr()[0].splitlines()
     assert lines[1] == f"otswap: kept {2000 - dropped} of 2000 randoms: {dropped} outside the box {box}"
     assert lines[2].endswith(" Mpc/h (from the box limits)") and len(lines) == 4
-    otswap.reconstruct_box(tracers, randoms, box=LIMITS, config=otswap.Config(seed=2, verbosity="silent"))
+    otswap.reconstruct_box(tracers, randoms, box=LIMITS,
+                           config=otswap.Config(n_realizations=1, seed=2, verbosity="silent"))
     assert capfd.readouterr() == ("", "")
 
 
@@ -1092,7 +1097,8 @@ def test_reconstruct_neighbour_search_error(table, lightcone):
     for mps in (10.0, None):
         with pytest.raises(otswap.Error, match="^meshsearch: "):
             otswap.reconstruct_box(box_catalogue(), mps=mps,
-                                   config=otswap.Config(cell_size=1e-12, seed=1, verbosity="silent"))
+                                   config=otswap.Config(n_realizations=1, cell_size=1e-12, seed=1,
+                                                        verbosity="silent"))
     tracers_sky, randoms_sky = lightcone
     tracers = otswap.to_cartesian(tracers_sky, table, angle_unit="deg")
     randoms = otswap.to_cartesian(randoms_sky, table, angle_unit="deg")
@@ -1293,7 +1299,7 @@ def test_lagrangian_sky(table, lightcone):
     assert same_bytes(after, sky), "one that rejects recomputes it, as the filter of the call"
     assert same_bytes(after, otswap.to_sky(unfiltered.lagrangian, table, angle_unit="deg"))
     assert not np.array_equal(before, after, equal_nan=True), "the earlier copy is not updated"
-    box = otswap.reconstruct_box(box_catalogue(), mps=10.0)
+    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, config=otswap.Config(n_realizations=1))
     assert box.lagrangian_sky is None
 
 
@@ -1337,7 +1343,7 @@ def test_lightcone_selection_counts(table, lightcone):
     assert p.max_unobserved_pixels_crossed is None and p.displacements == 0
     assert p.tracers == 1600 and p.tracers_outside_mask == 0
     assert not plain.outside_mask.any() and repr(p) == "SelectionCounts(no selection)"
-    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, config=otswap.Config(seed=3))
+    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, config=otswap.Config(n_realizations=1, seed=3))
     assert box.selection.tracers == 0 and not box.outside_mask.any()
     with pytest.raises(TypeError):
         otswap.SelectionCounts()
@@ -1387,7 +1393,7 @@ def test_box_and_correction_reports(table, lightcone, capfd):
     out, err = capfd.readouterr()
     assert out == (f"otswap: mean particle separation {box.mps:g} Mpc/h (from the tracers' bounding box)\n"
                    + call_line("reconstructBox", box) + "\n") and err == ""
-    otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(verbosity="detailed"))
+    otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=1, verbosity="detailed"))
     assert capfd.readouterr()[0].startswith("otswap: mean particle separation 10 Mpc/h (given)\n")
 
     r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
@@ -1692,7 +1698,8 @@ def test_reject_mask_crossings_errors(table, lightcone, sieve_mask, full_mask32)
         otswap.reject_mask_crossings(result, sieve_mask)
     with pytest.raises(otswap.Error):
         otswap.reject_mask_crossings("result", otswap.Mask(sieve_mask))
-    box = otswap.reconstruct_box(box_catalogue(), mps=10.0, config=otswap.Config(seed=1, verbosity="silent"))
+    box = otswap.reconstruct_box(box_catalogue(), mps=10.0,
+                                 config=otswap.Config(n_realizations=1, seed=1, verbosity="silent"))
     with pytest.raises(otswap.Error, match="box geometry; a box has no sky to filter against"):
         otswap.reject_mask_crossings(box, otswap.Mask(sieve_mask))
     assert box.valid.all() and box.filtered_nside == 0
