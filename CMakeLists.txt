@@ -35,6 +35,15 @@ option(OTSWAP_BUILD_TESTS "Build the C++ test suite" ${OTSWAP_IS_TOP_LEVEL})
 option(OTSWAP_BUILD_PYTHON "Build the Python bindings" OFF)
 option(OTSWAP_INSTALL "Generate the C++ install rules" ${OTSWAP_INSTALL_DEFAULT})
 
+# The otswap executable: built by a standalone build, not by the wheel nor
+# as a subproject.
+if (OTSWAP_IS_TOP_LEVEL AND NOT DEFINED SKBUILD)
+  set(OTSWAP_BUILD_EXECUTABLE_DEFAULT ON)
+else()
+  set(OTSWAP_BUILD_EXECUTABLE_DEFAULT OFF)
+endif()
+option(OTSWAP_BUILD_EXECUTABLE "Build the otswap executable" ${OTSWAP_BUILD_EXECUTABLE_DEFAULT})
+
 include(GNUInstallDirs)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
@@ -220,6 +229,23 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
 endif()
 
 # ---------------------------------------------------------------------------
+# The executable
+#
+# app/otswap.cpp, on the public headers only. The target is otswap_app,
+# since otswap is the library's; the file it builds is otswap.
+# ---------------------------------------------------------------------------
+
+if (OTSWAP_BUILD_EXECUTABLE)
+  add_executable(otswap_app app/otswap.cpp)
+  set_target_properties(otswap_app PROPERTIES OUTPUT_NAME otswap)
+  target_compile_definitions(otswap_app PRIVATE OTSWAP_VERSION="${PROJECT_VERSION}")
+  target_link_libraries(otswap_app PRIVATE otswap)
+  if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(otswap_app PRIVATE -Wall -Wextra)
+  endif()
+endif()
+
+# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
@@ -274,6 +300,26 @@ if (OTSWAP_BUILD_TESTS)
   target_link_libraries(cpp_reference PRIVATE otswap)
   if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(cpp_reference PRIVATE -Wall -Wextra)
+  endif()
+
+  # The executable: one test per parameter file of tests/executable/cases,
+  # run by run_case.cmake in a fresh directory of its own, which checks
+  # what the file's "#!" lines expect.
+  if (OTSWAP_BUILD_EXECUTABLE)
+    file(GLOB otswap_executable_cases CONFIGURE_DEPENDS
+         ${CMAKE_CURRENT_SOURCE_DIR}/tests/executable/cases/*.ini)
+    foreach (case_file ${otswap_executable_cases})
+      get_filename_component(case_name ${case_file} NAME_WE)
+      add_test(NAME executable_${case_name}
+        COMMAND ${CMAKE_COMMAND}
+          -DOTSWAP=$<TARGET_FILE:otswap_app>
+          -DCASE=${case_file}
+          -DWORK=${CMAKE_CURRENT_BINARY_DIR}/executable/${case_name}
+          -DEXAMPLES_DATA=${CMAKE_CURRENT_SOURCE_DIR}/examples/data
+          -DTEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/tests/executable/data
+          -DPROJECT_VERSION=${PROJECT_VERSION}
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/executable/run_case.cmake)
+    endforeach()
   endif()
 endif()
 
@@ -331,6 +377,11 @@ if (OTSWAP_INSTALL)
   install(TARGETS otswap EXPORT otswapTargets
           ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
   install(DIRECTORY include/otswap DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+  # Not exported: a program to run, not a target to link.
+  if (OTSWAP_BUILD_EXECUTABLE)
+    install(TARGETS otswap_app RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  endif()
 
   install(EXPORT otswapTargets
           NAMESPACE otswap::
