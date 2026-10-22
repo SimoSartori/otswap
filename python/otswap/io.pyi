@@ -28,17 +28,17 @@ displacement writers name that table DISPLACEMENTS (EXTNAME); the complete
 displacement file adds one HDU per further table, each named by its EXTNAME,
 which an ASCII file writes as twin files of its own.
 
-The writers of a ``Result``, a ``RealSpaceCatalog`` and an ``MpsProfile``
-write one row per input object, in input order, tracers left out of the
-reconstruction included, with NaN where nothing was computed, so row i of a
-file describes object i of the input. The id column, where written, holds
-the object's ID (``Result.ids``, ``RealSpaceCatalog.ids``), or i when no IDs
-were set. Angles are in degrees, right ascension in [0, 360) but in the
-complete displacement file, which keeps it as given. Each column has a
-description and a unit, and the header carries keywords: PRODUCT, what the
-file holds; OTSWAPV, the library version; GEOMETRY, box or lightcone;
-NOBJECTS; and those of the product, listed with each writer. They are the C++ library's writers, so the C++ and
-Python files are the same, byte for byte.
+The writers of a ``Result`` and of a ``RealSpaceCatalog`` write one row per
+input object, in input order, tracers left out of the reconstruction
+included, with NaN where nothing was computed, so row i of a file describes
+object i of the input. The id column, where written, holds the object's ID
+(``Result.ids``, ``RealSpaceCatalog.ids``), or i when no IDs were set. Angles
+are in degrees, right ascension in [0, 360) but in the complete displacement
+file, which keeps it as given. Each column has a description and, where it
+has one, a unit. Every header carries PRODUCT, what the file holds, and
+OTSWAPV, the library version; those of a ``Result`` or a
+``RealSpaceCatalog`` also carry GEOMETRY, box or lightcone, and NOBJECTS;
+then those of the product, listed with each writer.
 """
 
 import os
@@ -135,10 +135,13 @@ def read(
     are skipped; fields are separated by ``delimiter``, blanks or tabs. An
     ASCII integer field is an optional ``-`` followed by digits.
 
-    NaN and infinities are returned as stored, in both formats. Raises if a
-    column is absent (the message lists the names found) or requested twice,
-    a row is too short, an integer field is not an integer or lies outside
-    the 64-bit range, or a FITS integer column holds a null value.
+    NaN and infinities are returned as stored, in both formats. Raises if the
+    file is missing or unreadable, a column is absent (the message lists the
+    names found) or requested twice, a requested index is too large, a row is
+    too short, an integer field is not an integer, lies outside the 64-bit
+    range or comes from a FITS column of floating type, or a FITS integer
+    column holds a null value; for an integer field the message names the
+    row and the column.
     """
 
 
@@ -159,21 +162,28 @@ def write(
     keywords : sequence of (str, str, str), optional
         ``(name, value, comment)`` tuples, written in this order; a name is 1
         to 8 characters of A-Z, 0-9, ``-`` and ``_``, a value at most 68
-        characters. In FITS a value that reads entirely as an integer or a
-        finite number is written as one, anything else as a string.
+        characters, and neither value nor comment holds a line break. In FITS
+        a value that reads entirely as an integer or a finite number is
+        written as one, anything else as a string.
 
     Raises
     ------
     Error
-        If the columns differ in length, or a ``"J"`` value is not an integer
-        in [-2**31, 2**31); the message names the column and the row.
+        If no column is given, the columns differ in length, or a ``"J"``
+        value is not an integer in [-2**31, 2**31) (the message names the
+        column and the row); if a keyword name is invalid, a keyword value
+        exceeds 68 characters, or a keyword holds a line break; if the
+        precision is outside [1, 17]; or if the file cannot be written.
     """
 
 
 def read_bias_table(file: Path, *, delimiter: str = " ", comment: str = "#") -> BiasTable:
     """Read a b(z) table: FITS from the columns named REDSHIFT and BIAS, ASCII
-    from columns 0 and 1. Checked as ``BiasTable`` checks its arrays; the
-    message names the file and the row."""
+    from columns 0 and 1. Checked as ``BiasTable`` checks its arrays. Raises
+    if the file cannot be read (as ``read``), if it holds fewer than two
+    rows, if a redshift is not finite or not greater than the one before, or
+    if a bias is not finite or not positive; the message names the file and
+    the row."""
 
 
 DisplacementGroup: TypeAlias = Literal["id", "tracer_sky", "lagrangian_sky", "tracer",
@@ -216,16 +226,22 @@ def write_displacement_mean(
         displacement, valid_realizations, selection; id first when IDs were
         set.
 
+    Raises
+    ------
+    Error
+        If a group is repeated or does not apply to the geometry
+        (``"outside_box"`` to a lightcone, or a lightcone group to a box), or
+        if a field a group reads does not have the size of its layout;
+        whatever the groups, if ``ids`` is neither empty nor one per object
+        or holds a value twice, if the result's realization count differs
+        from its configuration's, or if a box result's box differs from the
+        limits recorded in its selection; or as ``write``.
+
     Notes
     -----
     Floating values are written with 9 significant digits in ASCII. Keywords:
     those of the reconstruction, listed with ``write_displacement_complete``.
-    In FITS the table is named DISPLACEMENTS. Raises for a repeated group, or
-    one that does not apply to the geometry, and, whatever the groups, for
-    ``ids`` that are neither empty nor one per object or hold a value twice,
-    for a result whose realization count differs from its configuration's,
-    and for a box result whose box differs from the limits recorded in its
-    selection.
+    In FITS the table is named DISPLACEMENTS.
     """
 
 
@@ -245,14 +261,25 @@ def write_displacement_complete(
     the right ascension as given, not folded into [0, 360)) and tracRed;
     tracX..tracZ (``Result.tracers``); displX..displZ
     (``Result.displacement``); valid; outsideRedshiftCut, outsideMask,
-    outsideBox (0 or 1, in both geometries). The columns of the tracer, id and flags are repeated in
-    every realization.
+    outsideBox (0 or 1, in both geometries). The columns of the tracer, id and
+    flags are repeated in every realization.
 
     Parameters
     ----------
     lightcone_tables : bool, optional
         False to leave out the profile and the table of a lightcone result;
         no effect on a box result, which has neither.
+
+    Raises
+    ------
+    Error
+        If a field read does not have the size of its layout
+        (``tracers_sky`` included, for a lightcone), if ``ids`` is neither
+        empty nor one per object or holds a value twice, if the result's
+        realization count differs from its configuration's, if a box
+        result's box differs from the limits recorded in its selection, if
+        the profile written does not have one mps and one count per redshift,
+        or as ``write``.
 
     Notes
     -----
@@ -266,10 +293,10 @@ def write_displacement_complete(
     used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE (silent,
     normal or detailed): the configuration; MPS for a box; BOXXLO, BOXXHI,
     BOXYLO, BOXYHI, BOXZLO, BOXZHI, ``Result.box`` when it is set, and
-    BOXLIM = 1 when it holds the limits given to ``reconstruct_box``;
-    ZCUTMIN and ZCUTMAX for the finite bounds of a redshift cut, MASK = 1
-    when a mask selected the objects, FILTNSID and MAXPIXCR when a mask
-    filter was applied; NTRAC, NTRCUT, NTRMASK, NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNMASK,
+    BOXLIM = 1 when it holds the limits given to ``reconstruct_box``; ZCUTMIN
+    and ZCUTMAX for the finite bounds of a redshift cut, MASK = 1 when a mask
+    selected the objects, FILTNSID and MAXPIXCR when a mask filter was
+    applied; NTRAC, NTRCUT, NTRMASK, NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNMASK,
     NRNBOTH, NRNBOX, NDISPL and NDISPCR, the selection counts, each when it
     is not 0. Then, in this file only, MPSPART = 1 and DISTPART = 1 when the
     profile and the table are written.
@@ -289,10 +316,6 @@ def write_displacement_complete(
     when that is written later. Each is written when ``lightcone_tables`` is
     true and the result is a lightcone that holds it; a result made by
     ``Result.from_arrays`` holds a table but no profile.
-
-    Raises for ``ids`` as ``write_displacement_mean``, for a result whose
-    realization count differs from its configuration's, and for a box result
-    whose box differs from the limits recorded in its selection.
     """
 
 
@@ -353,8 +376,7 @@ def read_displacement_complete(file: Path, *, angle_unit: AngleUnit) -> Result:
     whose result has no ``tracers_sky`` either, and whose index column is
     read as the IDs. A box file of otswap 0.1 gets the bounding box of its
     tracers as its box, the box its reconstruction used. The columns
-    lagrX..lagrZ, the random matched in each realization, which the files of
-    otswap 0.1 and earlier ones of this version hold, are not read.
+    lagrX..lagrZ of a file of otswap 0.1 are not read.
     """
 
 
@@ -384,11 +406,19 @@ def write_real_space_catalog(
         first: lightcone sky, cartesian, valid_realizations, neighbours,
         status; box the same without sky; id first when IDs were set.
 
+    Raises
+    ------
+    Error
+        If a group is repeated, if ``"sky"`` is given for a box, if a field a
+        group reads does not have the size of its layout, if ``ids`` is
+        neither empty nor one per object or holds a value twice, or as
+        ``write``.
+
     Notes
     -----
     Floating values are written with 9 significant digits in ASCII.
     Keywords: SIGMA, WEIGHTED; NEXTRAP for a lightcone; AXIS, ZBOX and BIAS
-    for a box. Raises as ``write_displacement_mean``.
+    for a box.
     """
 
 
@@ -396,4 +426,4 @@ def write_mps_profile(file: Path, profile: MpsProfile) -> None:
     """Write a mean particle separation profile: redshift (the bin centre),
     MPS (Mpc/h), nTracers, one row per bin. Keywords: ZMIN, ZMAX, MPSREPR
     (the representative value). ``MpsProfile.at`` gives the profile
-    anywhere."""
+    anywhere. Raises if the profile is empty or malformed, or as ``write``."""

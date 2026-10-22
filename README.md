@@ -52,9 +52,9 @@ with the requirements below.
 
 ## Build from source
 
-Needs CMake 3.16 or later, a C++17 compiler and cfitsio; OpenMP when found.
-meshsearch 0.2.1 or a later 0.2.x is used when installed, and 0.2.1 is fetched
-from GitHub otherwise.
+Needs CMake 3.16 or later, GCC or Clang (C, and C++17) and cfitsio; OpenMP
+when found. meshsearch 0.2.1 or a later 0.2.x is used when installed, and
+0.2.1 is fetched from GitHub otherwise.
 
 ```
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -108,9 +108,7 @@ OTSWAP_CPP_REFERENCE=build/cpp_reference pytest tests/
 
 The Python tests run against the installed package; those comparing it with
 the C++ library need the `cpp_reference` program of the C++ build, and are
-skipped without it. `tests/test_determinism.py` checks the hashes of the
-results recorded in `tests/determinism_hashes.json`, with one thread and with
-four.
+skipped without it.
 
 ## Example
 

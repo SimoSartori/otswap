@@ -96,10 +96,9 @@ def main():
     # otswap.CorrectionConfig: with weight_by_realizations=True, each
     # neighbour would be weighted by its number of valid realizations.
     #
-    # The correction reads the tracers from the result. A tracer with no
-    # valid neighbour within 3 sigma, which in a box happens only for an
-    # isolated one, is left uncorrected, with NaN coordinates;
-    # catalogue.status says which
+    # The correction reads the tracers from the result. In a box every
+    # tracer is valid and counts among its own neighbours, so every one is
+    # corrected; catalogue.status records what was done with each
     correction = otswap.CorrectionConfig(weight_by_realizations=False)
     catalogue = otswap.real_space_box(result, axis=axis, redshift=redshift, distances=distances,
                                       bias=bias, sigma=10.0, correction=correction)

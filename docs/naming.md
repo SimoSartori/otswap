@@ -86,7 +86,7 @@ passed as `config=` or `correction=`; a flat
 | `shiftRadially`, `shiftAlongAxis` | `shift_radially`, `shift_along_axis` | |
 | `BiasTable` | `BiasTable` | Python checks the table when it is built |
 | `RealSpaceCatalog` | `RealSpaceCatalog` | `sky` in the `angle_unit` of the result corrected in Python, radians for a catalogue made by another module; `axis`, `box_redshift`, `box_bias` None in a lightcone |
-| `RealSpaceCatalog::ids` | `RealSpaceCatalog.ids` | read-only in Python, as `Result.ids` |
+| `RealSpaceCatalog::ids` | `RealSpaceCatalog.ids` | read-only in Python; a new copy on each access, as `Result.ids` |
 | `CorrectionStatus` | `CorrectionStatus` | an `IntEnum`; `MovedByNeighbours` is `MOVED_BY_NEIGHBOURS` |
 
 ## Tables

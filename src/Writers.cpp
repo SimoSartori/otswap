@@ -117,7 +117,7 @@ namespace {
     return {{"PRODUCT", product, "what the file holds"},
             {"OTSWAPV", OTSWAP_VERSION, "otswap version"},
             {"GEOMETRY", geometry_name(geometry), "geometry of the reconstruction"},
-            {"NOBJECTS", integer(nObjects), "rows: one per input object"}};
+            {"NOBJECTS", integer(nObjects), "number of input objects"}};
   }
 
   const char* verbosity_name (const otswap::Verbosity v)
@@ -136,7 +136,7 @@ namespace {
     k.push_back({"CELLSIZE", number(r.config.cellSize), "grid cell size, in units of the mps"});
     k.push_back({"REJCROSS", r.config.rejectCrossings ? "1" : "0", "config: reject mask crossings"});
     k.push_back({"CFMAXPIX", integer(r.config.maxUnobservedPixelsCrossed),
-                 "config: unobserved pixels a crossing may cross"});
+                 "config: unobserved pixels a displacement may cross"});
     k.push_back({"VERBOSE", verbosity_name(r.config.verbosity), "what the call reported"});
     if (r.geometry == otswap::Geometry::Box && !std::isnan(r.mps))
       k.push_back({"MPS", number(r.mps), "mean particle separation, Mpc/h"});

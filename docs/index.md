@@ -16,9 +16,9 @@ applies to both.
 pip install otswap
 ```
 
-For the C++ library, build and install it with CMake; it needs a C++17
-compiler and cfitsio, uses OpenMP when found, and fetches meshsearch when it is
-not installed:
+For the C++ library, build and install it with CMake; it needs GCC or Clang
+(C, and C++17) and cfitsio, uses OpenMP when found, and fetches meshsearch
+when it is not installed:
 
 ```
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

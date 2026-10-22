@@ -389,7 +389,9 @@ namespace {
     return table;
   }
 
-  // --------------------------------------------------------------- writing
+  // ==========================================================================
+  // Writing
+  // ==========================================================================
 
   void check_options (const std::vector<otswap::io::Column>& columns,
                       const otswap::io::WriteOptions& options, const std::string& file)

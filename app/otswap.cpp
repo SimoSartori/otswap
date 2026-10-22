@@ -59,10 +59,10 @@ namespace {
     "usage: otswap <parameter-file>\n"
     "  --help     print this help and exit\n"
     "  --version  print the version and exit\n"
-    "The keys of the parameter file are listed in docs/executable.md.\n";
+    "The keys of the parameter file are listed at https://simosartori.github.io/otswap/executable.html\n";
 
-  // The defaults of the DistanceTable cosmology constructor, and the
-  // redshift range of the table it builds with its other defaults.
+  /// The defaults of the DistanceTable cosmology constructor, and the
+  /// redshift range of the table it builds with its other defaults.
   constexpr double kDefaultW0 = -1.;
   constexpr double kDefaultWa = 0.;
   constexpr double kTableMaxRedshift = 10.;
@@ -82,7 +82,7 @@ namespace {
   };
 
   /// Every key, in the order of docs/executable.md, which is also the
-  /// order of the typed reads.
+  /// order of read_run's typed reads, after the switches.
   const Key kKeys[] = {
     {"geometry",                      Applies::Always,        Applies::Always},
     {"verbosity",                     Applies::Always,        Applies::Always},
@@ -207,13 +207,13 @@ namespace {
       return m_parameters.get<std::vector<std::string>>(key)[i];
     }
 
-    /// X6: a value outside the range the library accepts.
+    /// A value outside the range the library accepts.
     void require (const std::string& key, const bool inRange, const std::string& rule) const
     {
       if (!inRange) fail(key, written(key) + " is out of range; it must be " + rule);
     }
 
-    /// X5: a list key of three elements.
+    /// A list key of three elements.
     template <typename T>
     std::vector<T> three (const std::string& key) const
     {
@@ -223,7 +223,7 @@ namespace {
       return values;
     }
 
-    /// A key whose value is one of a few words (X1-X4); without a default
+    /// A key whose value is one of a few words; without a default
     /// the key is required.
     std::string word (const std::string& key, const std::vector<std::string>& words,
                       const char* defaultWord = nullptr) const
@@ -263,7 +263,7 @@ namespace {
     return !s.empty() && std::all_of(s.begin(), s.end(), [] (const char c) { return c >= '0' && c <= '9'; });
   }
 
-  /// X9: true if two column selectors of io::read name the same column,
+  /// True if two column selectors of io::read name the same column,
   /// as far as that can be told without reading the file. In ASCII two
   /// indices are equal when their values are, two names when they are
   /// identical; an index and a name cannot be compared here. In FITS every
@@ -337,7 +337,6 @@ namespace {
     }
     run.correction.verbosity = run.config.verbosity;
 
-    // Input
     run.tracerFile = f.get<std::string>("tracer_file");
     run.tracerColumns = p.three<std::string>("column_tracer");
     if (f.has("id_column")) {
@@ -356,7 +355,6 @@ namespace {
     run.delimiter = f.get<char>("delimiter", run.delimiter);
     run.comment = f.get<char>("comment", run.comment);
 
-    // Lightcone selection
     if (lightcone) {
       run.maskFile = f.get<std::string>("veto_mask_filename");
       run.cut.min = f.get<double>("z_min", run.cut.min);
@@ -366,7 +364,6 @@ namespace {
                p.line("z_min"));
     }
 
-    // Cosmology
     if (lightcone || recons) {
       run.omegaM = f.get<double>("Omega_matter");
       p.require("Omega_matter", run.omegaM > 0. && run.omegaM <= 1., "in (0, 1]");
@@ -376,7 +373,6 @@ namespace {
       run.wa = f.get<double>("wa", run.wa);
     }
 
-    // Reconstruction
     otswap::Config& c = run.config;
     c.nRealizations = f.get<unsigned>("Nrec", c.nRealizations);
     p.require("Nrec", c.nRealizations >= 1, "at least 1");
@@ -420,7 +416,6 @@ namespace {
       }
     }
 
-    // RSD correction
     if (recons) {
       run.sigma = f.get<double>("rsd_smoothing_scale");
       p.require("rsd_smoothing_scale", run.sigma >= 0., "non-negative");
@@ -439,7 +434,6 @@ namespace {
       }
     }
 
-    // Output
     run.outputDir = f.get<std::string>("output_dir");
     run.outputName = f.get<std::string>("output_file");
     if (run.outputName.empty() || run.outputName.find('/') != std::string::npos)
@@ -466,7 +460,7 @@ namespace {
   // The run
   // ==========================================================================
 
-  /// X14: the first ID met twice, in row order, with both rows from 1.
+  /// The first ID met twice, in row order, with both data rows counted from 1.
   void check_ids (const std::vector<std::int64_t>& ids, const Run& run)
   {
     std::unordered_map<std::int64_t, std::size_t> first;
@@ -479,12 +473,15 @@ namespace {
     }
   }
 
+  /// One run from a parameter file. Every key that applies is read before
+  /// the data; one key left after the reads is a bug here, reported as an
+  /// unknown key. The reconstruction's files are written before the
+  /// correction, so that a correction that fails leaves them on disk.
   int run_file (const std::string& file)
   {
     const otswap::io::ParameterFile parameters(file);
     const Parameters p(parameters, file);
 
-    // The switches that decide which keys apply
     Switches switches;
     switches.lightcone = p.word("geometry", {"box", "lightcone"}) == "lightcone";
     switches.performRecons = parameters.get<bool>("perform_recons", false);
@@ -493,7 +490,6 @@ namespace {
       switches.rejectCrossings = parameters.get<bool>("reject_mask_crossings",
                                                       otswap::Config{}.rejectCrossings);
 
-    // Every key that does not apply, reported at once
     std::vector<std::string> irrelevant = irrelevant_keys(parameters, file, switches);
     if (!irrelevant.empty()) {
       for (const std::string& message : irrelevant) std::cerr << "otswap: error: " << message << '\n';
@@ -502,8 +498,6 @@ namespace {
 
     const Run run = read_run(p, file, switches);
 
-    // Every key that applies has been read; one left is a bug here, reported
-    // as an unknown key
     irrelevant.clear();
     for (const otswap::io::ParameterFile::Entry& entry : parameters.unread())
       irrelevant.push_back(file + ":" + std::to_string(entry.line) + ": key '" + entry.key + "': unknown key");
@@ -512,7 +506,6 @@ namespace {
       return 1;
     }
 
-    // The output directory, created before the long steps
     const std::filesystem::path directory(run.outputDir);
     std::error_code error;
     const std::filesystem::file_status status = std::filesystem::status(directory, error);
@@ -522,7 +515,6 @@ namespace {
     if (error)
       p.fail("output_dir", "cannot create the directory " + run.outputDir + ": " + error.message());
 
-    // The objects built from the parameters, before the data
     std::optional<otswap::DistanceTable> distances;
     if (run.switches.lightcone || run.switches.performRecons)
       distances.emplace(run.omegaM, run.h, run.w0, run.wa);
@@ -532,7 +524,6 @@ namespace {
     if (run.switches.lightcone && run.switches.performRecons)
       biasTable = otswap::io::readBiasTable(run.biasFile, run.delimiter, run.comment);
 
-    // The data
     std::vector<double> tracers, randoms;
     std::vector<std::int64_t> ids;
     if (run.idColumn) {
@@ -551,7 +542,6 @@ namespace {
       randoms = otswap::skyToRadians(std::move(randoms));
     }
 
-    // The reconstruction
     otswap::Result result =
       run.switches.lightcone
         ? otswap::reconstructLightcone(tracers, randoms, *mask, run.bins, *distances, run.config, run.cut)
@@ -559,8 +549,6 @@ namespace {
                   : otswap::reconstructBox(tracers, randoms, run.config, run.limits);
     if (run.idColumn) result.ids = std::move(ids);
 
-    // Its files, before the correction, so that a correction that fails
-    // leaves them on disk
     const bool report = run.config.verbosity != otswap::Verbosity::Silent;
     const std::string zspace = run.switches.performRecons ? "zspace_" : "";
     auto path = [&] (const std::string& prefix, const std::string& inserted = "") {
@@ -587,7 +575,6 @@ namespace {
       wrote(path("MPS_" + zspace));
     }
 
-    // The correction
     if (run.switches.performRecons) {
       const otswap::RealSpaceCatalog catalog =
         run.switches.lightcone

@@ -215,7 +215,8 @@ namespace {
   }
 
   /// A catalogue of the objects of result, with their ids, nothing moved:
-  /// every position, shift and factor NaN, every diagnostic 0, the status
+  /// every position, shift and factor NaN, nNeighbours and
+  /// nRealizationsAveraged 0, validRealizations as in the result, the status
   /// LeftOut for the tracers left out of the reconstruction and
   /// NoValidNeighbour for the others.
   otswap::RealSpaceCatalog empty_catalog (const otswap::Result& result)
@@ -238,10 +239,10 @@ namespace {
     return catalog;
   }
 
-  /// Write the report of a correction to config.log: first, under Normal,
-  /// the lines given (the extrapolation of b(z)); under Detailed the
-  /// breakdown of the corrected and of the uncorrected; then the line of
-  /// the call.
+  /// Write the report of a correction to config.log: first, at Normal and
+  /// Detailed, the lines given (the extrapolation of b(z)); at Detailed
+  /// only, the breakdown of the corrected and of the uncorrected; then the
+  /// line of the call.
   void report (const std::string& name, const otswap::RealSpaceCatalog& catalog,
                const std::string& first, const otswap::CorrectionConfig& config)
   {

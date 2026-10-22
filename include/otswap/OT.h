@@ -112,11 +112,12 @@ namespace otswap {
    *      [object][3]               Result::tracers, tracersSky, meanDisplacement,
    *                                lagrangian, lagrangianSky;
    *                                RealSpaceCatalog::sky, cartesian
-   *      [object]                  Result::validRealizations, outsideRedshiftCut,
-   *                                outsideMask (uint8);
-   *                                RealSpaceCatalog::shift, factor, status,
-   *                                validRealizations, nNeighbours,
-   *                                nRealizationsAveraged
+   *      [object]                  Result::ids (int64), validRealizations,
+   *                                outsideRedshiftCut, outsideMask, outsideBox
+   *                                (uint8);
+   *                                RealSpaceCatalog::ids (int64), shift,
+   *                                factor, status, validRealizations,
+   *                                nNeighbours, nRealizationsAveraged
    *
    *  Flags are uint8, 0 or 1; counts are unsigned; indices of objects are
    *  their rows.
@@ -146,6 +147,7 @@ namespace otswap {
     ///     otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
     ///     otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
     ///     otswap: realSpaceLightcone: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
+    ///     otswap: realSpaceBox: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
     Normal,
 
     /// As Normal, with the lines that explain it: the mean particle
@@ -517,8 +519,10 @@ namespace otswap {
      *
      *  @param OmegaM matter density parameter; must lie in (0, 1]
      *  @param h Hubble constant in units of 100 km/s/Mpc; must be positive
-     *  @param w0 dark energy equation of state, constant term; default -1
-     *  @param wa dark energy equation of state, evolution term; default 0
+     *  @param w0 dark energy equation of state, constant term; default -1;
+     *  must be finite
+     *  @param wa dark energy equation of state, evolution term; default 0;
+     *  must be finite
      *  @param zMin lower end of the sampled range; must be non-negative
      *  @param zMax upper end; must exceed zMin
      *  @param nSamples sampling points, uniform in redshift; must be at
@@ -540,8 +544,10 @@ namespace otswap {
      *  Need not be monotonic; every entry must be finite and positive.
      *
      *  @exception Error if either of the first two arrays is not strictly
-     *  increasing, if the lengths differ, or if fewer than two points are
-     *  given.
+     *  increasing, if the lengths differ, if fewer than two points are
+     *  given, if an entry is not finite, or if growthRate is neither empty
+     *  nor of the same length, or holds a value that is not finite and
+     *  positive.
      */
     DistanceTable (std::vector<double> redshift, std::vector<double> distance,
                    std::vector<double> growthRate = {});
@@ -675,8 +681,6 @@ namespace otswap {
     class Impl;
     std::shared_ptr<const Impl> m_impl;
 
-    /// The filter reads the pixels directly, so that pixel identity and
-    /// the allowed test have one source rather than two.
     friend void rejectMaskCrossings (Result&, const Mask&, unsigned);
   };
 
@@ -859,9 +863,10 @@ namespace otswap {
    *
    *  @param skyAreaDeg2 effective area of the survey. When a mask is
    *  available, pass the mask instead, to the overload below, which takes
-   *  the area from it; otherwise supply the published value: a bounding box in right ascension and declination
-   *  overestimates it for any footprint that is not rectangular, and the
-   *  error propagates into the mean particle separation.
+   *  the area from it; otherwise supply the published value: a bounding box
+   *  in right ascension and declination overestimates it for any footprint
+   *  that is not rectangular, and the error propagates into the mean
+   *  particle separation.
    *
    *  @param nBins redshift bins used to measure mps(z).
    *

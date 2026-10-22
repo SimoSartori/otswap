@@ -148,14 +148,14 @@ namespace otswap {
         std::size_t line;
       };
 
-      // Defined, and instantiated for the 14 types, in ParameterFile.cpp.
+      /// Defined, and instantiated for the 14 types, in ParameterFile.cpp.
       template <typename T>
       T read (const std::string& key, const T* defaultValue) const;
 
       std::string m_file;
-      std::vector<std::string> m_keys;                       // file order
-      std::unordered_map<std::string, std::size_t> m_index;  // key -> position in m_keys
-      std::vector<Value> m_values;                           // same order as m_keys
+      std::vector<std::string> m_keys;                       ///< the keys, in file order
+      std::unordered_map<std::string, std::size_t> m_index;  ///< key -> position in m_keys
+      std::vector<Value> m_values;                           ///< the values, in the order of m_keys
       mutable std::vector<bool> m_read;
     };
 

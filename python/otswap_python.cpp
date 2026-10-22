@@ -26,14 +26,17 @@
  *  submodule otswap.io specified by python/otswap/io.pyi.
  *
  *  Every argument is taken as a Python object and converted here, so that
- *  any invalid argument raises otswap.Error; every argument is declared
- *  .none(), so that None reaches the conversions and raises otswap.Error
- *  like any other invalid value. Arrays are converted with
+ *  any invalid argument raises otswap.Error; every named argument accepts
+ *  None, declared .none() or with None as its default, so that None reaches
+ *  the conversions and raises otswap.Error like any other invalid value.
+ *  The one typed argument is that of the BoxLimits constructor from a pair
+ *  of corners, the implicit conversion. Arrays are converted with
  *  numpy.asarray to C-contiguous float64 and their shapes checked; the C++
  *  library then works on its own copy. Config, CorrectionConfig,
  *  RedshiftCut and BoxLimits are the C++ structs themselves, so that
- *  another nanobind module can take and return them; their setters convert
- *  each value to its C++ type, and the library checks it at the call.
+ *  another nanobind module can take and return them; the setters of the
+ *  first three convert each value to its C++ type, and the library checks
+ *  it at the call.
  *  Result and RealSpaceCatalog are the C++ structs too. Right ascension and
  *  declination are converted from degrees here, so the library only ever
  *  sees radians; the angle unit of the call that made a lightcone Result or
@@ -102,7 +105,9 @@ namespace {
     return s + (a.ndim() == 1 ? ",)" : ")");
   }
 
-  // ----------------------------------------------------- argument conversion
+  // ==========================================================================
+  // Argument conversion
+  // ==========================================================================
 
   /// The argument as a C-contiguous float64 numpy array of the same shape.
   nb::object float64_array (nb::handle value, const std::string& name)
@@ -158,7 +163,9 @@ namespace {
     catch (nb::cast_error&) {
       throw otswap::Error(name + " must be an integer; got " + repr_of(value));
     }
-    if (v < 0 || v > 0xffffffffLL)
+    if (v < 0)
+      throw otswap::Error(name + " is " + std::to_string(v) + "; it must be a non-negative integer");
+    if (v > 0xffffffffLL)
       throw otswap::Error(name + " is " + std::to_string(v) + "; it must lie in [0, 4294967295]");
     return (unsigned)v;
   }
@@ -415,7 +422,9 @@ namespace {
     return out;
   }
 
-  // --------------------------------------------------------- returned arrays
+  // ==========================================================================
+  // Returned arrays
+  // ==========================================================================
 
   std::vector<std::size_t> shape_vector (const CArray& a)
   {
@@ -478,7 +487,9 @@ namespace {
     return nb::ndarray<nb::numpy, const std::int64_t>(held->data(), {n}, owner);
   }
 
-  // ------------------------------------------------------------- warnings
+  // ==========================================================================
+  // Warnings
+  // ==========================================================================
 
   /// otswap.ExtrapolationWarning, created with the module.
   PyObject* extrapolation_warning = nullptr;
@@ -505,7 +516,9 @@ namespace {
     otswap::rsdFactor({}, withGrowth, table);
   }
 
-  // ------------------------------------------------------------ state tables
+  // ==========================================================================
+  // State tables
+  // ==========================================================================
 
   /// The weak-keyed tables of the module, _result_state and _catalog_state:
   /// each a weakref.WeakKeyDictionary that maps a lightcone Result or
@@ -581,7 +594,9 @@ namespace {
     return nb::cast<const otswap::RealSpaceCatalog&>(self);
   }
 
-  // ------------------------------------------------------- checked getters
+  // ==========================================================================
+  // Checked getters
+  // ==========================================================================
 
   /// Check that a vector of a Result or RealSpaceCatalog holds the entries
   /// of n objects, width each, for every realization when realizations is
@@ -733,13 +748,16 @@ NB_MODULE(_otswap, m)
   m.attr("ExtrapolationWarning") = nb::handle(extrapolation_warning);
 
   const nb::object weak_table = nb::module_::import_("weakref").attr("WeakKeyDictionary");
-  // held for the life of the process, whatever happens to the attributes
+  /// The two state tables are held for the life of the process, whatever
+  /// happens to the attributes.
   result_state = weak_table().release().ptr();
   catalog_state = weak_table().release().ptr();
   m.attr("_result_state") = nb::handle(result_state);
   m.attr("_catalog_state") = nb::handle(catalog_state);
 
-  // ------------------------------------------------------------------ Config
+  // ==========================================================================
+  // Config
+  // ==========================================================================
 
   const otswap::Config configDefaults;
 
@@ -862,7 +880,9 @@ NB_MODULE(_otswap, m)
       }, "other"_a.none())
     .attr("__hash__") = nb::none();
 
-  // ------------------------------------------------------------- RedshiftCut
+  // ==========================================================================
+  // RedshiftCut
+  // ==========================================================================
 
   cut_max_default = PyFloat_FromDouble(otswap::RedshiftCut().max);
   if (cut_max_default == nullptr) throw nb::python_error();
@@ -873,7 +893,7 @@ NB_MODULE(_otswap, m)
       "taken, a (min, max) pair is accepted too.")
     .def("__init__", [] (otswap::RedshiftCut* self, nb::handle min, nb::handle max) {
           otswap::RedshiftCut cut;
-          // A pair alone: the implicit conversion, or RedshiftCut((min, max)).
+          /// A pair alone: the implicit conversion, or RedshiftCut((min, max)).
           std::pair<double, double> bounds;
           if (max.ptr() == cut_max_default && nb::try_cast(min, bounds)) {
             cut.min = bounds.first;
@@ -907,7 +927,9 @@ NB_MODULE(_otswap, m)
     .attr("__hash__") = nb::none();
   nb::implicitly_convertible<std::pair<double, double>, otswap::RedshiftCut>();
 
-  // --------------------------------------------------------------- BoxLimits
+  // ==========================================================================
+  // BoxLimits
+  // ==========================================================================
 
   nb::class_<otswap::BoxLimits>(m, "BoxLimits",
       "The closed limits of a box for reconstruct_box, in Mpc/h. Read-only. Wherever a BoxLimits "
@@ -943,7 +965,9 @@ NB_MODULE(_otswap, m)
     .attr("__hash__") = nb::none();
   nb::implicitly_convertible<std::pair<std::array<double, 3>, std::array<double, 3>>, otswap::BoxLimits>();
 
-  // --------------------------------------------------------- SelectionCounts
+  // ==========================================================================
+  // SelectionCounts
+  // ==========================================================================
 
   nb::class_<otswap::SelectionCounts>(m, "SelectionCounts",
       "What a reconstruction left out, and why. Read-only.")
@@ -978,7 +1002,9 @@ NB_MODULE(_otswap, m)
         return nb::str(text.c_str());
       });
 
-  // -------------------------------------------------------------- MpsProfile
+  // ==========================================================================
+  // MpsProfile
+  // ==========================================================================
 
   nb::class_<otswap::MpsProfile>(m, "MpsProfile",
       "The mean particle separation of a lightcone as a function of redshift. Read-only.")
@@ -1002,7 +1028,9 @@ NB_MODULE(_otswap, m)
           return elementwise(z, "z", [&p] (const double v) { return p.at(v); });
         }, "z"_a.none(), "The mps at each redshift, linear between the nodes and beyond them.");
 
-  // ------------------------------------------------------------------ Result
+  // ==========================================================================
+  // Result
+  // ==========================================================================
 
   nb::class_<otswap::Result>(m, "Result", nb::is_weak_referenceable(),
                              "Displacement field produced by a reconstruction.")
@@ -1153,7 +1181,9 @@ NB_MODULE(_otswap, m)
     .def_prop_ro("elapsed_seconds", [] (ResultHandle self) { return result_of(self).elapsedSeconds; },
                  "Wall time of the call that made the result, in seconds.");
 
-  // ----------------------------------------------------------- DistanceTable
+  // ==========================================================================
+  // DistanceTable
+  // ==========================================================================
 
   nb::class_<otswap::DistanceTable>(m, "DistanceTable",
       "Sampled relation between redshift, comoving distance and, optionally, the linear "
@@ -1230,7 +1260,9 @@ NB_MODULE(_otswap, m)
       "cartesian"_a.none(), "distances"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
       "Convert Cartesian coordinates, shape (N, 3), in Mpc/h, to sky coordinates.");
 
-  // -------------------------------------------------------------------- Mask
+  // ==========================================================================
+  // Mask
+  // ==========================================================================
 
   nb::class_<otswap::Mask>(m, "Mask",
                            "HEALPix mask read from a FITS file or built from a full-sky map in "
@@ -1296,7 +1328,9 @@ NB_MODULE(_otswap, m)
         "ra"_a.none(), "dec"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
         "Whether each direction falls in an observed pixel.");
 
-  // ---------------------------------------------------------- Reconstruction
+  // ==========================================================================
+  // Reconstruction
+  // ==========================================================================
 
   m.def("reconstruct_box",
       [] (nb::handle tracers, nb::handle randoms, nb::handle mps, nb::handle box, nb::handle configArg) {
@@ -1324,8 +1358,8 @@ NB_MODULE(_otswap, m)
       },
       "tracers"_a.none(), "randoms"_a = nb::none(), nb::kw_only(), "mps"_a = nb::none(),
       "box"_a = nb::none(), "config"_a.none() = otswap::Config(),
-      "Reconstruct in box geometry, with a constant mean particle separation, given or that of "
-      "the tracers' bounding box.");
+      "Reconstruct in box geometry, with a constant mean particle separation: the one given, or "
+      "(V/N)^(1/3) of box or, without it, of the tracers' bounding box.");
 
   m.def("reconstruct_lightcone",
       [] (nb::handle tracersSky, nb::handle randomsSky, nb::handle skyAreaDeg2, nb::handle mask,
@@ -1435,7 +1469,9 @@ NB_MODULE(_otswap, m)
       "Recompute valid_realizations, mean_displacement, lagrangian and lagrangian_sky from "
       "displacement and valid, as the reconstruction computes them. Updates result in place.");
 
-  // --------------------------------------------------------------- BiasTable
+  // ==========================================================================
+  // BiasTable
+  // ==========================================================================
 
   nb::class_<otswap::BiasTable>(m, "BiasTable",
       "A b(z) table: the linear bias at redshift nodes, interpolated linearly between them and "
@@ -1457,7 +1493,9 @@ NB_MODULE(_otswap, m)
         return view<double>(self, t.bias.data(), {t.bias.size()});
       }, "Bias at each node, shape (n,).");
 
-  // ----------------------------------------------- Redshift-space correction
+  // ==========================================================================
+  // Redshift-space correction
+  // ==========================================================================
 
   nb::class_<otswap::RealSpaceCatalog>(m, "RealSpaceCatalog", nb::is_weak_referenceable(),
       "A catalogue moved to real space; row i describes input tracer i.")
@@ -1673,7 +1711,9 @@ NB_MODULE(_otswap, m)
       "bias"_a.none(), "sigma"_a.none(), "correction"_a.none() = otswap::CorrectionConfig(),
       "Move a box catalogue from redshift space to real space.");
 
-  // ---------------------------------------------------------------------- io
+  // ==========================================================================
+  // otswap.io
+  // ==========================================================================
 
   nb::module_ io = m.def_submodule("io", "Reading and writing ASCII and FITS tables.");
 
@@ -1748,8 +1788,18 @@ NB_MODULE(_otswap, m)
           throw otswap::Error("columns must be a sequence of otswap.io.Column; got " + repr_of(columns));
         }
         otswap::io::WriteOptions options;
-        const unsigned p = to_unsigned(precision, "precision");
-        options.precision = p > 1000u ? 1000 : (int)p;
+        long long p;
+        try {
+          p = nb::cast<long long>(precision);
+        }
+        catch (nb::cast_error&) {
+          if (!PyIndex_Check(precision.ptr()))
+            throw otswap::Error("precision must be an integer; got " + repr_of(precision));
+          throw otswap::Error("the precision is " + repr_of(precision) + "; it must lie in [1, 17]");
+        }
+        if (p < 1 || p > 17)
+          throw otswap::Error("the precision is " + std::to_string(p) + "; it must lie in [1, 17]");
+        options.precision = (int)p;
         if (!keywords.is_none()) {
           try {
             for (nb::handle item : nb::iter(keywords)) {

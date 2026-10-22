@@ -67,17 +67,17 @@
  *  table, each named by its EXTNAME, which an ASCII file writes as twin
  *  files of its own.
  *
- *  The writers of a Result, a RealSpaceCatalog and an MpsProfile write one
- *  row per input object, in input order, tracers left out of the
- *  reconstruction included, with NaN where nothing was computed, so row i
- *  of a file describes object i of the input. The id column, where written,
- *  holds the object's ID (Result::ids, RealSpaceCatalog::ids), or i when no
- *  IDs were set. Angles are in degrees, right ascension in [0, 360) but in
- *  the complete displacement file, which keeps it as given. Each column
- *  has a description and a unit, and the header carries keywords:
- *  PRODUCT, what the file holds; OTSWAPV, the library version; GEOMETRY,
- *  box or lightcone; NOBJECTS; and those of the product, listed with each
- *  writer.
+ *  The writers of a Result and of a RealSpaceCatalog write one row per
+ *  input object, in input order, tracers left out of the reconstruction
+ *  included, with NaN where nothing was computed, so row i of a file
+ *  describes object i of the input. The id column, where written, holds
+ *  the object's ID (Result::ids, RealSpaceCatalog::ids), or i when no IDs
+ *  were set. Angles are in degrees, right ascension in [0, 360) but in the
+ *  complete displacement file, which keeps it as given. Each column has a
+ *  description and, where it has one, a unit. Every header carries PRODUCT,
+ *  what the file holds, and OTSWAPV, the library version; those of a Result
+ *  or a RealSpaceCatalog also carry GEOMETRY, box or lightcone, and
+ *  NOBJECTS; then those of the product, listed with each writer.
  */
 
 #ifndef OTSWAP_IO_H
@@ -129,9 +129,10 @@ namespace otswap {
 
     /// A header keyword: a FITS keyword in the header of HDU 2, an ASCII
     /// "## NAME = value / comment" line. The name is at most 8 characters
-    /// of A-Z, 0-9, '-' and '_'. In FITS a value that reads entirely as an
-    /// integer or a finite number is written as one, anything else as a
-    /// string.
+    /// of A-Z, 0-9, '-' and '_'. The value is at most 68 characters, and
+    /// neither value nor comment holds a line break. In FITS a value that
+    /// reads entirely as an integer or a finite number is written as one,
+    /// anything else as a string.
     struct Keyword {
       std::string name;
       std::string value;
@@ -197,7 +198,8 @@ namespace otswap {
      *  'J' or 'K', the columns differ in length (data for 'D' and 'J',
      *  integers for 'K'), a 'J' value is NaN, not an integer, or outside
      *  [-2^31, 2^31) (the message names the column and the row), a keyword
-     *  name is invalid, the precision is outside [1, 17], or the file
+     *  name is invalid, a keyword value exceeds 68 characters, a keyword
+     *  holds a line break, the precision is outside [1, 17], or the file
      *  cannot be written.
      */
     void write (const std::string& file, const std::vector<Column>& columns,
@@ -310,11 +312,11 @@ namespace otswap {
      *
      *  Columns: realization (J, from 0); id (K, the object's ID as in
      *  writeDisplacementMean); for a lightcone, tracRA, tracDec (deg) and
-     *  tracRed (Result::tracersSky, the right ascension as given, not
-     *  folded into [0, 360)); tracX..tracZ (Result::tracers); displX..displZ
+     *  tracRed (Result::tracersSky, the right ascension as given, not folded
+     *  into [0, 360)); tracX..tracZ (Result::tracers); displX..displZ
      *  (Result::displacement); valid (J); outsideRedshiftCut, outsideMask,
-     *  outsideBox (J, 0 or 1, in both geometries). The columns of the tracer, id and flags are repeated in
-     *  every realization.
+     *  outsideBox (J, 0 or 1, in both geometries). The columns of the
+     *  tracer, id and flags are repeated in every realization.
      *
      *  'D' values are written with 17 significant digits in ASCII, and as
      *  they are in FITS, so every double reads back identical, NaN rows as
@@ -346,10 +348,10 @@ namespace otswap {
      *  displacements mps profile and complete displacements distance table.
      *  In FITS they are the HDUs MPSPROF and DISTANCE, after the main table
      *  DISPLACEMENTS. In ASCII they are twin files next to the file, the
-     *  name with .mps and .distances inserted before the text after its
-     *  last '.' (run.dat gives run.mps.dat and run.distances.dat), or
-     *  appended when the name has no '.'. A file renamed needs its twins renamed
-     *  by the same rule. Existing files of those names are overwritten: the
+     *  name with .mps and .distances inserted before the text after its last
+     *  '.' (run.dat gives run.mps.dat and run.distances.dat), or appended
+     *  when the name has no '.'. A file renamed needs its twins renamed by
+     *  the same rule. Existing files of those names are overwritten: the
      *  twin run.mps.dat replaces a writeMpsProfile file of that name, and is
      *  replaced by it when that is written later. Each is written when
      *  lightconeTables is true, the result is a lightcone and holds it: the
@@ -400,9 +402,8 @@ namespace otswap {
      *  false, and for a file of otswap 0.1, whose Result has no tracersSky
      *  either, and whose index column is read as the IDs. A box file of
      *  otswap 0.1 gets the bounding box of its tracers as Result::box, the
-     *  box its reconstruction used. The columns lagrX..lagrZ, the random
-     *  matched in each realization, which the files of otswap 0.1 and
-     *  earlier ones of this version hold, are not read.
+     *  box its reconstruction used. The columns lagrX..lagrZ of a file of
+     *  otswap 0.1 are not read.
      *
      *  @param file a complete displacement file; its extension sets the
      *  format.
@@ -452,7 +453,10 @@ namespace otswap {
      *  @param groups the groups to write, in this order; empty for the
      *  default of the catalogue's geometry.
      *
-     *  @exception Error as writeDisplacementMean.
+     *  @exception Error if a group is repeated, if Sky is given for a box,
+     *  if a field a group reads does not have the size of its layout, if
+     *  ids is neither empty nor one per object or holds a value twice, or as
+     *  io::write.
      */
     void writeRealSpaceCatalog (const std::string& file, const RealSpaceCatalog& catalog,
                                 const std::vector<CatalogGroup>& groups = {});

@@ -73,6 +73,10 @@
   held the matched randoms. `readDisplacementComplete` ignores them in the
   files that have them, those of otswap 0.1 included.
 
+### Fixed
+
+- `io.write` reports an out-of-range precision as given.
+
 ## 0.1.0 — 2026-10-08
 
 First release.

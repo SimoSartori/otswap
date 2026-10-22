@@ -122,7 +122,9 @@ int main (int argc, char** argv)
     // it in Result::mps; an overload takes it from the caller. It sets the
     // scale of the search for swap partners, so it must describe the whole
     // catalogue: with a strongly varying density use the lightcone
-    // geometry, which measures it as a function of redshift
+    // geometry, which measures it as a function of redshift. When the
+    // volume is known, give the box limits, the last argument: the mps
+    // then comes from the box's volume, not from the tracers' bounding box
     const otswap::Result result = otswap::reconstructBox(tracers, randoms, config);
 
 

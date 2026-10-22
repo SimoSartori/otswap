@@ -103,7 +103,9 @@ def main():
     # Result.mps; the keyword mps gives it instead. It sets the scale of the
     # search for swap partners, so it must describe the whole catalogue:
     # with a strongly varying density use the lightcone geometry, which
-    # measures it as a function of redshift
+    # measures it as a function of redshift. When the volume is known, give
+    # the box limits, the keyword box: the mps then comes from the box's
+    # volume, not from the tracers' bounding box
     result = otswap.reconstruct_box(tracers, randoms, config=config)
 
     # ----------------------------------------------

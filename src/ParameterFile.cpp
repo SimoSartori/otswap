@@ -82,11 +82,11 @@ namespace {
   }
 
   // ==========================================================================
-  // Typing one element. Each returns the end of the message, after the
-  // element, when the element is not of the type, and an empty string when
-  // it is.
+  // Typing one element
   // ==========================================================================
 
+  /// Each type_element returns the end of the message, after the element,
+  /// when the element is not of the type, and an empty string when it is.
   std::string type_element (const std::string& element, std::string& value)
   {
     value = element;
@@ -221,7 +221,6 @@ otswap::io::ParameterFile::ParameterFile (const std::string& file)
     if (number == 1 && line.compare(0, 3, "\xEF\xBB\xBF") == 0) line.erase(0, 3);
     if (!line.empty() && line.back() == '\r') line.pop_back();
 
-    // The key part, up to the first '=' or '#'.
     const std::size_t cut = line.find_first_of("=#");
     if (cut == std::string::npos || line[cut] == '#') {
       for (std::size_t i = 0; i < (cut == std::string::npos ? line.size() : cut); ++i)
@@ -240,7 +239,6 @@ otswap::io::ParameterFile::ParameterFile (const std::string& file)
       throw otswap::Error(atKey + "not a valid key; a key holds letters, digits and _, and does not "
                           "start with a digit");
 
-    // The value part, everything after the first '=', cut into elements.
     std::vector<std::string> elements;
     std::size_t i = cut+1;
     while (true) {

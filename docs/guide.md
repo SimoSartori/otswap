@@ -47,7 +47,8 @@ reconstructing, to choose `nBins` beforehand:
   {cpp:func}`otswap::skyToDegrees` convert a sky array. In Python every
   function that takes or returns angles has a required `angle_unit`, `"deg"`
   or `"rad"`.
-- Right ascensions come back folded into [0, 2π), or [0, 360) degrees.
+- Right ascensions that otswap computes come back folded into [0, 2π), or
+  [0, 360) degrees.
 - In Python a coordinate array has shape (N, 3) and is converted to float64;
   the arrays of a result have the shapes below, with the realization first.
 
@@ -60,9 +61,10 @@ The layout of the C++ arrays, which the Python arrays map onto:
 
 The reconstruction is repeated `nRealizations` (`n_realizations`) times, each
 on its own set of N points extracted from the random catalogue, disjoint from
-the others, so the catalogue must hold at least `nRealizations` × N points. Each displacement has a validity flag, `valid`, per
-realization and object; every flag is set after the reconstruction, and the
-mask filter only ever clears them. For each tracer, `validRealizations`
+the others, so the catalogue must hold at least `nRealizations` × N points.
+Each displacement has a validity flag, `valid`, per realization and object;
+every flag of a tracer that took part is set after the reconstruction, and
+the mask filter only ever clears them. For each tracer, `validRealizations`
 (`valid_realizations`) counts the valid ones, and `meanDisplacement`
 (`mean_displacement`) is their mean, NaN when there is none. `lagrangian`,
 the tracer plus its mean displacement, follows. As the number of realizations
@@ -77,8 +79,8 @@ Tracers left out of a lightcone reconstruction, by its redshift cut or its
 mask, keep their row: they are flagged in `outsideRedshiftCut` and
 `outsideMask` (`outside_redshift_cut`, `outside_mask`), with NaN
 displacements and no valid realization. Tracers outside the limits of a box
-are flagged in the same way, in `outsideBox` (`outside_box`). Every output keeps one row per input
-object, in input order.
+are flagged in the same way, in `outsideBox` (`outside_box`). Every output
+keeps one row per input object, in input order.
 
 To carry the catalogue's own IDs into the files, set them on the result
 before writing or correcting it: `Result::ids` (`result.ids = ...`), one
@@ -139,8 +141,8 @@ Each call reports, as `verbosity` says ({cpp:enum}`otswap::Verbosity`,
 
 - **silent:** nothing;
 - **normal:** the selection report of a lightcone, when a selection applied,
-  or of a box, when limits were given, and in C++ the extrapolation of b(z), when it happened; then one line per
-  call with its time and what was lost;
+  or of a box, when limits were given, and in C++ the extrapolation of b(z),
+  when it happened; then one line per call with its time and what was lost;
 - **detailed:** as normal, with the lines that explain it: the mps of a box
   and its source, the mps(z) profile of a lightcone, the breakdown of the
   corrected and of the uncorrected tracers.

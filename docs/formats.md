@@ -126,8 +126,8 @@ delimiter = \t
 - Everything after the first `=` is the value, further `=` signs included.
 - **Types:** strings; `true` or `false`; integers written in decimal, with an
   optional `-` and no `+`, so `1e3` and `5.0` are not integers; floating-point
-  numbers, finite, with an optional exponent (`2.194e-9`, `.5`, `1.`), always
-  with a decimal point whatever the locale; single characters, `\t` for a tab;
+  numbers, finite, with an optional exponent (`2.194e-9`, `.5`, `1.`, `5`),
+  with `.` as the decimal separator whatever the locale; single characters, `\t` for a tab;
   and lists of each.
 - Windows line endings and a UTF-8 byte-order mark at the start of the file
   are accepted.

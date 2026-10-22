@@ -64,7 +64,7 @@ namespace {
   /// relative error on the count, d(mps)/mps = (1/3)(dN/N). The count in a
   /// bin is Poisson, dN = sqrt(N), which gives d(mps)/mps = 1/(3*sqrt(N)).
   /// Requiring that to be at most kMpsPrecision gives
-  /// N >= 1/(9*kMpsPrecision^2), which is 277.8 at eps = 0.02, hence 278.
+  /// N >= 1/(9*kMpsPrecision^2), which is 277.8 at kMpsPrecision = 0.02, hence 278.
   constexpr unsigned kMinTracersPerBin =
     (unsigned)(1. / (9. * kMpsPrecision * kMpsPrecision)) + 1;
 

@@ -41,10 +41,14 @@ starting with ``otswap:``:
 
 - ``"silent"``: nothing;
 - ``"normal"``: the selection report of a lightcone, when a selection
-  applied, then one line per call with its time and what was lost::
+  applied, and of a box, when ``box`` was given; then one line per call with
+  its time and what was lost::
 
+      otswap: reconstructBox: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
       otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
+      otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
       otswap: realSpaceLightcone: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
+      otswap: realSpaceBox: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
 
 - ``"detailed"``: as ``"normal"``, with the lines that explain it: the mean
   particle separation of a box and its source, the mps(z) profile of a
@@ -197,11 +201,11 @@ class Result:
     reflect it; ``lagrangian_sky`` is recomputed, and an array taken from it
     in degrees before the filter is not updated.
 
-    The type is ``otswap::Result`` itself, so another nanobind module can
-    take and return it (see "Use from another nanobind module" on the
-    "Names side by side" page of the documentation). The angle unit is kept by the module, not in the
-    object: a result made by another module is in radians. Each array
-    getter checks the size of the C++ array first, and raises
+    The type is ``otswap::Result`` itself, so another nanobind module can take
+    and return it (see "Use from another nanobind module" on the "Names side
+    by side" page of the documentation). The angle unit is kept by the module,
+    not in the object: a result made by another module is in radians. Each
+    array getter checks the size of the C++ array first, and raises
     ``otswap.Error`` for a malformed result, which only another module can
     make. No attribute can be added to a result.
     """
@@ -443,8 +447,8 @@ class MpsProfile:
 
     def at(self, z: ArrayLike) -> NDArray[np.float64]:
         """The mps at each redshift, Mpc/h, the shape of ``z`` kept: the value
-        the reconstruction used at a tracer of that redshift. Raises where the
-        extrapolation is not positive."""
+        the reconstruction used at a tracer of that redshift. Raises if the
+        profile is empty, or where the extrapolation is not positive."""
 
 
 class SelectionCounts:
@@ -553,6 +557,14 @@ class DistanceTable:
         from integrating the linear growth equation. The range must cover
         every redshift to be converted, including reconstructed positions,
         which can fall slightly outside the range of the data.
+
+        Raises
+        ------
+        Error
+            If any parameter is out of range: ``omega_m`` must lie in (0, 1],
+            ``h`` be positive, ``w0`` and ``wa`` finite, ``z_min``
+            non-negative, ``z_max`` above ``z_min``, and ``n_samples`` at
+            least two.
         """
 
     @staticmethod
@@ -563,7 +575,18 @@ class DistanceTable:
     ) -> "DistanceTable":
         """Use a table computed by the caller. Redshift and distance must be
         strictly increasing, with at least two entries; distance in Mpc/h.
-        Without ``growth_rate``, ``growth_rate_at`` raises."""
+        ``growth_rate``, when given, has the same length, every entry finite
+        and positive. Without ``growth_rate``, ``growth_rate_at`` raises.
+
+        Raises
+        ------
+        Error
+            If either of the first two arrays is not strictly increasing, if
+            the lengths differ, if fewer than two points are given, if an
+            entry is not finite, or if ``growth_rate`` is neither None nor of
+            the same length, or holds a value that is not finite and
+            positive.
+        """
 
     @property
     def min_redshift(self) -> float: ...
@@ -609,9 +632,11 @@ def to_cartesian(
     angle_unit: AngleUnit,
 ) -> NDArray[np.float64]:
     """Convert sky coordinates, shape (N, 3), to Cartesian ones in Mpc/h,
-    using the same convention as ``reconstruct_lightcone``. Raises if a
-    declination lies outside [-90, 90] degrees ([-pi/2, pi/2] radians); the
-    message gives it in ``angle_unit``."""
+    using the same convention as ``reconstruct_lightcone``. Raises if the
+    array is not of shape (N, 3), if an entry is not finite, if a declination
+    lies outside [-90, 90] degrees ([-pi/2, pi/2] radians), or if a redshift
+    falls outside the distance table; the message names the object and gives
+    the angle in ``angle_unit``."""
 
 
 def to_sky(
@@ -625,7 +650,10 @@ def to_sky(
     ([0, 2 pi) radians), declination, redshift. The inverse of
     ``to_cartesian``, with the same observer; a position at the origin gets
     right ascension and declination 0. A row holding a NaN gives a NaN
-    row; an infinite entry, or a distance outside the table, raises."""
+    row. Raises if the array is not of shape (N, 3), if an entry is
+    infinite, or if a distance falls outside the table; the message names the
+    object and, for the distance, suggests a table covering a wider redshift
+    range."""
 
 
 # ---------------------------------------------------------------------------
@@ -652,7 +680,10 @@ class Mask:
         """NSIDE and ORDERING are read from the file header; RING and NESTED
         are both supported, and any numeric column type. The values are read
         a block of rows at a time, so reading needs memory for the mask's
-        bytes only. A null value of an integer column is unobserved."""
+        bytes only. A null value of an integer column is unobserved. Raises
+        if the file cannot be opened or read, if it is not a full-sky HEALPix
+        map in that layout, if NSIDE exceeds 2**29, or if the ordering is
+        NESTED and NSIDE is not a power of 2."""
 
     @staticmethod
     def from_array(values: ArrayLike, nest: bool = False) -> "Mask":
@@ -781,6 +812,12 @@ def reconstruct_box(
     Raises
     ------
     Error
+        If an array is not of shape (N, 3), if the tracer array is empty, if
+        the randoms are too few, if any coordinate is not finite, or if
+        ``mps`` is not positive; without ``mps`` and ``box``, also if the
+        tracers span no volume (all of them in one plane, on one line or at
+        one point).
+    Error
         If a field of ``config`` is out of range, the message describing the
         quantity and its rule.
     Error
@@ -834,7 +871,8 @@ def reconstruct_lightcone(
         Sky coordinates of the randoms. Their number is checked after the
         redshift cut and the mask: the randoms kept must number at least
         ``config.n_realizations`` times the tracers kept, which is
-        M >= R * N when nothing is left out.
+        M >= R * N, with R ``config.n_realizations``, when nothing is left
+        out.
     sky_area_deg2 : float, optional
         Effective survey area, when no mask is given: the published value.
         Give exactly one of ``sky_area_deg2`` and ``mask``.
@@ -850,7 +888,9 @@ def reconstruct_lightcone(
     n_bins : int
         Redshift bins used to measure mps(z).
     distances : DistanceTable
-        Table used for the conversion to Cartesian coordinates.
+        The redshift to distance relation, with which the sky coordinates
+        are converted and the shell volumes computed; it must cover the
+        redshifts of the objects kept.
     angle_unit : AngleUnit
         Unit of right ascension and declination. A declination outside
         [-90, 90] degrees ([-pi/2, pi/2] radians) raises, the message giving
@@ -869,11 +909,11 @@ def reconstruct_lightcone(
     config : Config, optional
         Every field; ``reject_crossings`` and
         ``max_unobserved_pixels_crossed`` are read only with a mask.
-        ``verbosity``: see ``Verbosity``. With ``"normal"``, when a
-        mask or a cut with a finite bound is applied, what was left out: one
-        line for the tracers, one for the randoms, one for the rejected
-        crossings, as ``Result.selection`` records them; then the line of the
-        call. In the form::
+        ``verbosity``: see ``Verbosity``. With ``"normal"``, when a mask or a
+        cut with a finite bound is applied, what was left out: one line for
+        the tracers, one for the randoms, and one for the rejected crossings
+        when the mask filter was applied, as ``Result.selection`` records
+        them; then the line of the call. In the form::
 
             otswap: kept <n> of <N> tracers: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
             otswap: kept <m> of <M> randoms: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
@@ -884,6 +924,21 @@ def reconstruct_lightcone(
 
     Raises
     ------
+    Error
+        If an array is not of shape (N, 3), if ``tracers`` is given without
+        ``randoms``, or if they describe a different number of objects than
+        the sky arrays; if a declination is out of range, or a redshift falls
+        outside the distance table; if the randoms are too few; if both or
+        neither of ``sky_area_deg2`` and ``mask`` are given.
+    Error
+        If a bound of ``redshift_cut`` is NaN or its minimum exceeds its
+        maximum, or if too few tracers or randoms remain inside the cut and
+        the mask; the message gives the counts kept and dropped.
+    Error
+        If a bin holds too few tracers for its density to be meaningful, the
+        message reporting how many bins the catalogue supports, or if the
+        profile extrapolates to an mps that is not positive at a tracer's
+        redshift.
     Error
         If a field of ``config`` is out of range, as in ``reconstruct_box``.
     Error
@@ -967,6 +1022,7 @@ def measure_mps_profile(
         neither of ``sky_area_deg2`` and ``mask`` are given.
     """
 
+
 def reject_mask_crossings(
     result: Result,
     mask: Mask,
@@ -977,13 +1033,18 @@ def reject_mask_crossings(
     0 rejects at the first one.
 
     The path is the great-circle arc between the directions of the tracer
-    (``result.tracers``) and of the tracer plus its displacement. The pixels containing the two endpoints are not
-    tested. The count depends on NSIDE. Updates ``result`` in place; it only
-    ever marks displacements invalid, and raises if ``result`` was already
-    filtered against a mask of a different NSIDE, or if ``result`` is a box
-    result, which has no sky to filter against. Tracers flagged in
-    ``outside_redshift_cut`` or ``outside_mask`` are left as they are.
-    ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
+    (``result.tracers``) and of the tracer plus its displacement. The pixels
+    containing the two endpoints are not tested. The count depends on NSIDE.
+    Updates ``result`` in place; it only ever marks displacements invalid, and
+    raises if ``result`` was already filtered against a mask of a different
+    NSIDE, or if ``result`` is a box result, which has no sky to filter
+    against. It also raises if ``result`` is malformed: a NaN outside the
+    rows of the flagged tracers, a flagged tracer with a valid entry, a
+    ``tracers`` array without N rows, a flag, ``tracers_sky``,
+    ``lagrangian`` or ``lagrangian_sky`` array whose size is neither 0 nor
+    the one of its layout, or an entry of ``valid`` neither 0 nor 1. Tracers
+    flagged in ``outside_redshift_cut`` or ``outside_mask`` are left as they
+    are. ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
     ``lagrangian_sky`` are recomputed, and ``result.selection`` records the
     filter.
     """
@@ -993,7 +1054,10 @@ def recompute_means(result: Result) -> None:
     """Recompute ``valid_realizations``, ``mean_displacement``, ``lagrangian``
     and ``lagrangian_sky`` from ``displacement`` and ``valid``, as the
     reconstruction computes them: the sum over the valid realizations in
-    realization order, divided by their count. Updates ``result`` in place."""
+    realization order, divided by their count. Updates ``result`` in place.
+    Raises if ``displacement`` or ``valid`` has the wrong size, an entry of
+    ``valid`` is neither 0 nor 1, or a flag, ``tracers`` or ``tracers_sky``
+    array has a size that is neither 0 nor the one of its layout."""
 
 
 # ---------------------------------------------------------------------------
@@ -1146,12 +1210,16 @@ def radial_projection(displacement: ArrayLike, positions: ArrayLike) -> NDArray[
     of its position, shape (N, 3), Cartesian, finite and away from the origin
     (for example ``Result.tracers``): ``r . d / |r|``, shape (N,), positive
     when the displacement points away from the observer. NaN displacements
-    give NaN; infinite ones raise."""
+    give NaN. Raises if the shapes differ, if a position is not finite or is
+    at the origin, or if a displacement is infinite; the message names the
+    object."""
 
 
 def axis_projection(displacement: ArrayLike, axis: int) -> NDArray[np.float64]:
     """Component of each displacement, shape (N, 3), along the Cartesian axis
-    0, 1 or 2, the line of sight of a box; shape (N,)."""
+    0, 1 or 2, the line of sight of a box; shape (N,). NaN displacements give
+    NaN. Raises if the axis is not 0, 1 or 2, or if a displacement is
+    infinite."""
 
 
 class NeighbourAverage(NamedTuple):
@@ -1208,6 +1276,10 @@ def neighbour_average(
     Raises
     ------
     Error
+        If the shapes differ, if a position is not finite, if the value of a
+        valid object is not finite, or if sigma is negative or not finite;
+        the message names the object.
+    Error
         From the neighbour search, with a message starting
         ``"meshsearch: "``, if sigma > 0 and the positions span no volume (a
         single object, or all in one plane or on one line).
@@ -1231,19 +1303,24 @@ def rsd_factor(
     f is ``distances.growth_rate_at(z)``, b(z) the ``bias`` table at z.
     Beyond the table's nodes b(z) is extrapolated linearly from the end
     segments, and one ``ExtrapolationWarning`` is issued for the call. Raises
-    if the extrapolated bias is not positive, if a redshift lies outside the
-    distance table, or if the table has no growth rate."""
+    if the table has no growth rate, if a redshift is not finite or lies
+    outside the distance table, or if the extrapolated bias at a redshift is
+    not positive; the message names the object."""
 
 
 def rsd_factor_box(redshift: float, distances: DistanceTable, *, bias: float) -> float:
     """The factor f / (b + 3 f / 5) of a box at a single redshift, with a
-    constant, positive bias."""
+    constant, positive bias. Raises if the redshift is not finite or lies
+    outside the distance table, if the table has no growth rate, or if the
+    bias is not positive."""
 
 
 def shift_radially(positions: ArrayLike, shift: ArrayLike) -> NDArray[np.float64]:
     """Move each position, shape (N, 3), by its shift, shape (N,), along its
     own line of sight: ``r (1 + shift / |r|)``. A positive shift moves away
-    from the observer. A NaN shift gives a NaN row; infinite ones raise."""
+    from the observer. A NaN shift gives a NaN row. Raises if the shapes
+    differ, if a position is not finite or is at the origin, or if a shift is
+    infinite; the message names the object."""
 
 
 def shift_along_axis(positions: ArrayLike, shift: ArrayLike, axis: int) -> NDArray[np.float64]:
@@ -1298,9 +1375,16 @@ def real_space_lightcone(
     Raises
     ------
     Error
-        For a box result, or if a corrected comoving distance is not positive
-        or lies outside the distance table; the message names the tracer.
-        Also from the neighbour search, as in ``neighbour_average``, for the
+        For a box result, or one that is malformed or lacks its ``tracers`` or
+        ``tracers_sky``; if its ``ids`` are neither empty nor one per object
+        or hold a value twice; if a tracer kept is not finite or is at the
+        origin; if the distance table has no growth rate; if ``bias``
+        extrapolates to a bias that is not positive; or if a corrected
+        comoving distance is not positive or lies outside the distance table.
+        The message names the tracer, and in the last case suggests a table
+        covering a wider redshift range.
+    Error
+        From the neighbour search, as in ``neighbour_average``, for the
         tracers corrected.
 
     Notes
@@ -1340,6 +1424,11 @@ def real_space_box(
     Raises
     ------
     Error
-        For a lightcone result, or from the neighbour search, as in
-        ``neighbour_average``, for the tracers corrected.
+        For a lightcone result, or one that is malformed or lacks its
+        ``tracers``; if its ``ids`` are neither empty nor one per object or
+        hold a value twice; if the axis is not 0, 1 or 2; or as
+        ``rsd_factor_box``.
+    Error
+        From the neighbour search, as in ``neighbour_average``, for the
+        tracers corrected.
     """

@@ -133,9 +133,10 @@ endif()
 # ---------------------------------------------------------------------------
 # Deterministic math, vendored
 #
-# sin, cos, exp, log1p, pow, atan2, asin and cbrt from FreeBSD's msun, copied
-# unmodified into extern/fdlibm/msun/src (see its README), so that every
-# platform computes them with the same code rather than with its own libm.
+# sin, cos, exp, log1p, pow, atan, atan2, asin and cbrt from FreeBSD's msun,
+# copied unmodified into extern/fdlibm/msun/src (see its README), so that
+# every platform computes them with the same code rather than with its own
+# libm.
 # Third-party code that must not be edited: its warnings are suppressed, and
 # extern/fdlibm/otswap_fdlibm.h is force-included to rename its symbols.
 # Only src/detmath.h and src/Maths.cpp call it. An object library, whose

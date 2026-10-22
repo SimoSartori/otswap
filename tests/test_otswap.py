@@ -804,9 +804,10 @@ def test_config_defaults_repr_and_equality():
 
 
 @pytest.mark.parametrize("name, value, text", [
-    ("n_realizations", -1, "n_realizations is -1; it must lie in [0, 4294967295]"),
+    ("n_realizations", -1, "n_realizations is -1; it must be a non-negative integer"),
+    ("n_realizations", 2 ** 32, "n_realizations is 4294967296; it must lie in [0, 4294967295]"),
     ("n_realizations", 1.5, "n_realizations must be an integer"),
-    ("seed", -1, "seed is -1"),
+    ("seed", -1, "seed is -1; it must be a non-negative integer"),
     ("seed", 2 ** 32, "seed is 4294967296"),
     ("seed", "1", "seed must be an integer"),
     ("convergence", None, "convergence must be a real number"),
@@ -1942,8 +1943,11 @@ def test_io_precision(tmp_path):
     assert same_bytes(otswap.io.read(path, ["x"]).values[:, 0], x)
     otswap.io.write(path, [otswap.io.Column("x", [1 / 3])])
     assert path.read_text().endswith("0.333333333\n")
-    for bad in (0, 18, -1, 1.5, "9"):
-        with pytest.raises(otswap.Error):
+    for bad in (0, 18, -1, 1000, 5000, 2 ** 32, 2 ** 70, np.int64(-3)):
+        with pytest.raises(otswap.Error, match=re.escape(f"the precision is {bad}; it must lie in [1, 17]")):
+            otswap.io.write(path, [otswap.io.Column("x", [1.0])], precision=bad)
+    for bad in (1.5, "9", None):
+        with pytest.raises(otswap.Error, match=re.escape(f"precision must be an integer; got {bad!r}")):
             otswap.io.write(path, [otswap.io.Column("x", [1.0])], precision=bad)
 
 

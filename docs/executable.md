@@ -11,10 +11,11 @@ otswap --help
 otswap --version
 ```
 
-`--help` prints the usage and the two options, `--version` prints
-`otswap <version>`; both go to stdout. Any other argument that starts with
-`--` is refused with the usage line; a parameter file whose name starts with
-`--` is given as `./--name`.
+`--help` prints the usage, the two options and the address of this page,
+`--version` prints `otswap <version>`; both go to stdout. Any other argument
+that starts with `--` is refused with the usage line; a parameter file whose
+name starts with `--` is given as `./--name`. Without an argument, or with
+more than one, it prints the usage line to stderr and exits with 1.
 
 The parameter file has the syntax of {cpp:class}`otswap::io::ParameterFile`,
 described on the [file formats](formats.md#parameter-files) page: one
@@ -101,7 +102,7 @@ library default is required in the runs it applies to.
 | `tracer_file` | string | required | B, L | the tracers, ASCII or FITS by the extension |
 | `column_tracer` | 3 strings | required | B, L | box: x, y, z, in Mpc/h; lightcone: right ascension, declination, redshift. Each an index from 0, or a column name |
 | `id_column` | string | none, no IDs | B, L | an integer column of the tracer file, read exactly as the tracers' IDs; it must not be one of `column_tracer`, and no ID may appear twice |
-| `random_file` | string | box: none, the randoms are drawn; lightcone: required | B, L | the randoms, as `tracer_file` |
+| `random_file` | string | box: none, the randoms are drawn uniformly in the box of `box_min` and `box_max`, or without it in the tracers' bounding box; lightcone: required | B, L | the randoms, as `tracer_file` |
 | `column_random` | 3 strings | required | B with `random_file`, L | as `column_tracer` |
 | `units` | string | required | L | `degrees` or `radians`: the angles of tracers and randoms |
 | `delimiter` | character | `" "` | B, L | the column separator of every ASCII input, the bias file included; `" "` for a space, `\t` for a tab |
@@ -139,7 +140,7 @@ library's message.
 |---|---|---|---|---|
 | `Nrec` | unsigned | 30 | B, L | the number of realizations, at least 1 |
 | `threshold` | double | 1e-3 | B, L | the convergence threshold of the swap loop, strictly between 0 and 1 |
-| `seed` | unsigned | 0 | B, L | the seed of the random streams; 0 draws one, written in the complete displacement file |
+| `seed` | unsigned | 0 | B, L | the seed of the random streams; 0 draws one, written in the displacement files |
 | `mesh_cellsize` | double | 4 | B, L | the grid cell size, in mean particle separations, positive; it changes the speed only |
 | `bins` | unsigned | required | L | the redshift bins of the mean particle separation profile, at least 1 |
 | `reject_mask_crossings` | bool | true | L | reject a displacement whose path crosses unobserved pixels |

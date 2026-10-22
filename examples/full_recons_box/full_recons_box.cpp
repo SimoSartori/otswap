@@ -120,10 +120,9 @@ int main (int argc, char** argv)
     // weightByRealizations, each neighbour would be weighted by its number
     // of valid realizations.
     //
-    // The correction reads the tracers from the result. A tracer with no
-    // valid neighbour within 3 sigma, which in a box happens only for an
-    // isolated one, is left uncorrected, with NaN coordinates;
-    // RealSpaceCatalog::status says which
+    // The correction reads the tracers from the result. In a box every
+    // tracer is valid and counts among its own neighbours, so every one is
+    // corrected; RealSpaceCatalog::status records what was done with each
     const double sigma = 10.;
     otswap::CorrectionConfig correction;
     correction.weightByRealizations = false;

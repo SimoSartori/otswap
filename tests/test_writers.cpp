@@ -327,7 +327,7 @@ int main ()
     const std::string text = text_of(file);
     check(text.find("## PRODUCT = displacements / what the file holds\n## OTSWAPV = 0.1.0 / otswap version\n"
                     "## GEOMETRY = lightcone / geometry of the reconstruction\n"
-                    "## NOBJECTS = 900 / rows: one per input object\n## NREC = 3 / realizations\n"
+                    "## NOBJECTS = 900 / number of input objects\n## NREC = 3 / realizations\n"
                     "## SEED = 4321 / seed of the random streams\n") == 0,
           "the first keywords: " + text.substr(0, 400));
     check(text.find("## ZCUTMIN = 0.3 /") != std::string::npos && text.find("## ZCUTMAX = 0.6 /") != std::string::npos &&

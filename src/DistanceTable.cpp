@@ -54,8 +54,8 @@ namespace {
 
   /// Sub-intervals of Simpson's rule per sampled step. The integrand
   /// 1/E(z) is smooth and monotonic, so the error falls as the fourth
-  /// power of the step; four sub-intervals on a step of a few times 1e-3
-  /// in z puts the truncation error far below the linear interpolation
+  /// power of the step; four sub-intervals on the default step, about
+  /// 2e-4 in z, puts the truncation error far below the linear interpolation
   /// error the table itself carries.
   constexpr unsigned kSimpsonSteps = 4;
 

@@ -218,14 +218,17 @@ namespace otswap {
     void to_cartesian (double ra, double dec, double distance,
                        double& x, double& y, double& z);
 
-    /// Cartesian to sky. Right ascension is returned in [0, 2*pi).
+    /// Cartesian to sky. Right ascension as normalize_ra returns it;
+    /// fold_ra folds it into [0, 2*pi).
     void to_sky (double x, double y, double z,
                  double& ra, double& dec, double& distance);
 
-    /// Right ascension folded into [0, 2*pi): normalize_ra may return 2 pi
-    /// itself for a negative angle smaller in magnitude than half its
-    /// rounding step, and -0 for -0, and fold_ra folds both to +0.
+    /// Right ascension modulo 2*pi; may return 2*pi itself for a negative
+    /// angle smaller in magnitude than half its rounding step, and -0 for
+    /// -0.
     double normalize_ra (double ra);
+
+    /// Right ascension folded into [0, 2*pi), 2*pi and -0 to +0.
     double fold_ra (double ra);
 
     /// Build the profile of the tracers' redshifts, in uniform bins over the
