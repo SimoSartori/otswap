@@ -54,9 +54,15 @@ jobs:
           brew install cfitsio libomp
           echo "CFITSIO_ROOT=$(brew --prefix cfitsio)" >> "$GITHUB_ENV"
 
+      # The bindings and _otswap_crosstest are built with the tests, for
+      # tests/test_crossmodule.py.
+      - name: Install nanobind
+        run: python -m pip install nanobind==3.1.0
+
       - name: Configure
         run: |
-          cmake -S . -B build -DCMAKE_COMPILE_WARNING_AS_ERROR=ON | tee configure.log
+          cmake -S . -B build -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DOTSWAP_BUILD_PYTHON=ON \
+            -DPython_EXECUTABLE="$(command -v python)" | tee configure.log
           # without OpenMP every test would still pass, serially
           grep -q "Found OpenMP_CXX" configure.log
 
@@ -86,8 +92,10 @@ jobs:
       - name: Python tests
         env:
           OTSWAP_CPP_REFERENCE: ${{ github.workspace }}/build/cpp_reference
+          OTSWAP_CROSSTEST_DIR: ${{ github.workspace }}/build/crossmodule
         run: >-
           python -m pytest tests/test_otswap.py tests/test_rsd.py tests/test_determinism.py
+          tests/test_crossmodule.py
           -p no:cacheprovider -rs
 
       # The C++ install rules and the executable are off under
