@@ -7,7 +7,7 @@ name = "otswap"
 version = "0.1.0"
 description = "Optimal transport reconstruction of the displacement field of a tracer catalogue, by local swapping"
 readme = "README.md"
-requires-python = ">= 3.9"
+requires-python = ">= 3.10"
 license = "GPL-2.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "Simone Sartori" }]
@@ -35,7 +35,7 @@ OTSWAP_BUILD_PYTHON = "ON"
 OTSWAP_BUILD_TESTS = "OFF"
 
 [tool.cibuildwheel]
-# CPython from 3.9 to 3.14, on manylinux for x86_64 and aarch64 and on macOS
+# CPython from 3.10 to 3.14, on manylinux for x86_64 and aarch64 and on macOS
 # for x86_64 and arm64. PyPy is not in the default build set, and nanobind
 # does not support it. The free-threaded 3.14t is skipped: the extension is
 # not declared free-threaded, so it would re-enable the GIL on import.

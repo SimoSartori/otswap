@@ -20,6 +20,8 @@
 
 ### Changed
 
+- Requires Python 3.10 or later, was 3.9: nanobind 3 does not support
+  3.9. No wheel is built for CPython 3.9.
 - `Config::nRealizations` (`n_realizations`) defaults to 30, was 1.
 - Requires meshsearch 0.2.1 or a later 0.2.x; 0.2.1 is fetched when none is
   installed.

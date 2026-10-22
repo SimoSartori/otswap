@@ -46,7 +46,7 @@ Documentation, for both APIs: **<https://simosartori.github.io/otswap/>**
 pip install otswap
 ```
 
-Wheels are built for CPython 3.9 to 3.14, on Linux (x86_64, aarch64) and macOS
+Wheels are built for CPython 3.10 to 3.14, on Linux (x86_64, aarch64) and macOS
 (x86_64, arm64). From a clone, `pip install .` builds the package from source,
 with the requirements below.
 
