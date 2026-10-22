@@ -745,6 +745,100 @@ int main ()
     std::remove(fileB.c_str());
   }
 
+  group("TSCAL and TZERO are applied before the > 0 test, in J, B and E columns; a J null "
+        "pixel is unobserved whatever its scaled value");
+  {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+
+    // Adds TSCAL1 and TZERO1 to a map already written, so the stored values
+    // stay as written and only reading applies the scaling.
+    auto add_scaling = [] (const std::string& file, double tscal, double tzero) {
+      fitsfile* fptr = nullptr;
+      int status = 0, hdutype = 0;
+      fits_open_file(&fptr, file.c_str(), READWRITE, &status);
+      fits_movabs_hdu(fptr, 2, &hdutype, &status);
+      fits_write_key(fptr, TDOUBLE, "TSCAL1", &tscal, nullptr, &status);
+      fits_write_key(fptr, TDOUBLE, "TZERO1", &tzero, nullptr, &status);
+      fits_close_file(fptr, &status);
+      return status;
+    };
+
+    // J, 0.5 * stored - 10, with TNULL 30: of the positive stored values
+    // only 21 and 100 scale to above 0. Stored 30 would scale to 5 but is
+    // null.
+    const long long tnull = 30;
+    const int ivalues[] = {20, 21, 19, 100, 30, 1, -1};
+    const bool iobserved[] = {false, true, false, true, false, false, false};
+    std::vector<int> asInt((std::size_t)npix, 22);
+    std::vector<double> intTwin((std::size_t)npix, 1.), intRaw((std::size_t)npix, 22.);
+    for (std::size_t k = 0; k < sizeof(ivalues) / sizeof(ivalues[0]); ++k) {
+      asInt[17 + k] = ivalues[k];
+      intRaw[17 + k] = ivalues[k];
+      intTwin[17 + k] = ivalues[k] == 30 ? nan : 0.5 * ivalues[k] - 10.;
+    }
+    const std::string fileJ = temporary("scaled_J.fits");
+    check(write_typed_map(fileJ, "1024J", TINT, asInt.data(), npix, "RING", kNside, &tnull) == 0 &&
+          add_scaling(fileJ, 0.5, -10.) == 0, "the scaled J map is written");
+    const Mask fromJ(fileJ);
+    for (std::size_t k = 0; k < sizeof(ivalues) / sizeof(ivalues[0]); ++k) {
+      const pointing centre = base.pix2ang(17 + (long)k);
+      check(fromJ.allows(centre.phi, kPi/2. - centre.theta) == iobserved[k],
+            "a J pixel stored as " + std::to_string(ivalues[k]) + " is " +
+            (iobserved[k] ? "observed" : "unobserved"));
+    }
+    check(disagreements(fromJ, Mask(intTwin, PixelOrdering::Ring)) == 0,
+          "a scaled J column gives the same mask as its scaled values in memory");
+    check(disagreements(fromJ, Mask(intRaw, PixelOrdering::Ring)) > 0,
+          "and not the mask of its stored values");
+    std::remove(fileJ.c_str());
+
+    // B with TZERO -128, the signed-byte convention: stored 128 is 0.
+    const unsigned char bvalues[] = {128, 129, 127, 0, 255};
+    const bool bobserved[] = {false, true, false, false, true};
+    std::vector<unsigned char> asByte((std::size_t)npix, 200);
+    std::vector<double> byteTwin((std::size_t)npix, 72.);
+    for (std::size_t k = 0; k < sizeof(bvalues) / sizeof(bvalues[0]); ++k) {
+      asByte[17 + k] = bvalues[k];
+      byteTwin[17 + k] = (double)bvalues[k] - 128.;
+    }
+    const std::string fileB = temporary("scaled_B.fits");
+    check(write_typed_map(fileB, "1024B", TBYTE, asByte.data(), npix, "RING", kNside) == 0 &&
+          add_scaling(fileB, 1., -128.) == 0, "the scaled B map is written");
+    const Mask fromB(fileB);
+    for (std::size_t k = 0; k < sizeof(bvalues) / sizeof(bvalues[0]); ++k) {
+      const pointing centre = base.pix2ang(17 + (long)k);
+      check(fromB.allows(centre.phi, kPi/2. - centre.theta) == bobserved[k],
+            "a B pixel stored as " + std::to_string(bvalues[k]) + " is " +
+            (bobserved[k] ? "observed" : "unobserved"));
+    }
+    check(disagreements(fromB, Mask(byteTwin, PixelOrdering::Ring)) == 0,
+          "a B column with TZERO -128 gives the same mask as its scaled values in memory");
+    std::remove(fileB.c_str());
+
+    // E with TSCAL -1: the sign of every value flips.
+    const float fvalues[] = {1.f, -2.f, 0.f, -0.25f, 3.f};
+    const bool fobserved[] = {false, true, false, true, false};
+    std::vector<float> asFloat((std::size_t)npix, -1.f);
+    std::vector<double> floatTwin((std::size_t)npix, 1.);
+    for (std::size_t k = 0; k < sizeof(fvalues) / sizeof(fvalues[0]); ++k) {
+      asFloat[17 + k] = fvalues[k];
+      floatTwin[17 + k] = -(double)fvalues[k];
+    }
+    const std::string fileE = temporary("scaled_E.fits");
+    check(write_typed_map(fileE, "1024E", TFLOAT, asFloat.data(), npix, "RING", kNside) == 0 &&
+          add_scaling(fileE, -1., 0.) == 0, "the scaled E map is written");
+    const Mask fromE(fileE);
+    for (std::size_t k = 0; k < sizeof(fvalues) / sizeof(fvalues[0]); ++k) {
+      const pointing centre = base.pix2ang(17 + (long)k);
+      check(fromE.allows(centre.phi, kPi/2. - centre.theta) == fobserved[k],
+            "an E pixel stored as " + std::to_string(fvalues[k]) + " is " +
+            (fobserved[k] ? "observed" : "unobserved"));
+    }
+    check(disagreements(fromE, Mask(floatTwin, PixelOrdering::Ring)) == 0,
+          "an E column with TSCAL -1 gives the same mask as its scaled values in memory");
+    std::remove(fileE.c_str());
+  }
+
   group("the in-memory and FITS forms give the same mask, RING and NESTED, at NSIDE 16, 64 "
         "and 256, rejectMaskCrossings included; the ordering is honoured");
   {
