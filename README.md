@@ -62,6 +62,9 @@ cmake --build build
 cmake --install build --prefix /path/to/prefix
 ```
 
+This installs the library, its headers and CMake package, and the `otswap`
+executable, `bin/otswap` (see "The executable" in the documentation).
+
 Set `CFITSIO_ROOT` (and `ZLIB_ROOT` for a static cfitsio) where cfitsio is not
 in a system path. The options:
 
@@ -69,6 +72,8 @@ in a system path. The options:
   project;
 - `OTSWAP_BUILD_PYTHON`: the Python extension, off (`pip install .` sets it);
 - `OTSWAP_INSTALL`: the install rules;
+- `OTSWAP_BUILD_EXECUTABLE`: the `otswap` executable, installed into `bin/`,
+  on when otswap is the top-level project;
 - `OTSWAP_MESHSEARCH_REPOSITORY`, `OTSWAP_MESHSEARCH_TAG`: where meshsearch is
   fetched from, when it is not installed; the repository may be a local path.
 
@@ -122,7 +127,13 @@ otswap.io.write_displacement_mean("displacements.dat", result)
 
 `examples/` holds four examples, each in C++ and in Python, with the data to
 run them: box and lightcone reconstructions, and the redshift-space correction
-in each geometry. The documentation walks through them.
+in each geometry. The documentation walks through them. `examples/executable/`
+holds a commented parameter file per geometry for the `otswap` executable,
+which runs a reconstruction and the correction with no code to write:
+
+```
+otswap examples/executable/box.ini
+```
 
 ## Python
 

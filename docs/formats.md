@@ -4,7 +4,9 @@ otswap reads and writes tables in two formats, chosen by the file's extension:
 `.fits`, `.fit` and `.fits.gz` are FITS, anything else is ASCII. The C++
 functions are in the namespace `otswap::io`, the Python ones in the module
 `otswap.io`; both run the same code, so a file written from Python is the same,
-byte for byte, as the one the C++ library writes from the same values.
+byte for byte, as the one the C++ library writes from the same values. The
+names of the files the `otswap` executable writes are on the
+[executable](executable.md) page.
 
 ## Reading
 

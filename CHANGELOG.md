@@ -4,6 +4,12 @@
 
 ### Added
 
+- The `otswap` executable: a reconstruction, and optionally its
+  redshift-space correction, run from a parameter file, with every key and
+  the output files on the new "The executable" page. Built and installed into
+  `bin/` with the C++ library (`OTSWAP_BUILD_EXECUTABLE`); not in the Python
+  package. `examples/executable/` has a commented parameter file per
+  geometry.
 - `otswap::io::ParameterFile`, in the new header `otswap/ParameterFile.h`: a
   reader of `key = value` parameter files, with typed reads of strings,
   booleans, integers, doubles, characters and lists of each, errors naming

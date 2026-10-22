@@ -90,10 +90,11 @@ jobs:
           python -m pytest tests/test_otswap.py tests/test_rsd.py tests/test_determinism.py
           -p no:cacheprovider -rs
 
-      # The C++ install rules are off under scikit-build-core.
+      # The C++ install rules and the executable are off under
+      # scikit-build-core.
       - name: The module installs no C++ library, header or CMake file
         run: |
-          if pip show -f otswap | grep -E '\.(a|h|cmake)$'; then
+          if pip show -f otswap | grep -E '\.(a|h|cmake)$|(^|/)bin/otswap$'; then
             exit 1
           fi
 
@@ -122,6 +123,16 @@ jobs:
             echo "libotswap.a holds Healpix code"
             exit 1
           fi
+          # the executable runs from the moved prefix: with no argument it
+          # prints its usage line and exits 1
+          test -x bin/otswap
+          status=0
+          ./bin/otswap 2> usage.txt || status=$?
+          if [ "$status" != 1 ] || [ "$(cat usage.txt)" != "usage: otswap <parameter-file>" ]; then
+            echo "bin/otswap with no argument: exit $status, stderr: $(cat usage.txt)"
+            exit 1
+          fi
+          rm usage.txt
 
       # find_package(otswap CONFIG) against the moved tree
       - name: Consume the installed package
@@ -149,12 +160,36 @@ jobs:
             diff -r "examples/$d/output-cpp" "examples/$d/output"
           done
 
-      # add_subdirectory on the source tree: no tests, no example, no build type
+      # The executable on the examples' parameters writes the examples' files,
+      # byte for byte. examples/executable/*.ini are the commented ones of the
+      # docs; tests/executable/example_*.ini hold the parameters of the box
+      # and lightcone examples.
+      - name: Run the executable on the examples' parameters and compare
+        run: |
+          otswap="$RUNNER_TEMP/moved/bin/otswap"
+          "$otswap" examples/executable/box.ini
+          "$otswap" examples/executable/lightcone.ini
+          "$otswap" tests/executable/example_box.ini
+          "$otswap" tests/executable/example_lightcone.ini
+          cmp examples/executable/output/reconstructed_catalogue_box.dat \
+            examples/full_recons_box/output-cpp/reconstructed_catalogue_box.dat
+          cmp examples/executable/output/reconstructed_catalogue_lightcone.dat \
+            examples/full_recons_lightcone/output-cpp/reconstructed_catalogue_lightcone.dat
+          cmp build-executable-examples/displacement_mean_box.dat examples/box/output-cpp/displacement_box.dat
+          cmp build-executable-examples/displacement_mean_lightcone.dat \
+            examples/lightcone/output-cpp/displacement_lightcone.dat
+
+      # add_subdirectory on the source tree: no tests, no example, no
+      # executable, no build type
       - name: Consume the source tree as a subproject
         run: |
           cmake -S tests/cmake/subproject -B build-subproject-consumer -DOTSWAP_SOURCE_DIR="$GITHUB_WORKSPACE"
           cmake --build build-subproject-consumer --parallel
           ./build-subproject-consumer/consumer
+          if find build-subproject-consumer -name otswap -type f | grep .; then
+            echo "the subproject build holds an otswap executable"
+            exit 1
+          fi
 
       # An installed meshsearch of the same minor version is used, not fetched.
       - name: Build against an installed meshsearch

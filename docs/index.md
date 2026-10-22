@@ -85,6 +85,7 @@ show every step.
 guide
 method
 examples
+executable
 formats
 cpp
 python
