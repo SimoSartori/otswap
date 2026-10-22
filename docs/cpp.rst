@@ -2,8 +2,8 @@ C++ reference
 =============
 
 Generated from the public headers ``otswap/OT.h``, ``otswap/RSD.h``,
-``otswap/io.h`` and ``otswap/Maths.h`` by Doxygen, with only what carries a
-comment included.
+``otswap/io.h``, ``otswap/ParameterFile.h`` and ``otswap/Maths.h`` by Doxygen,
+with only what carries a comment included.
 
 otswap/OT.h
 -----------
@@ -166,6 +166,15 @@ Writers
 are documented on the :doc:`formats` page, with the layouts they write, and
 so is ``io::readDisplacementComplete``, which reads a complete displacement
 file back.
+
+otswap/ParameterFile.h
+----------------------
+
+Not included by ``otswap/OT.h``; the syntax of the file is on the
+:doc:`formats` page.
+
+.. doxygenclass:: otswap::io::ParameterFile
+   :members:
 
 otswap/Maths.h
 --------------

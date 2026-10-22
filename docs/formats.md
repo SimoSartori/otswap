@@ -93,3 +93,46 @@ In Python the groups are strings, the C++ names in snake case
 
 ```{doxygenfunction} otswap::io::writeMpsProfile
 ```
+
+## Parameter files
+
+{cpp:class}`otswap::io::ParameterFile`, in `otswap/ParameterFile.h`, reads a
+text file of parameters, one `key = value` per line. It is C++ only. For
+example:
+
+```text
+# a reconstruction
+n_realizations = 8
+columns  = 0 1 2          # three elements
+output   = "../my output/run 1.fits"
+delimiter = \t
+```
+
+- **Keys** hold letters, digits and `_`, do not start with a digit, and are
+  case-sensitive. Each key is set at most once in a file.
+- **Comments** start with `#` and run to the end of the line, on a line of
+  their own or after a value. Blank lines are skipped.
+- **Values** are lists of elements separated by spaces or tabs. A scalar
+  parameter needs exactly one element; a list parameter takes them all.
+  `key =` sets an empty list.
+- **Double quotes** group an element that holds spaces, tabs or `#`, as in
+  `output` above, and do not change its meaning: `"5"` is 5 and `"true"` is
+  true. `""` is one empty element. There is no escape, so an element cannot
+  hold a double quote, and a quote must not be glued to other text. Single
+  quotes, braces and commas are ordinary characters: `{0, 1, 2}` is the three
+  elements `{0,`, `1,` and `2}`.
+- Everything after the first `=` is the value, further `=` signs included.
+- **Types:** strings; `true` or `false`; integers written in decimal, with an
+  optional `-` and no `+`, so `1e3` and `5.0` are not integers; floating-point
+  numbers, finite, with an optional exponent (`2.194e-9`, `.5`, `1.`), always
+  with a decimal point whatever the locale; single characters, `\t` for a tab;
+  and lists of each.
+- Windows line endings and a UTF-8 byte-order mark at the start of the file
+  are accepted.
+
+Every error names the file and, where there is one, the line and the key, as
+`run.ini:7: key 'n_realizations': '8.0' is not an integer`. A syntax error
+anywhere in the file is reported when the file is read, before any parameter
+is; a value of the wrong type when that parameter is read. A program can
+also list the keys it never read, with their lines (`unread()`), to refuse
+unknown ones.

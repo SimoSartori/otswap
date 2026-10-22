@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- `otswap::io::ParameterFile`, in the new header `otswap/ParameterFile.h`: a
+  reader of `key = value` parameter files, with typed reads of strings,
+  booleans, integers, doubles, characters and lists of each, errors naming
+  the file, line and key, and the list of the keys never read. The syntax is
+  on the "File formats" page. C++ only.
+
 ### Changed
 
 - Requires meshsearch 0.2.1 or a later 0.2.x; 0.2.1 is fetched when none is
