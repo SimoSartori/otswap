@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Every translation unit is compiled with `-fno-math-errno` as well as
+  `-ffp-contract=off` (except with MSVC). The functions it lets the compiler
+  inline are exact, so results are unchanged, bit for bit.
+
 ## 0.2.0 — 2026-10-23
 
 ### Added

@@ -72,14 +72,17 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-      - name: Every translation unit is compiled without FP contraction
+      - name: Every translation unit is compiled without FP contraction or math errno
         run: |
           python3 - <<'PY'
           import json, sys
           entries = json.load(open("build/compile_commands.json"))
-          bad = [e["file"] for e in entries
-                 if "-ffp-contract=off" not in e.get("command", " ".join(e.get("arguments", [])))]
-          print(len(entries), "translation units;", len(bad), "without -ffp-contract=off")
+          bad = 0
+          for flag in ("-ffp-contract=off", "-fno-math-errno"):
+              missing = [e["file"] for e in entries
+                         if flag not in e.get("command", " ".join(e.get("arguments", [])))]
+              print(len(entries), "translation units;", len(missing), "without", flag)
+              bad += len(missing)
           sys.exit(1 if bad or not entries else 0)
           PY
 

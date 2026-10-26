@@ -48,7 +48,7 @@ include(GNUInstallDirs)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 # ---------------------------------------------------------------------------
-# Floating-point contraction
+# Floating-point contraction and math errno
 #
 # No a*b+c is fused into one FMA anywhere: compilers differ in what they
 # contract by default, and so do the instruction sets, so contraction would
@@ -56,10 +56,14 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 # targets; this covers otswap's, fdlibm, a fetched meshsearch, the tests'
 # Healpix and the extension module. It is not exported: all of otswap's
 # arithmetic is in its own archive.
+#
+# -fno-math-errno lets the compiler inline the library's sqrt, floor and
+# similar calls without setting errno, as Apple clang does by default. These
+# functions are exact, so it changes speed only, never a result.
 # ---------------------------------------------------------------------------
 
 if (NOT MSVC)
-  add_compile_options(-ffp-contract=off)
+  add_compile_options(-ffp-contract=off -fno-math-errno)
 endif()
 
 # ---------------------------------------------------------------------------
