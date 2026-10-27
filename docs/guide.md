@@ -7,9 +7,10 @@ side by side; [names side by side](naming.md) maps them all.
 
 **Box.** Cartesian coordinates, and a single mean particle separation (mps),
 given or computed from the tracers as $(V/N)^{1/3}$, with $V$ the volume of
-their bounding box: {cpp:func}`otswap::reconstructBox`,
-{py:func}`otswap.reconstruct_box`. Randoms may be given, or drawn uniformly in
-the tracers' bounding box. Use it for any catalogue in comoving Cartesian
+the bounding box of the tracers and the given randoms:
+{cpp:func}`otswap::reconstructBox`, {py:func}`otswap.reconstruct_box`. Randoms
+may be given, or drawn uniformly in the tracers' bounding box, which is then
+the box. Use it for any catalogue in comoving Cartesian
 coordinates whose density is about constant, cubic or not.
 
 The box may be given instead, as closed limits on each axis
@@ -18,7 +19,8 @@ pair of corners): the tracers outside it are left out, the randoms given
 outside it are dropped, drawn randoms fill it, and the mps is computed from its
 volume and the tracers inside. Use it when the volume of the sample is known,
 such as a simulation box, rather than inferred from its outermost tracers. The
-result records the box used, the limits or the tracers' bounding box.
+result records the box used: the limits, or the bounding box of the tracers and
+the given randoms.
 
 The box is not periodic: nothing flows through its faces, so modes on the
 scale of the box itself cannot be reconstructed, and the displacements are

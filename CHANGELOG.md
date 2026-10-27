@@ -13,6 +13,12 @@
 
 ### Changed
 
+- `reconstructBox` without box limits and with randoms given: `Result::box`
+  is now the bounding box of the tracers and the given randoms, not of the
+  tracers alone, so every random matched to a tracer lies inside it; also when
+  mps is given. A computed mps follows that box, so such runs give a slightly
+  different mps, and so different displacements, than in 0.2.0. Drawn randoms
+  and box limits are unchanged.
 - Every translation unit is compiled with `-fno-math-errno` as well as
   `-ffp-contract=off` (except with MSVC). The functions it lets the compiler
   inline are exact, so results are unchanged, bit for bit.

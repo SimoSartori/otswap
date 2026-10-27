@@ -785,6 +785,9 @@ void otswap::io::writeParts (const std::string& file, const std::vector<TablePar
       check_name(k, parts[k].extname, "extname", &TablePart::extname);
     if (k > 0)
       check_name(k, parts[k].twin, "twin", &TablePart::twin);
+    else if (!parts[k].twin.empty())
+      throw Error("parts[0] of " + file + " has the twin '" + parts[k].twin + "'; the first part is "
+                  "written to the file itself, so its twin must be empty");
     for (const Keyword& keyword : parts[k].options.keywords)
       if (keyword.name == "EXTNAME")
         throw Error("parts[" + std::to_string(k) + "] of " + file + " holds a keyword EXTNAME; "

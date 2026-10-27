@@ -118,13 +118,14 @@ int main (int argc, char** argv)
 
     // In box geometry the mean particle separation (mps) is a single
     // number. Without one, as here, otswap takes (V/N)^(1/3), with V the
-    // volume of the tracers' bounding box and N their number, and records
-    // it in Result::mps; an overload takes it from the caller. It sets the
+    // volume of the bounding box of the tracers and the randoms and N the
+    // number of tracers, and records it in Result::mps; an overload takes
+    // it from the caller. It sets the
     // scale of the search for swap partners, so it must describe the whole
     // catalogue: with a strongly varying density use the lightcone
     // geometry, which measures it as a function of redshift. When the
     // volume is known, give the box limits, the last argument: the mps
-    // then comes from the box's volume, not from the tracers' bounding box
+    // then comes from the box's volume, not from the bounding box
     const otswap::Result result = otswap::reconstructBox(tracers, randoms, config);
 
 

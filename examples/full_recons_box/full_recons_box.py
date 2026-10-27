@@ -69,8 +69,9 @@ def main():
     # ------------------------------------------------
 
     # As in the box example: 8 realizations, a convergence threshold of
-    # 1e-2, a fixed seed, and the mean particle separation of the tracers'
-    # bounding box, computed by otswap and printed with "detailed"
+    # 1e-2, a fixed seed, and the mean particle separation of the bounding
+    # box of the tracers and randoms, computed by otswap and printed with
+    # "detailed"
     config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, verbosity="detailed")
     result = otswap.reconstruct_box(tracers, randoms, config=config)
 

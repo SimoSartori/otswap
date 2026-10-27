@@ -339,8 +339,10 @@ class Result:
     @property
     def box(self) -> Optional["BoxLimits"]:
         """Box: the box of the reconstruction, the ``box`` given to
-        ``reconstruct_box`` or, without it, the bounding box of the tracers,
-        also when ``mps`` was given; a copy. None for a lightcone."""
+        ``reconstruct_box`` or, without it, the bounding box of the tracers
+        and the given randoms (of the tracers alone when the randoms were
+        drawn), also when ``mps`` was given; every random matched to a tracer
+        lies inside it; a copy. None for a lightcone."""
 
     @property
     def mps_profile(self) -> Optional["MpsProfile"]:
@@ -786,10 +788,12 @@ def reconstruct_box(
         ``box``, or without it in the bounding box of the tracers.
     mps : float, optional
         Mean particle separation, in the units of the coordinates. If
-        omitted, (V / N)^(1/3), with V the volume of ``box``, or without it of
-        the tracers' bounding box, the box drawn randoms fill, and N the
-        tracers inside it; it is ``Result.mps``. Without ``box``, raises if
-        the tracers span no volume.
+        omitted, (V / N)^(1/3), with N the tracers inside the box and V its
+        volume, the box being ``Result.box``: ``box`` or, without it, the
+        bounding box of the tracers and the given randoms, or of the tracers
+        alone when the randoms are drawn (the box drawn randoms fill); it is
+        ``Result.mps``. Without ``box``, raises if the tracers, with the given
+        randoms, span no volume.
     box : BoxLimits or ((x0, y0, z0), (x1, y1, z1)), optional
         The box of the reconstruction, closed: a point on a face is inside.
         The tracers outside it take no part in the reconstruction and are

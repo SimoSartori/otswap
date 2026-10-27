@@ -149,7 +149,8 @@ library's message.
 | `box_max` | 3 doubles | none | B | the upper x, y, z, each above `box_min`'s |
 | `mps` | double | none, measured | B | the mean particle separation, in Mpc/h, positive |
 
-Without `box_min` and `box_max` the box is the tracers' bounding box. The
+Without `box_min` and `box_max` the box is the bounding box of the tracers and
+the randoms of `random_file`, or of the tracers alone without it. The
 [guide](guide.md) describes each parameter of the reconstruction.
 
 ### RSD correction

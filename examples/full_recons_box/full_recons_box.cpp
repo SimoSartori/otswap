@@ -82,9 +82,10 @@ int main (int argc, char** argv)
     // ------------------------------------------------
 
     // As in the box example: 8 realizations, a convergence threshold of
-    // 1e-2, a fixed seed, and the mean particle separation of the tracers'
-    // bounding box, computed by otswap and reported with Detailed. The
-    // report goes to std::cout, in order with this program's lines
+    // 1e-2, a fixed seed, and the mean particle separation of the bounding
+    // box of the tracers and randoms, computed by otswap and reported with
+    // Detailed. The report goes to std::cout, in order with this program's
+    // lines
     otswap::Config config;
     config.nRealizations = 8;
     config.convergence = 1.e-2;

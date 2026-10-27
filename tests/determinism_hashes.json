@@ -7,8 +7,8 @@
   "mask.from_array.allows": "ef0251b61567eb3ec83bd8a77d9b9901322056fe8dd21f2409e092394ada7829",
   "mask.from_array.sky_area_deg2": "b7a4b11ab9b244659d19672f19715a615e4c968dd0ceddc9d196c4631a7315a2",
   "mask.sky_area_deg2": "b7a4b11ab9b244659d19672f19715a615e4c968dd0ceddc9d196c4631a7315a2",
-  "reconstruct_box.computed_mps.displacement": "77b90ba9a3e88d0d183579ab60b28ffb153262f4f8de41e5cc8b3d487f682d34",
-  "reconstruct_box.computed_mps.mps": "bb9427c2dde9200e67cb09c87fdf09d7b6397105943ccfd07ee1f9f93f316c10",
+  "reconstruct_box.computed_mps.displacement": "8782b25f5d405df6c44ee13778bc198dddc1d7b63c65fc0903192e650f3b9265",
+  "reconstruct_box.computed_mps.mps": "f8be6f74d865a10bcaea9bf4d8a5217321f24a5da1563d5954467a3bafb02012",
   "reconstruct_box.generated.displacement": "f91a959251eb06ea79d58d09e2f9f28a78c837d44dc39772d8483fa97f072380",
   "reconstruct_box.generated.mean_displacement": "0ab4e91bf320b0488ca5ee1d802c8683a0b477db695aecbcb75e077c724c0478",
   "reconstruct_box.given.displacement": "cb16b3d59fc5d97f32882f1b2777263d53fca60fdfd01619ddac549c14200775",
@@ -79,7 +79,7 @@
   "to_sky.rad": "65236ff76b856bc70826e316436066f4d0cf9c3dc6b83e98fbfd3f3ec5c12771"
  },
  "recorded": {
-  "date": "2026-10-20",
+  "date": "2026-10-27",
   "machine": "arm64",
   "numpy": "2.5.3",
   "platform": "macOS-14.5-arm64-arm-64bit-Mach-O",

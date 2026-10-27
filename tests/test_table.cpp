@@ -749,6 +749,8 @@ int main ()
       {{first, part("B", "b/c")}, "is not 1 to 68 characters"},
       {{first, part(std::string(69, 'B'), "b")}, "is not 1 to 68 characters"},
       {{part("A B", "")}, "is not 1 to 68 characters"},
+      {{part("", "a"), part("B", "b")}, "parts[0] of "},
+      {{part("MAIN", "main")}, "its twin must be empty"},
       {{first, keyword}, "holds a keyword EXTNAME"},
       {{first, noColumn}, "no column was given"},
       {{first, unequal}, "holds 2 entries"},

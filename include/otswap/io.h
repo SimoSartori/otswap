@@ -284,8 +284,10 @@ namespace otswap {
       std::string extname;
 
       /// The name of the ASCII twin file: 1 to 68 characters of A-Z, a-z,
-      /// 0-9, '-' and '_'. Ignored for the first part; required for the
-      /// others, and unique in the file, ignoring case.
+      /// 0-9, '-' and '_'. Empty for the first part, which is written to
+      /// the file itself; required for the others, and unique in the file,
+      /// ignoring case. So every part reads back with its own extname and
+      /// twin.
       std::string twin;
 
       std::vector<Column> columns;
@@ -302,7 +304,8 @@ namespace otswap {
      *  where they are, so hasPart still finds them.
      *
      *  @exception Error if no part is given, if an extname or a twin is
-     *  missing, malformed or repeated as described in TablePart, if a part
+     *  missing, malformed or repeated as described in TablePart, if the
+     *  first part has a twin, if a part
      *  holds a keyword named EXTNAME, or as io::write for any part. Every
      *  part is checked before any file is opened, but for the values of
      *  'J' columns, checked as they are written.

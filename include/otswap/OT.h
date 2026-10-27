@@ -461,8 +461,10 @@ namespace otswap {
     double mps = std::numeric_limits<double>::quiet_NaN();
 
     /// Box: the box of the reconstruction, the limits given to
-    /// reconstructBox or, without them, the bounding box of the tracers,
-    /// also when mps was given. Empty in a lightcone result.
+    /// reconstructBox or, without them, the bounding box of the tracers
+    /// and the given randoms (of the tracers alone when the randoms were
+    /// drawn), also when mps was given. Every random matched to a tracer
+    /// lies inside it. Empty in a lightcone result.
     std::optional<BoxLimits> box;
 
     /// Lightcone: the mean particle separation profile measured on the
@@ -726,7 +728,8 @@ namespace otswap {
    *  the tracers outside the limits, whose rows are as for
    *  Result::outsideBox, and meanDisplacement is the mean over all
    *  realizations. Result::mps is mps, and Result::box the limits or,
-   *  without them, the bounding box of the tracers.
+   *  without them, the bounding box of the tracers and the given randoms,
+   *  or of the tracers alone when the randoms are drawn.
    *
    *  @note The box is not periodic: nothing flows through its faces, so
    *  modes on the scale of the box itself cannot be reconstructed.
@@ -745,14 +748,15 @@ namespace otswap {
 
   /**
    *  @brief Reconstruct in box geometry, with the mean particle separation
-   *  of the tracers: mps = (V / N)^(1/3), V the volume of the box limits,
-   *  or without them of the tracers' bounding box, the box that drawn
-   *  randoms fill, and N the tracers inside it. The value used is
-   *  Result::mps.
+   *  of the tracers: mps = (V / N)^(1/3), N the tracers inside the box and
+   *  V its volume, the box being Result::box: the limits or, without them,
+   *  the bounding box of the tracers and the given randoms, or of the
+   *  tracers alone when the randoms are drawn (the box drawn randoms
+   *  fill). The value used is Result::mps.
    *
    *  @exception Error as above, from the neighbour search included, and,
-   *  without limits, if the tracers span no volume (all of them in one
-   *  plane, on one line or at one point).
+   *  without limits, if the tracers, with the given randoms, span no
+   *  volume (all of them in one plane, on one line or at one point).
    */
   Result reconstructBox (const std::vector<double>& tracers,
                          const std::vector<double>& randoms,

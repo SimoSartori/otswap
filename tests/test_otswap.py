@@ -975,6 +975,32 @@ def test_reconstruct_box_without_limits_records_the_bounding_box():
         assert r.selection.tracers == 0 and repr(r.selection) == "SelectionCounts(no selection)"
 
 
+# Without limits, given randoms reaching beyond the tracers widen the box,
+# and the computed mps follows it; limits equal to that box change nothing.
+def test_reconstruct_box_given_randoms_widen_the_box(capfd):
+    tracers = box_catalogue()
+    randoms = np.random.default_rng(9).uniform((-10.0, 0.0, 0.0), (80.0, 80.0, 85.0), (1024, 3))
+    lo = np.minimum(tracers.min(axis=0), randoms.min(axis=0))
+    hi = np.maximum(tracers.max(axis=0), randoms.max(axis=0))
+    assert lo[0] < tracers.min(axis=0)[0] and hi[2] > tracers.max(axis=0)[2]
+    config = otswap.Config(n_realizations=2, seed=3, verbosity="silent")
+    r = otswap.reconstruct_box(tracers, randoms, config=config)
+    assert r.box.lower == tuple(lo) and r.box.upper == tuple(hi)
+    assert r.mps == pytest.approx((np.prod(hi - lo) / len(tracers)) ** (1 / 3), rel=1e-14)
+    matched = tracers[None, :, :] + r.displacement
+    assert np.all(matched >= lo - 1e-9) and np.all(matched <= hi + 1e-9)
+    limited = otswap.reconstruct_box(tracers, randoms, box=(lo, hi), config=config)
+    assert same_bytes(limited.displacement, r.displacement) and limited.mps == r.mps
+    given = otswap.reconstruct_box(tracers, randoms, mps=10.0, config=config)
+    assert given.box.lower == tuple(lo) and given.box.upper == tuple(hi)
+    capfd.readouterr()
+    detailed = otswap.reconstruct_box(tracers, randoms,
+                                      config=otswap.Config(n_realizations=2, seed=3, verbosity="detailed"))
+    assert capfd.readouterr()[0].startswith(
+        f"otswap: mean particle separation {detailed.mps:g} Mpc/h "
+        "(from the bounding box of the tracers and the given randoms)\n")
+
+
 @pytest.mark.parametrize("with_randoms", [False, True])
 def test_box_limits_on_the_bounding_box_change_nothing(with_randoms):
     tracers = box_catalogue()
@@ -2165,6 +2191,7 @@ def test_table_part_and_write_parts_refusals(tmp_path):
     for parts, match in (([], "no table was given"),
                          ([column], "parts must be a sequence of otswap.io.TablePart"),
                          ([first, otswap.io.TablePart([column], extname="B")], "has no twin"),
+                         ([part], "the first part is written to the file itself"),
                          ([first, part, otswap.io.TablePart([column], extname="a", twin="b")],
                           "repeats that of parts\\[1\\], ignoring case"),
                          ([first, otswap.io.TablePart([column], extname="A", twin="a",

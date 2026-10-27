@@ -683,7 +683,7 @@ int main ()
           "and reproduces the result");
   }
 
-  group("the box mps computed from the tracers' bounding box, when not given");
+  group("the box mps computed from the tracers' bounding box, with drawn randoms, when not given");
   {
     Config c;
     c.nRealizations = 2;
@@ -711,6 +711,76 @@ int main ()
     for (std::size_t i = 0; i < nObjects; ++i) flat[3*i+2] = 1.;
     check(message_contains([&] { reconstructBox(flat, {}, c); }, "span no volume"),
           "tracers in one plane are refused");
+  }
+
+  group("without limits, given randoms beyond the tracers widen Result::box, and the computed mps follows it");
+  {
+    Config c;
+    c.nRealizations = 2;
+    c.seed = 41;
+    c.verbosity = Verbosity::Silent;
+    // The randoms reach a spacing beyond the tracers on the low x side and
+    // half a spacing on the high z side.
+    std::vector<double> wide;
+    std::mt19937 rng(43);
+    for (std::size_t i = 0; i < 2 * nObjects; ++i) {
+      wide.push_back(internal::uniform_real(rng, -spacing, nSide * spacing));
+      wide.push_back(internal::uniform_real(rng, 0., nSide * spacing));
+      wide.push_back(internal::uniform_real(rng, 0., (nSide + 0.5) * spacing));
+    }
+    BoxLimits both = internal::bounding_box(tracers);
+    const BoxLimits randomBox = internal::bounding_box(wide);
+    for (std::size_t k = 0; k < 3; ++k) {
+      both.lower[k] = std::min(both.lower[k], randomBox.lower[k]);
+      both.upper[k] = std::max(both.upper[k], randomBox.upper[k]);
+    }
+    check(both.lower[0] < internal::bounding_box(tracers).lower[0] &&
+          both.upper[2] > internal::bounding_box(tracers).upper[2], "the randoms do reach beyond the tracers");
+
+    const Result r = reconstructBox(tracers, wide, c);
+    check(r.box && r.box->lower == both.lower && r.box->upper == both.upper,
+          "Result::box: the bounding box of the tracers and the randoms");
+    const double volume = (both.upper[0] - both.lower[0]) * (both.upper[1] - both.lower[1]) *
+                          (both.upper[2] - both.lower[2]);
+    check(r.mps == internal::det_pow(volume / (double)nObjects, 1./3.),
+          "the mps: (V / N)^(1/3) of that box, V multiplied x, y, z, bit for bit");
+    bool inside = true;
+    for (std::size_t d = 0; d < r.displacement.size() / 3; ++d) {
+      const std::array<double, 3> m = matched(r, d);
+      for (std::size_t k = 0; k < 3; ++k)
+        inside = inside && m[k] >= both.lower[k] - 1.e-9 && m[k] <= both.upper[k] + 1.e-9;
+    }
+    check(inside, "every matched random lies in Result::box, within rounding");
+    check(reconstructBox(tracers, wide, r.mps, c).displacement == r.displacement,
+          "the same result as with that mps given, bit for bit");
+
+    const Result limited = reconstructBox(tracers, wide, c, both);
+    check(limited.displacement == r.displacement && limited.meanDisplacement == r.meanDisplacement &&
+          limited.mps == r.mps, "limits equal to that box give the same result, bit for bit");
+
+    const Result given = reconstructBox(tracers, wide, spacing, c);
+    check(given.box && given.box->lower == both.lower && given.box->upper == both.upper,
+          "with mps given, Result::box is that box too");
+    const BoxLimits tracerBox = internal::bounding_box(tracers);
+    const Result drawn = reconstructBox(tracers, {}, c);
+    check(drawn.box && drawn.box->lower == tracerBox.lower && drawn.box->upper == tracerBox.upper,
+          "with drawn randoms, Result::box is the tracers' bounding box");
+
+    std::vector<double> flat = tracers;
+    for (std::size_t i = 0; i < nObjects; ++i) flat[3*i+2] = 1.;
+    std::vector<double> flatRandoms = wide;
+    for (std::size_t i = 0; i < 2 * nObjects; ++i) flatRandoms[3*i+2] = 1.;
+    check(message_contains([&] { reconstructBox(flat, flatRandoms, c); },
+                           "the tracers and the given randoms span no volume"),
+          "tracers and randoms in one plane are refused, naming both");
+    bool ran = true;
+    try {
+      reconstructBox(flat, wide, c);
+    }
+    catch (const Error&) {
+      ran = false;
+    }
+    check(ran, "tracers in one plane with randoms spanning a volume are accepted");
   }
 
   // The box limits: a lattice cut across x, with one tracer on the lower x

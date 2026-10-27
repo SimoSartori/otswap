@@ -530,7 +530,14 @@ namespace {
     const std::vector<double>& r = dropRandoms ? keptRandoms : randoms;
     const std::size_t nKept = t.size() / 3;
 
-    const BoxLimits span = limits ? *limits : internal::bounding_box(tracers);
+    BoxLimits span = limits ? *limits : internal::bounding_box(tracers);
+    if (!limits && !randoms.empty()) {
+      const BoxLimits given = internal::bounding_box(randoms);
+      for (std::size_t k = 0; k < 3; ++k) {
+        span.lower[k] = std::min(span.lower[k], given.lower[k]);
+        span.upper[k] = std::max(span.upper[k], given.upper[k]);
+      }
+    }
 
     double mps;
     if (givenMps != nullptr) mps = *givenMps;
@@ -540,8 +547,10 @@ namespace {
       mps = internal::det_pow(volume / (double)nKept, 1./3.);
     }
     if (!limits && givenMps == nullptr && !(mps > 0.))
-      throw Error("the tracers span no volume (all of them in one plane, on one line or at one "
-                  "point), so their mean particle separation cannot be computed; give it");
+      throw Error(std::string(randoms.empty() ? "the tracers span"
+                                              : "the tracers and the given randoms span") +
+                  " no volume (all of them in one plane, on one line or at one point), so their mean "
+                  "particle separation cannot be computed; give it");
     if (!std::isfinite(mps) || mps <= 0.)
       throw Error("the mean particle separation is " + std::to_string(mps) +
                   "; it must be positive");
@@ -570,8 +579,10 @@ namespace {
       out << result.selection.message();
       if (config.verbosity == Verbosity::Detailed)
         out << "otswap: mean particle separation " << mps << " Mpc/h ("
-            << (givenMps != nullptr ? "given" : limits ? "from the box limits"
-                                                       : "from the tracers' bounding box") << ")\n";
+            << (givenMps != nullptr ? "given"
+                : limits ? "from the box limits"
+                : randoms.empty() ? "from the tracers' bounding box"
+                : "from the bounding box of the tracers and the given randoms") << ")\n";
       out << internal::reconstruction_line("reconstructBox", result);
       *config.log << out.str() << std::flush;
     }

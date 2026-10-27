@@ -223,9 +223,10 @@ class TablePart:
         ``-`` and ``_``. Optional for the first part; required for the others,
         and unique in the file, ignoring case.
     twin : str, optional
-        The name of the ASCII twin file, with the same rules. Ignored for the
-        first part; required for the others, and unique in the file, ignoring
-        case.
+        The name of the ASCII twin file, with the same rules. Empty for the
+        first part, which is written to the file itself; required for the
+        others, and unique in the file, ignoring case. So every part reads
+        back with its own ``extname`` and ``twin``.
     precision : int, optional
         As in ``write``.
     keywords : sequence of (str, str, str), optional
@@ -264,8 +265,8 @@ def write_parts(file: Path, parts: Sequence[TablePart]) -> None:
     ------
     Error
         If no part is given, if an extname or a twin is missing, malformed or
-        repeated as described in ``TablePart``, if a part holds a keyword named
-        EXTNAME, or as ``write`` for any part.
+        repeated as described in ``TablePart``, if the first part has a twin,
+        if a part holds a keyword named EXTNAME, or as ``write`` for any part.
     """
 
 
