@@ -139,14 +139,14 @@ namespace {
                  "config: unobserved pixels a displacement may cross"});
     k.push_back({"VERBOSE", verbosity_name(r.config.verbosity), "what the call reported"});
     if (r.geometry == otswap::Geometry::Box && !std::isnan(r.mps))
-      k.push_back({"MPS", number(r.mps), "mean particle separation, Mpc/h"});
+      k.push_back({"MPS", number(r.mps), "mean particle separation, in coordinate units"});
     if (r.box) {
       static const char* const axis[3] = {"X", "Y", "Z"};
       for (int c = 0; c < 3; ++c) {
         k.push_back({std::string("BOX") + axis[c] + "LO", number(r.box->lower[c]),
-                     std::string("lower ") + (char)('x' + c) + " of the box, Mpc/h"});
+                     std::string("lower ") + (char)('x' + c) + " of the box, in coordinate units"});
         k.push_back({std::string("BOX") + axis[c] + "HI", number(r.box->upper[c]),
-                     std::string("upper ") + (char)('x' + c) + " of the box, Mpc/h"});
+                     std::string("upper ") + (char)('x' + c) + " of the box, in coordinate units"});
       }
     }
     const otswap::SelectionCounts& s = r.selection;
@@ -219,7 +219,8 @@ namespace {
 
   const char* const kXyz[3] = {"X", "Y", "Z"};
   const char* const kSky[3] = {"RA", "Dec", "Red"};
-  const char* const kMpc[3] = {"Mpc/h", "Mpc/h", "Mpc/h"};
+  /// Lengths are in coordinate units, which otswap cannot name: no unit.
+  const char* const kLength[3] = {"", "", ""};
   const char* const kDeg[3] = {"deg", "deg", ""};
 
   /// The id column, with its description, shared by the three writers.
@@ -476,18 +477,18 @@ void otswap::io::writeDisplacementMean (const std::string& file, const Result& r
       break;
     case G::Tracer:
       check_size(result.tracers.size(), 3 * n, "tracers");
-      out.push_back(triple(result.tracers, "trac", kXyz, "comoving position of the tracer", kMpc,
+      out.push_back(triple(result.tracers, "trac", kXyz, "comoving position of the tracer", kLength,
                            false));
       break;
     case G::Lagrangian:
       check_size(result.lagrangian.size(), 3 * n, "lagrangian");
       out.push_back(triple(result.lagrangian, "lagr", kXyz,
-                           "mean Lagrangian position, tracer + mean displacement", kMpc, false));
+                           "mean Lagrangian position, tracer + mean displacement", kLength, false));
       break;
     case G::Displacement:
       check_size(result.meanDisplacement.size(), 3 * n, "meanDisplacement");
       out.push_back(triple(result.meanDisplacement, "displ", kXyz,
-                           "mean displacement over the valid realizations", kMpc, false));
+                           "mean displacement over the valid realizations", kLength, false));
       break;
     case G::ValidRealizations: {
       check_size(result.validRealizations.size(), n, "validRealizations");
@@ -559,10 +560,10 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
   }
   const std::size_t xyz = columns.size();
   for (const char* c : kXyz) columns.push_back(column(std::string("trac") + c, 'D',
-                                                      "comoving position of the tracer", "Mpc/h"));
+                                                      "comoving position of the tracer"));
   for (const char* c : kXyz)
     columns.push_back(column(std::string("displ") + c, 'D', "displacement in this realization: the random "
-                             "matched to the tracer, minus the tracer", "Mpc/h"));
+                             "matched to the tracer, minus the tracer"));
   columns.push_back(column("valid", 'J', "1 valid, 0 rejected by a filter or left out"));
   columns.push_back(column("outsideRedshiftCut", 'J', "1 if left out of the reconstruction by the redshift cut"));
   columns.push_back(column("outsideMask", 'J', "1 if left out of the reconstruction by the mask"));
@@ -603,7 +604,7 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
     part.extname = kProfileExtname;
     part.twin = "mps";
     part.columns = {column("redshift", 'D', "centre of the redshift bin"),
-                    column("MPS", 'D', "mean particle separation in the bin", "Mpc/h"),
+                    column("MPS", 'D', "mean particle separation in the bin"),
                     column("nTracers", 'J', "tracers in the bin")};
     part.nRows = profile.redshift.size();
     part.options.precision = kLossless;
@@ -612,7 +613,7 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
                              {"ZMIN", number(profile.redshiftMin), "lowest redshift binned"},
                              {"ZMAX", number(profile.redshiftMax), "highest redshift binned"},
                              {"MPSREPR", number(profile.representative),
-                              "representative mps, the count-weighted median, Mpc/h"}};
+                              "representative mps, the count-weighted median, in coordinate units"}};
     const MpsProfile* p = &profile;
     part.fillRow = [p] (const std::size_t row, std::vector<double>& values, std::vector<std::int64_t>&) {
       values[0] = p->redshift[row];
@@ -629,7 +630,7 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
     part.extname = kTableExtname;
     part.twin = "distances";
     part.columns = {column("redshift", 'D', "sampled redshift"),
-                    column("distance", 'D', "comoving distance", "Mpc/h")};
+                    column("distance", 'D', "comoving distance")};
     if (growth) part.columns.push_back(column("growthRate", 'D', "linear growth rate f"));
     part.nRows = t->redshift().size();
     part.options.precision = kLossless;
@@ -852,7 +853,7 @@ void otswap::io::writeRealSpaceCatalog (const std::string& file, const RealSpace
       break;
     case G::Cartesian:
       check_size(catalog.cartesian.size(), 3 * n, "cartesian");
-      out.push_back(triple(catalog.cartesian, "trac", kXyz, "corrected comoving position", kMpc, false));
+      out.push_back(triple(catalog.cartesian, "trac", kXyz, "corrected comoving position", kLength, false));
       break;
     case G::ValidRealizations:
       check_size(catalog.validRealizations.size(), n, "validRealizations");
@@ -875,7 +876,7 @@ void otswap::io::writeRealSpaceCatalog (const std::string& file, const RealSpace
     case G::Shift:
       check_size(catalog.shift.size(), n, "shift");
       check_size(catalog.factor.size(), n, "factor");
-      out.push_back({{column("shift", 'D', "shift applied along the line of sight", "Mpc/h"),
+      out.push_back({{column("shift", 'D', "shift applied along the line of sight"),
                       column("rsdFactor", 'D', "f/(b + 3f/5)")},
                      [c] (const std::size_t row, double* values, std::int64_t*) {
                        values[0] = c->shift[row];
@@ -896,7 +897,7 @@ void otswap::io::writeRealSpaceCatalog (const std::string& file, const RealSpace
   WriteOptions options;
   options.precision = kPrecision;
   options.keywords = common("real-space catalogue", catalog.geometry, n);
-  options.keywords.push_back({"SIGMA", number(catalog.sigma), "width of the average, Mpc/h"});
+  options.keywords.push_back({"SIGMA", number(catalog.sigma), "width of the average, in coordinate units"});
   options.keywords.push_back({"WEIGHTED", catalog.weightByRealizations ? "1" : "0",
                               "neighbours weighted by their valid realizations"});
   if (lightcone)
@@ -923,7 +924,7 @@ void otswap::io::writeMpsProfile (const std::string& file, const MpsProfile& pro
 
   std::vector<Column> columns {
     {"redshift", 'D', "centre of the redshift bin", "", profile.redshift, {}},
-    {"MPS", 'D', "mean particle separation in the bin", "Mpc/h", profile.mps, {}},
+    {"MPS", 'D', "mean particle separation in the bin", "", profile.mps, {}},
     {"nTracers", 'J', "tracers in the bin", "", std::vector<double>(n), {}}};
   for (std::size_t i = 0; i < n; ++i) columns[2].data[i] = (double)profile.count[i];
 
@@ -934,6 +935,6 @@ void otswap::io::writeMpsProfile (const std::string& file, const MpsProfile& pro
                       {"ZMIN", number(profile.redshiftMin), "lowest redshift binned"},
                       {"ZMAX", number(profile.redshiftMax), "highest redshift binned"},
                       {"MPSREPR", number(profile.representative),
-                       "representative mps, the count-weighted median, Mpc/h"}};
+                       "representative mps, the count-weighted median, in coordinate units"}};
   write(file, columns, options);
 }

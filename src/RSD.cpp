@@ -348,7 +348,7 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
                 " entries for " + std::to_string(n) + " objects");
   if (!std::isfinite(sigma) || sigma < 0.)
     throw Error("the smoothing width is " + std::to_string(sigma) +
-                " Mpc/h; it must be finite and non-negative");
+                " in coordinate units; it must be finite and non-negative");
 
   for (std::size_t i = 0; i < n; ++i)
     if (validRealizations[i] > 0 && !std::isfinite(values[i]))
@@ -577,7 +577,7 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
     throw Error("the distance table carries no growth rate, which the correction needs");
   if (!std::isfinite(sigma) || sigma < 0.)
     throw Error("the smoothing width is " + std::to_string(sigma) +
-                " Mpc/h; it must be finite and non-negative");
+                " in coordinate units; it must be finite and non-negative");
 
   const std::size_t n = result.nObjects;
   const std::vector<std::size_t> keep = kept_tracers(result, n);
@@ -646,7 +646,7 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
     }
     if (!inside)
       throw Error("object " + std::to_string(i) + ": its corrected comoving distance, " +
-                  std::to_string(corrected) + " Mpc/h, " +
+                  std::to_string(corrected) + " in coordinate units, " +
                   (corrected > 0. ? "lies outside" : "is not positive, and so outside") +
                   " the distance table's range [" + std::to_string(dMin) + ", " +
                   std::to_string(dMax) + "]; use a distance table covering a wider redshift "

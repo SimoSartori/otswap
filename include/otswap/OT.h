@@ -100,8 +100,16 @@ namespace otswap {
    *
    *  Every coordinate array is flat and row-major, one object after the
    *  other. Cartesian arrays hold 3 * nObjects entries, ordered x, y, z, in
-   *  Mpc/h, the distance table's unit. Sky arrays hold 3 * nObjects entries,
-   *  ordered right ascension, declination, redshift; angles are in radians.
+   *  coordinate units. Sky arrays hold 3 * nObjects entries, ordered right
+   *  ascension, declination, redshift; angles are in radians.
+   *
+   *  Every length otswap takes or returns, the mean particle separation,
+   *  box limits, displacements and smoothing widths included, is in
+   *  coordinate units: the unit of the Cartesian coordinates. In a box it is
+   *  the unit of the tracers given; otswap assumes none. In a lightcone it is
+   *  the unit of the distance table: Mpc/h when the table comes from the
+   *  cosmology constructor of DistanceTable, the caller's unit when it comes
+   *  from the table constructor.
    *
    *  Nothing is copied into a nested container at any point: the layout is
    *  the one the algorithm walks, and the one a numpy array maps onto
@@ -213,7 +221,8 @@ namespace otswap {
 
   /**
    *  @brief The closed limits of a box for reconstructBox: the points with
-   *  lower[k] <= x[k] <= upper[k] on each axis k, in Mpc/h. Each bound must
+   *  lower[k] <= x[k] <= upper[k] on each axis k, in coordinate units.
+   *  Each bound must
    *  be finite, with lower[k] < upper[k]; the default, NaN, is refused.
    */
   struct BoxLimits {
@@ -309,7 +318,7 @@ namespace otswap {
    */
   struct MpsProfile {
     std::vector<double>      redshift;   ///< bin centres
-    std::vector<double>      mps;        ///< Mpc/h at each centre
+    std::vector<double>      mps;        ///< in coordinate units, at each centre
     std::vector<std::size_t> count;      ///< tracers in each bin
 
     /// The binned range: the smallest and largest redshift of the tracers
@@ -322,7 +331,7 @@ namespace otswap {
     double representative = std::numeric_limits<double>::quiet_NaN();
 
     /**
-     *  @brief The mps at redshift z, in Mpc/h: linear between the nodes,
+     *  @brief The mps at redshift z, in coordinate units: linear between the nodes,
      *  extrapolated linearly beyond the terminal ones along the terminal
      *  segment, constant with a single node. This is the value the
      *  reconstruction used at each tracer.
@@ -456,7 +465,8 @@ namespace otswap {
     /// redshift and keeps its right ascension and declination.
     std::vector<double> lagrangianSky;
 
-    /// Box: the mean particle separation used, given or computed, Mpc/h.
+    /// Box: the mean particle separation used, given or computed, in
+    /// coordinate units.
     /// NaN in a lightcone result, whose separation is mpsProfile.
     double mps = std::numeric_limits<double>::quiet_NaN();
 
@@ -539,7 +549,8 @@ namespace otswap {
      *  @brief Build from a table the caller has computed.
      *
      *  @param redshift strictly increasing, at least two entries
-     *  @param distance strictly increasing, same length, comoving Mpc/h
+     *  @param distance strictly increasing, same length, comoving, in the
+     *  unit that Cartesian coordinates and every length will then have
      *
      *  @param growthRate f = dlnD/dlna on the same grid, or empty. When
      *  empty the table carries no growth rate and growthRateAt throws.
@@ -583,7 +594,8 @@ namespace otswap {
     /// constructor gives the same value, bit for bit, at every lookup.
     const std::vector<double>& redshift () const;
 
-    /// The comoving distance at each sampled redshift, Mpc/h.
+    /// The comoving distance at each sampled redshift: Mpc/h from the
+    /// cosmology constructor, the caller's unit from the table constructor.
     const std::vector<double>& distance () const;
 
     /// The growth rate at each sampled redshift; empty when the table
@@ -776,7 +788,7 @@ namespace otswap {
    *  ascension, declination, redshift; angles in radians. May be empty.
    *  @param distances the redshift to distance relation.
    *
-   *  @return Cartesian coordinates in the distance table's unit, Mpc/h,
+   *  @return Cartesian coordinates in the distance table's unit,
    *  3 * nObjects entries ordered x, y, z.
    *
    *  @exception Error if the array's size is not a multiple of three, if
@@ -798,7 +810,8 @@ namespace otswap {
    *  returns sky within a few rounding errors, with the right ascension
    *  folded into [0, 2 pi).
    *
-   *  @param cartesian 3 * nObjects entries, ordered x, y, z, in Mpc/h. May
+   *  @param cartesian 3 * nObjects entries, ordered x, y, z, in the
+   *  distance table's unit. May
    *  be empty. A row holding a NaN gives a NaN row.
    *  @param distances the redshift to distance relation; its range bounds
    *  the distances accepted.

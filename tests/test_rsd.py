@@ -23,7 +23,7 @@ TABLE_ARGS = dict(omega_m=0.3, h=0.7, z_min=0.0, z_max=1.5, n_samples=4000)
 BIAS = otswap.BiasTable([0.2, 0.8], [1.2, 1.8])
 NARROW = otswap.BiasTable([0.4, 0.5], [1.2, 1.3])
 QUIET = otswap.CorrectionConfig(verbosity="silent")
-WIDTH = "the smoothing width is {} Mpc/h; it must be finite and non-negative"
+WIDTH = "the smoothing width is {} in coordinate units; it must be finite and non-negative"
 
 
 @pytest.fixture(scope="module")

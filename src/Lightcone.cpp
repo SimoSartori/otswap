@@ -108,7 +108,7 @@ namespace {
   void profile_line (std::ostream& out, const otswap::MpsProfile& p)
   {
     const auto range = std::minmax_element(p.mps.begin(), p.mps.end());
-    out << "otswap: mps(z) from " << *range.first << " to " << *range.second << " Mpc/h in "
+    out << "otswap: mps(z) from " << *range.first << " to " << *range.second << " in coordinate units, in "
         << p.mps.size() << (p.mps.size() == 1 ? " bin" : " bins") << " over ["
         << p.redshiftMin << ", " << p.redshiftMax << "]\n";
   }

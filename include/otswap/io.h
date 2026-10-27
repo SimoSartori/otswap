@@ -42,7 +42,7 @@
  *  ASCII:
  *
  *      ## PRODUCT = displacements / what the file holds
- *      # tracX   comoving position of the tracer [Mpc/h]
+ *      # tracX   comoving position of the tracer
  *      # ...
  *      #
  *      ###   tracX   tracY   tracZ ...
@@ -75,8 +75,10 @@
  *  describes object i of the input. The id column, where written, holds
  *  the object's ID (Result::ids, RealSpaceCatalog::ids), or i when no IDs
  *  were set. Angles are in degrees, right ascension in [0, 360) but in the
- *  complete displacement file, which keeps it as given. Each column has a
- *  description and, where it has one, a unit. Every header carries PRODUCT,
+ *  complete displacement file, which keeps it as given. Lengths are in
+ *  coordinate units (see the coordinate layout), which otswap cannot know,
+ *  so their columns carry no unit and their keywords say "in coordinate
+ *  units". Each column has a description and, where it has one, a unit. Every header carries PRODUCT,
  *  what the file holds, and OTSWAPV, the library version; those of a Result
  *  or a RealSpaceCatalog also carry GEOMETRY, box or lightcone, and
  *  NOBJECTS; then those of the product, listed with each writer.
@@ -379,9 +381,9 @@ namespace otswap {
       Id,                 ///< id (K): Result::ids, or the row of the tracer in the input, from 0, when it is empty
       TracerSky,          ///< tracRA, tracDec (deg), tracRed: the observed tracer; lightcone only
       LagrangianSky,      ///< lagrRA, lagrDec (deg), lagrRed: Result::lagrangianSky; lightcone only
-      Tracer,             ///< tracX, tracY, tracZ (Mpc/h): Result::tracers
-      Lagrangian,         ///< lagrX, lagrY, lagrZ (Mpc/h): Result::lagrangian
-      Displacement,       ///< displX, displY, displZ (Mpc/h): Result::meanDisplacement
+      Tracer,             ///< tracX, tracY, tracZ: Result::tracers
+      Lagrangian,         ///< lagrX, lagrY, lagrZ: Result::lagrangian
+      Displacement,       ///< displX, displY, displZ: Result::meanDisplacement
       ValidRealizations,  ///< nValidRec (J): Result::validRealizations
       Selection,          ///< outsideRedshiftCut, outsideMask (J, 0 or 1); lightcone only
       OutsideBox          ///< outsideBox (J, 0 or 1): Result::outsideBox; box only
@@ -456,9 +458,9 @@ namespace otswap {
      *  same value. Then, in this file only, MPSPART = 1 and DISTPART = 1
      *  when the profile and the table are written.
      *
-     *  The profile, columns redshift, MPS (Mpc/h) and nTracers (J), with the
+     *  The profile, columns redshift, MPS and nTracers (J), with the
      *  keywords ZMIN, ZMAX and MPSREPR of writeMpsProfile, and the table,
-     *  columns redshift, distance (Mpc/h) and, when the table has one,
+     *  columns redshift, distance and, when the table has one,
      *  growthRate, with the keywords ZMIN and ZMAX, its ends, are written
      *  with 17 digits in ASCII, each with its own PRODUCT, complete
      *  displacements mps profile and complete displacements distance table.
@@ -544,10 +546,10 @@ namespace otswap {
     enum class CatalogGroup {
       Id,                 ///< id (K): RealSpaceCatalog::ids, or the row of the tracer in the input, from 0, when it is empty
       Sky,                ///< tracRA, tracDec (deg), tracRed: RealSpaceCatalog::sky; lightcone only
-      Cartesian,          ///< tracX, tracY, tracZ (Mpc/h): RealSpaceCatalog::cartesian
+      Cartesian,          ///< tracX, tracY, tracZ: RealSpaceCatalog::cartesian
       ValidRealizations,  ///< nValidRec (J)
       Neighbours,         ///< nNeighbours, nRealizationsAveraged (J)
-      Shift,              ///< shift (Mpc/h), rsdFactor: RealSpaceCatalog::shift, factor
+      Shift,              ///< shift, rsdFactor: RealSpaceCatalog::shift, factor
       Status              ///< status (J): RealSpaceCatalog::status
     };
 
@@ -579,7 +581,7 @@ namespace otswap {
 
     /**
      *  @brief Write a mean particle separation profile: redshift (the bin
-     *  centre), MPS (Mpc/h), nTracers (J), one row per bin. Keywords: ZMIN,
+     *  centre), MPS, nTracers (J), one row per bin. Keywords: ZMIN,
      *  ZMAX, MPSREPR (the representative value). MpsProfile::at gives the
      *  profile anywhere.
      *

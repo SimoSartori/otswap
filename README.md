@@ -115,7 +115,7 @@ skipped without it.
 ```python
 import otswap
 
-tracers = otswap.io.read("tracers.dat", [0, 1, 2]).values   # (N, 3), Mpc/h
+tracers = otswap.io.read("tracers.dat", [0, 1, 2]).values   # (N, 3)
 
 result = otswap.reconstruct_box(tracers, config=otswap.Config(n_realizations=8, seed=12345))
 print(result.mean_displacement[:3])
@@ -135,8 +135,10 @@ otswap examples/executable/box.ini
 
 ## Python
 
-Coordinates are NumPy arrays of shape (N, 3). Cartesian coordinates are in
-Mpc/h; sky coordinates are ordered right ascension, declination, redshift, with
+Coordinates are NumPy arrays of shape (N, 3). Cartesian coordinates, and
+every length, are in coordinate units: the unit of the tracers given in a box,
+that of the distance table in a lightcone (Mpc/h from `DistanceTable.flat`);
+sky coordinates are ordered right ascension, declination, redshift, with
 the angular unit given explicitly by `angle_unit`. Inputs are converted to
 float64; the reconstruction works on its own copy of them. The number of
 threads follows `OMP_NUM_THREADS`, and the reconstruction functions release the

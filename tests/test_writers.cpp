@@ -336,6 +336,8 @@ int main ()
           "the selection keywords, and no MPS in a lightcone");
     check(text.find("# tracRA               observed right ascension, declination and redshift of the tracer [deg]\n") !=
             std::string::npos, "descriptions with units");
+    check(text.find("comoving position of the tracer\n") != std::string::npos && text.find("Mpc") == std::string::npos,
+          "lengths in coordinate units: no unit on their columns");
 
     const io::Table t = io::read(file, {"tracRA", "tracDec", "tracRed", "lagrRA", "lagrX", "displX"},
                                  {"nValidRec", "outsideRedshiftCut", "outsideMask"});
@@ -358,6 +360,10 @@ int main ()
           "the box: " + names_of(boxFile));
     check(text_of(boxFile).find("## MPS = ") != std::string::npos &&
           text_of(boxFile).find("## ZCUTMIN") == std::string::npos, "MPS in a box, no cut");
+    check(text_of(boxFile).find(" / mean particle separation, in coordinate units\n") != std::string::npos &&
+          text_of(boxFile).find(" / lower x of the box, in coordinate units\n") != std::string::npos &&
+          text_of(boxFile).find("Mpc") == std::string::npos,
+          "the length keywords say \"in coordinate units\"");
 
     io::writeDisplacementMean(boxFile, box, {io::DisplacementGroup::Id, io::DisplacementGroup::Displacement});
     const io::Table chosen = io::read(boxFile, {"displZ"}, {"id"});
@@ -400,6 +406,8 @@ int main ()
           fits_keyword(file, "PRODUCT").find("displacements") != std::string::npos &&
           fits_keyword(file, "TUNIT1").find("deg") != std::string::npos,
           "keywords and units in HDU 2");
+    check(fits_keyword(file, "TTYPE7").find("tracX") != std::string::npos && fits_keyword(file, "TUNIT7") == "missing",
+          "no unit on a length column");
     const io::Table t = io::read(file, {"lagrX", "displY"});
     bool exact = true;
     for (std::size_t i = 0; i < n; ++i)

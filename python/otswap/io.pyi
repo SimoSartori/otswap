@@ -8,7 +8,7 @@ one the C++ library writes from the same values.
 ASCII layout::
 
     ## PRODUCT = displacements / what the file holds
-    # tracX   comoving position of the tracer [Mpc/h]
+    # tracX   comoving position of the tracer
     # ...
     #
     ###   tracX   tracY   tracZ ...
@@ -34,8 +34,10 @@ included, with NaN where nothing was computed, so row i of a file describes
 object i of the input. The id column, where written, holds the object's ID
 (``Result.ids``, ``RealSpaceCatalog.ids``), or i when no IDs were set. Angles
 are in degrees, right ascension in [0, 360) but in the complete displacement
-file, which keeps it as given. Each column has a description and, where it
-has one, a unit. Every header carries PRODUCT, what the file holds, and
+file, which keeps it as given. Lengths are in coordinate units (see the
+``otswap`` module), which otswap cannot know, so their columns carry no unit
+and their keywords say "in coordinate units". Each column has a description
+and, where it has one, a unit. Every header carries PRODUCT, what the file holds, and
 OTSWAPV, the library version; those of a ``Result`` or a
 ``RealSpaceCatalog`` also carry GEOMETRY, box or lightcone, and NOBJECTS;
 then those of the product, listed with each writer.
@@ -342,7 +344,7 @@ def write_displacement_mean(
       tracer; lightcone only;
     - ``"lagrangian_sky"``: lagrRA, lagrDec, lagrRed, ``Result.lagrangian_sky``;
       lightcone only;
-    - ``"tracer"``: tracX, tracY, tracZ (Mpc/h), ``Result.tracers``;
+    - ``"tracer"``: tracX, tracY, tracZ, ``Result.tracers``;
     - ``"lagrangian"``: lagrX, lagrY, lagrZ, ``Result.lagrangian``;
     - ``"displacement"``: displX, displY, displZ, ``Result.mean_displacement``;
     - ``"valid_realizations"``: nValidRec;
@@ -526,10 +528,10 @@ def write_real_space_catalog(
     - ``"id"``: id (64-bit integer), ``RealSpaceCatalog.ids``;
     - ``"sky"``: tracRA, tracDec (degrees), tracRed, ``RealSpaceCatalog.sky``;
       lightcone only;
-    - ``"cartesian"``: tracX, tracY, tracZ (Mpc/h), ``RealSpaceCatalog.cartesian``;
+    - ``"cartesian"``: tracX, tracY, tracZ, ``RealSpaceCatalog.cartesian``;
     - ``"valid_realizations"``: nValidRec;
     - ``"neighbours"``: nNeighbours, nRealizationsAveraged;
-    - ``"shift"``: shift (Mpc/h), rsdFactor;
+    - ``"shift"``: shift, rsdFactor;
     - ``"status"``: status, as ``RealSpaceCatalog.status``.
 
     Parameters
@@ -557,6 +559,6 @@ def write_real_space_catalog(
 
 def write_mps_profile(file: Path, profile: MpsProfile) -> None:
     """Write a mean particle separation profile: redshift (the bin centre),
-    MPS (Mpc/h), nTracers, one row per bin. Keywords: ZMIN, ZMAX, MPSREPR
+    MPS, nTracers, one row per bin. Keywords: ZMIN, ZMAX, MPSREPR
     (the representative value). ``MpsProfile.at`` gives the profile
     anywhere. Raises if the profile is empty or malformed, or as ``write``."""

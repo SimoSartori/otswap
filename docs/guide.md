@@ -43,7 +43,11 @@ reconstructing, to choose `nBins` beforehand:
 
 ## Coordinates and units
 
-- Distances are in Mpc/h, the distance table's unit.
+- Cartesian coordinates and every length (the mps, box limits,
+  displacements, σ) are in coordinate units: the unit of the tracers given in a
+  box, otswap assuming none; in a lightcone that of the distance table, Mpc/h
+  when it comes from the cosmology constructor, the caller's unit when it comes
+  from a table. The files otswap writes give lengths no unit for that reason.
 - Sky coordinates are ordered right ascension, declination, redshift.
 - In C++ angles are in radians; {cpp:func}`otswap::skyToRadians` and
   {cpp:func}`otswap::skyToDegrees` convert a sky array. In Python every
@@ -129,7 +133,8 @@ filter, the redshift-space correction and the table readers and writers of
   Laguerre cell, and need N more randoms each.
 - **`cellSize`** (`cell_size`), default 4 mps: affects the speed only, never
   the result.
-- **σ of the redshift-space correction:** 10 Mpc/h is a reasonable starting
+- **σ of the redshift-space correction:** for coordinates in Mpc/h, 10 Mpc/h
+  is a reasonable starting
   value; the best value depends on the sample, and should be checked in each
   analysis.
 

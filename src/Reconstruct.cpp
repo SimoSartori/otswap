@@ -578,7 +578,7 @@ namespace {
       out.imbue(std::locale::classic());
       out << result.selection.message();
       if (config.verbosity == Verbosity::Detailed)
-        out << "otswap: mean particle separation " << mps << " Mpc/h ("
+        out << "otswap: mean particle separation " << mps << " in coordinate units ("
             << (givenMps != nullptr ? "given"
                 : limits ? "from the box limits"
                 : randoms.empty() ? "from the tracers' bounding box"

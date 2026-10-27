@@ -997,7 +997,7 @@ def test_reconstruct_box_given_randoms_widen_the_box(capfd):
     detailed = otswap.reconstruct_box(tracers, randoms,
                                       config=otswap.Config(n_realizations=2, seed=3, verbosity="detailed"))
     assert capfd.readouterr()[0].startswith(
-        f"otswap: mean particle separation {detailed.mps:g} Mpc/h "
+        f"otswap: mean particle separation {detailed.mps:g} in coordinate units "
         "(from the bounding box of the tracers and the given randoms)\n")
 
 
@@ -1047,7 +1047,7 @@ def test_box_limits_report(capfd):
                            config=otswap.Config(n_realizations=1, seed=2, verbosity="detailed"))
     lines = capfd.readouterr()[0].splitlines()
     assert lines[1] == f"otswap: kept {2000 - dropped} of 2000 randoms: {dropped} outside the box {box}"
-    assert lines[2].endswith(" Mpc/h (from the box limits)") and len(lines) == 4
+    assert lines[2].endswith(" in coordinate units (from the box limits)") and len(lines) == 4
     otswap.reconstruct_box(tracers, randoms, box=LIMITS,
                            config=otswap.Config(n_realizations=1, seed=2, verbosity="silent"))
     assert capfd.readouterr() == ("", "")
@@ -1418,7 +1418,7 @@ def test_lightcone_report_is_printed_from_python(table, lightcone, capfd):
                                             **options)
     p = detailed.mps_profile
     assert capfd.readouterr() == (
-        f"otswap: mps(z) from {p.mps[0]:g} to {p.mps[0]:g} Mpc/h in 1 bin over "
+        f"otswap: mps(z) from {p.mps[0]:g} to {p.mps[0]:g} in coordinate units, in 1 bin over "
         f"[{p.redshift_min:g}, {p.redshift_max:g}]\n" + call_line("reconstructLightcone", detailed) + "\n", "")
 
 
@@ -1427,10 +1427,10 @@ def test_box_and_correction_reports(table, lightcone, capfd):
     box = otswap.reconstruct_box(tracers,
                                  config=otswap.Config(n_realizations=2, seed=1, verbosity="detailed"))
     out, err = capfd.readouterr()
-    assert out == (f"otswap: mean particle separation {box.mps:g} Mpc/h (from the tracers' bounding box)\n"
-                   + call_line("reconstructBox", box) + "\n") and err == ""
+    assert out == (f"otswap: mean particle separation {box.mps:g} in coordinate units "
+                   "(from the tracers' bounding box)\n" + call_line("reconstructBox", box) + "\n") and err == ""
     otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=1, verbosity="detailed"))
-    assert capfd.readouterr()[0].startswith("otswap: mean particle separation 10 Mpc/h (given)\n")
+    assert capfd.readouterr()[0].startswith("otswap: mean particle separation 10 in coordinate units (given)\n")
 
     r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
                          config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
@@ -1566,7 +1566,7 @@ def test_measure_mps_profile_report(table, lightcone, capfd):
                                **options)
     p = profile
     assert capfd.readouterr() == (
-        tracer_line + "\n" + f"otswap: mps(z) from {p.mps[0]:g} to {p.mps[0]:g} Mpc/h in 1 bin over "
+        tracer_line + "\n" + f"otswap: mps(z) from {p.mps[0]:g} to {p.mps[0]:g} in coordinate units, in 1 bin over "
         f"[{p.redshift_min:g}, {p.redshift_max:g}]\n" + call + "\n", "")
 
     otswap.measure_mps_profile(lightcone[0], mask=mask, verbosity="silent", **options)

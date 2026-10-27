@@ -19,6 +19,12 @@
   mps is given. A computed mps follows that box, so such runs give a slightly
   different mps, and so different displacements, than in 0.2.0. Drawn randoms
   and box limits are unchanged.
+- Lengths are documented in coordinate units, the unit of the Cartesian
+  coordinates: that of the tracers in a box, that of the distance table in a
+  lightcone (Mpc/h from the cosmology constructor). The files otswap writes
+  give length columns no unit (no TUNIT, no `[Mpc/h]`) and say "in coordinate
+  units" in the comments of their length keywords; screen and error messages
+  say "in coordinate units". The values are unchanged.
 - Every translation unit is compiled with `-fno-math-errno` as well as
   `-ffp-contract=off` (except with MSVC). The functions it lets the compiler
   inline are exact, so results are unchanged, bit for bit.

@@ -1009,7 +1009,7 @@ NB_MODULE(_otswap, m)
   // ==========================================================================
 
   nb::class_<otswap::BoxLimits>(m, "BoxLimits",
-      "The closed limits of a box for reconstruct_box, in Mpc/h. Read-only. Wherever a BoxLimits "
+      "The closed limits of a box for reconstruct_box, in coordinate units. Read-only. Wherever a BoxLimits "
       "is taken, a pair of corners ((x0, y0, z0), (x1, y1, z1)) is accepted too.")
     .def("__init__", [] (otswap::BoxLimits* self, nb::handle lower, nb::handle upper) {
           otswap::BoxLimits box;
@@ -1092,7 +1092,7 @@ NB_MODULE(_otswap, m)
     .def_prop_ro("mps", [] (nb::handle_t<otswap::MpsProfile> self) {
         const auto& p = nb::cast<const otswap::MpsProfile&>(self);
         return view<double>(self, p.mps.data(), {p.mps.size()});
-      }, "Mean particle separation at each centre, Mpc/h, shape (n_bins,).")
+      }, "Mean particle separation at each centre, in coordinate units, shape (n_bins,).")
     .def_prop_ro("count", [] (nb::handle_t<otswap::MpsProfile> self) {
         const auto& p = nb::cast<const otswap::MpsProfile&>(self);
         return view<std::uint64_t>(self, reinterpret_cast<const std::uint64_t*>(p.count.data()),
@@ -1249,7 +1249,7 @@ NB_MODULE(_otswap, m)
         const otswap::Result& r = result_of(self);
         if (std::isnan(r.mps)) return nb::none();
         return nb::float_(r.mps);
-      }, "Box: the mean particle separation used, Mpc/h; None for a lightcone.")
+      }, "Box: the mean particle separation used, in coordinate units; None for a lightcone.")
     .def_prop_ro("box", [] (ResultHandle self) { return box_or_none(result_of(self).box); },
                  "Box: the box of the reconstruction, a copy; None for a lightcone.")
     .def_prop_ro("mps_profile", [] (const otswap::Result& r) -> const otswap::MpsProfile* {
@@ -1296,7 +1296,7 @@ NB_MODULE(_otswap, m)
     .def_prop_ro("distance", [] (nb::handle_t<otswap::DistanceTable> self) {
         const auto& t = nb::cast<const otswap::DistanceTable&>(self);
         return view<double>(self, t.distance().data(), {t.distance().size()});
-      }, "The comoving distance at each sampled redshift, Mpc/h; a read-only view.")
+      }, "The comoving distance at each sampled redshift, in the table's unit; a read-only view.")
     .def_prop_ro("growth_rate", [] (nb::handle_t<otswap::DistanceTable> self) -> nb::object {
         const auto& t = nb::cast<const otswap::DistanceTable&>(self);
         if (!t.hasGrowthRate()) return nb::none();
@@ -1322,7 +1322,7 @@ NB_MODULE(_otswap, m)
         return owned(otswap::toCartesian(s, table), {n, 3});
       },
       "sky"_a.none(), "distances"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
-      "Convert sky coordinates, shape (N, 3), to Cartesian ones in Mpc/h.");
+      "Convert sky coordinates, shape (N, 3), to Cartesian ones in the distance table's unit.");
 
   m.def("to_sky",
       [] (nb::handle cartesian, nb::handle distances, nb::handle angleUnit) {
@@ -1335,7 +1335,7 @@ NB_MODULE(_otswap, m)
         return owned(std::move(sky), {n, 3});
       },
       "cartesian"_a.none(), "distances"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
-      "Convert Cartesian coordinates, shape (N, 3), in Mpc/h, to sky coordinates.");
+      "Convert Cartesian coordinates, shape (N, 3), in the distance table's unit, to sky coordinates.");
 
   // ==========================================================================
   // Mask
@@ -1598,12 +1598,12 @@ NB_MODULE(_otswap, m)
     .def_prop_ro("cartesian", [] (CatalogHandle self) {
         const otswap::RealSpaceCatalog& c = catalog_of(self);
         return checked_view<double>(self, c.cartesian, "catalogue", "cartesian", c.nObjects, 3);
-      }, "Corrected Cartesian positions, Mpc/h, shape (n_objects, 3); NaN rows for the tracers "
+      }, "Corrected Cartesian positions, in coordinate units, shape (n_objects, 3); NaN rows for the tracers "
          "not moved.")
     .def_prop_ro("shift", [] (CatalogHandle self) {
         const otswap::RealSpaceCatalog& c = catalog_of(self);
         return checked_view<double>(self, c.shift, "catalogue", "shift", c.nObjects);
-      }, "Shift applied along the line of sight, Mpc/h, shape (n_objects,); NaN where none was.")
+      }, "Shift applied along the line of sight, in coordinate units, shape (n_objects,); NaN where none was.")
     .def_prop_ro("factor", [] (CatalogHandle self) {
         const otswap::RealSpaceCatalog& c = catalog_of(self);
         return checked_view<double>(self, c.factor, "catalogue", "factor", c.nObjects);
@@ -1630,7 +1630,7 @@ NB_MODULE(_otswap, m)
     .def_prop_ro("n_extrapolated", [] (const otswap::RealSpaceCatalog& c) { return c.nExtrapolated; },
                  "Tracers at whose redshift b(z) was extrapolated; 0 for a box.")
     .def_prop_ro("sigma", [] (const otswap::RealSpaceCatalog& c) { return c.sigma; },
-                 "The width of the average, Mpc/h.")
+                 "The width of the average, in coordinate units.")
     .def_prop_ro("weight_by_realizations",
                  [] (const otswap::RealSpaceCatalog& c) { return c.weightByRealizations; })
     .def_prop_ro("axis", [] (const otswap::RealSpaceCatalog& c) -> nb::object {

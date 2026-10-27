@@ -128,7 +128,8 @@ namespace otswap {
    *  not read elsewhere.
    *  @param validRealizations N entries.
    *  @param sigma width of the gaussian, in the unit of the positions;
-   *  finite and non-negative. 10 Mpc/h is a reasonable starting value; the
+   *  finite and non-negative. For coordinates in Mpc/h, 10 Mpc/h is a
+   *  reasonable starting value; the
    *  best value depends on the sample, and should be checked in each
    *  analysis.
    *  @param weightByRealizations weight each neighbour by its count of
@@ -275,13 +276,15 @@ namespace otswap {
     /// rows for the tracers not moved. Empty in a box.
     std::vector<double> sky;
 
-    /// The corrected Cartesian position, Mpc/h. Box: the tracer with its
+    /// The corrected Cartesian position, in coordinate units. Box: the
+    /// tracer with its
     /// axis coordinate moved. Lightcone: r (1 + shift / |r|), the tracer r
     /// moved along its line of sight. Flat, [object][xyz]. NaN rows for the
     /// tracers not moved.
     std::vector<double> cartesian;
 
-    /// The shift applied along the line of sight, in Mpc/h: the factor times
+    /// The shift applied along the line of sight, in coordinate units: the
+    /// factor times
     /// the averaged projection. NaN for a tracer not moved. nObjects entries.
     std::vector<double> shift;
 
@@ -352,7 +355,8 @@ namespace otswap {
    *  @param distances a table carrying the growth rate, covering the
    *  corrected distances as well as the observed ones.
    *  @param bias the b(z) table.
-   *  @param sigma width of the average, in Mpc/h; 0 for none. 10 Mpc/h is a
+   *  @param sigma width of the average, in coordinate units; 0 for none.
+   *  For coordinates in Mpc/h, 10 Mpc/h is a
    *  reasonable starting value; the best value depends on the sample, and
    *  should be checked in each analysis.
    *  @param config the weighting, and what the call reports.

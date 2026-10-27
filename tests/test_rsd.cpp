@@ -318,10 +318,10 @@ int main ()
   group("a negative or NaN sigma raises, with a message that names no argument");
   {
     throws_with([&] { neighbourAverage(points, values, valid, -1.); },
-                "the smoothing width is -1.000000 Mpc/h; it must be finite and non-negative",
+                "the smoothing width is -1.000000 in coordinate units; it must be finite and non-negative",
                 "a negative sigma raises");
     throws_with([&] { neighbourAverage(points, values, valid, kNaN); },
-                "the smoothing width is nan Mpc/h; it must be finite and non-negative",
+                "the smoothing width is nan in coordinate units; it must be finite and non-negative",
                 "and a NaN one");
   }
 
@@ -591,7 +591,7 @@ int main ()
     check((uncorrected_of(zero) == std::vector<std::size_t>{1, 3}),
           "with sigma = 0 every invalid tracer is uncorrected");
     throws_with([&] { realSpaceLightcone(r, table, flat, -1.); },
-                "the smoothing width is -1.000000 Mpc/h; it must be finite and non-negative",
+                "the smoothing width is -1.000000 in coordinate units; it must be finite and non-negative",
                 "a negative sigma raises");
 
     Result noSky = r;
@@ -1114,7 +1114,7 @@ int main ()
     const Result explained = reconstructLightcone(sky, randomsSky, mask, 1, table, detailed, cut);
     std::ostringstream mpsLine;
     mpsLine << "otswap: mps(z) from " << explained.mpsProfile.mps[0] << " to " << explained.mpsProfile.mps[0]
-            << " Mpc/h in 1 bin over [" << explained.mpsProfile.redshiftMin << ", "
+            << " in coordinate units, in 1 bin over [" << explained.mpsProfile.redshiftMin << ", "
             << explained.mpsProfile.redshiftMax << "]\n";
     check(lines(own.str()) == 5 && own.str().find(explained.selection.message() + mpsLine.str()) == 0,
           "Detailed: the mps(z) line before the call's: " + own.str());
@@ -1140,13 +1140,13 @@ int main ()
     Config boxDetailed = loud;
     boxDetailed.verbosity = Verbosity::Detailed;
     const std::string given = captured_clog([&] { reconstructBox(boxTracers, {}, 20., boxDetailed); });
-    check(given.find("otswap: mean particle separation 20 Mpc/h (given)\notswap: reconstructBox: ") == 0,
+    check(given.find("otswap: mean particle separation 20 in coordinate units (given)\notswap: reconstructBox: ") == 0,
           "Detailed box, mps given: " + given);
     Result computedBox;
     const std::string computedText = captured_clog([&] { computedBox = reconstructBox(boxTracers, {}, boxDetailed); });
     std::ostringstream computedMps;
     computedMps << "otswap: mean particle separation " << computedBox.mps
-                << " Mpc/h (from the tracers' bounding box)\n";
+                << " in coordinate units (from the tracers' bounding box)\n";
     check(computedText.find(computedMps.str()) == 0, "Detailed box, mps computed: " + computedText);
     const Result unmasked = reconstructLightcone(sky, randomsSky, 800., 1, table, config);
     check(unmasked.outsideMask == std::vector<std::uint8_t>(n, 0) && !unmasked.selection.maskApplied &&
@@ -1233,7 +1233,8 @@ int main ()
     check(captured_clog([&] { measureMpsProfile(sky, mask, 1, table, cut, Verbosity::Normal, &ownProfile); })
             .empty() && ownProfile.str() == profileText, "the log given receives it, std::clog nothing");
     std::ostringstream mpsLine1;
-    mpsLine1 << "otswap: mps(z) from " << maskCut.mps[0] << " to " << maskCut.mps[0] << " Mpc/h in 1 bin over ["
+    mpsLine1 << "otswap: mps(z) from " << maskCut.mps[0] << " to " << maskCut.mps[0]
+             << " in coordinate units, in 1 bin over ["
              << maskCut.redshiftMin << ", " << maskCut.redshiftMax << "]\n";
     ownProfile.str("");
     measureMpsProfile(sky, mask, 1, table, cut, Verbosity::Detailed, &ownProfile);

@@ -1,8 +1,10 @@
 """Optimal transport reconstruction of the displacement field of a tracer
 catalogue, by local swapping.
 
-Coordinates are NumPy arrays of shape (N, 3). Cartesian coordinates are in
-Mpc/h; sky coordinates are ordered right ascension, declination, redshift,
+Coordinates are NumPy arrays of shape (N, 3). Cartesian coordinates, and
+every length, are in coordinate units: the unit of the tracers given in a box,
+that of the distance table in a lightcone (Mpc/h from
+``DistanceTable.flat``); sky coordinates are ordered right ascension, declination, redshift,
 with the angular unit given explicitly by ``angle_unit``. Inputs are
 converted to float64; the reconstruction works on its own copy of them.
 
@@ -334,7 +336,7 @@ class Result:
     @property
     def mps(self) -> Optional[float]:
         """Box: the mean particle separation used, given or computed, in
-        Mpc/h. None for a lightcone, whose separation is ``mps_profile``."""
+        coordinate units. None for a lightcone, whose separation is ``mps_profile``."""
 
     @property
     def box(self) -> Optional["BoxLimits"]:
@@ -430,7 +432,8 @@ class MpsProfile:
 
     @property
     def mps(self) -> NDArray[np.float64]:
-        """Mean particle separation at each centre, Mpc/h, shape (n_bins,)."""
+        """Mean particle separation at each centre, in coordinate units, shape
+        (n_bins,)."""
 
     @property
     def count(self) -> NDArray[np.uint64]:
@@ -448,7 +451,8 @@ class MpsProfile:
         reconstruction."""
 
     def at(self, z: ArrayLike) -> NDArray[np.float64]:
-        """The mps at each redshift, Mpc/h, the shape of ``z`` kept: the value
+        """The mps at each redshift, in coordinate units, the shape of ``z``
+        kept: the value
         the reconstruction used at a tracer of that redshift. Raises if the
         profile is empty, or where the extrapolation is not positive."""
 
@@ -576,7 +580,8 @@ class DistanceTable:
         growth_rate: Optional[ArrayLike] = None,
     ) -> "DistanceTable":
         """Use a table computed by the caller. Redshift and distance must be
-        strictly increasing, with at least two entries; distance in Mpc/h.
+        strictly increasing, with at least two entries; distance in the unit
+        that Cartesian coordinates and every length will then have.
         ``growth_rate``, when given, has the same length, every entry finite
         and positive. Without ``growth_rate``, ``growth_rate_at`` raises.
 
@@ -608,8 +613,8 @@ class DistanceTable:
 
     @property
     def distance(self) -> NDArray[np.float64]:
-        """The comoving distance at each sampled redshift, Mpc/h; a read-only
-        view."""
+        """The comoving distance at each sampled redshift, Mpc/h from ``flat``,
+        the caller's unit from ``from_table``; a read-only view."""
 
     @property
     def growth_rate(self) -> Optional[NDArray[np.float64]]:
@@ -633,7 +638,8 @@ def to_cartesian(
     *,
     angle_unit: AngleUnit,
 ) -> NDArray[np.float64]:
-    """Convert sky coordinates, shape (N, 3), to Cartesian ones in Mpc/h,
+    """Convert sky coordinates, shape (N, 3), to Cartesian ones in the
+    distance table's unit,
     using the same convention as ``reconstruct_lightcone``. Raises if the
     array is not of shape (N, 3), if an entry is not finite, if a declination
     lies outside [-90, 90] degrees ([-pi/2, pi/2] radians), or if a redshift
@@ -647,7 +653,8 @@ def to_sky(
     *,
     angle_unit: AngleUnit,
 ) -> NDArray[np.float64]:
-    """Convert Cartesian coordinates, shape (N, 3), in Mpc/h, to sky
+    """Convert Cartesian coordinates, shape (N, 3), in the distance table's
+    unit, to sky
     coordinates, shape (N, 3): right ascension in [0, 360) degrees
     ([0, 2 pi) radians), declination, redshift. The inverse of
     ``to_cartesian``, with the same observer; a position at the origin gets
@@ -738,7 +745,8 @@ class Mask:
 
 class BoxLimits:
     """The closed limits of a box for ``reconstruct_box``: the points with
-    ``lower[k] <= x[k] <= upper[k]`` on each axis k, in Mpc/h. Read-only.
+    ``lower[k] <= x[k] <= upper[k]`` on each axis k, in coordinate units.
+    Read-only.
 
     Wherever a BoxLimits is taken, a pair of corners
     ``((x0, y0, z0), (x1, y1, z1))`` is accepted too. Two box limits compare
@@ -1141,14 +1149,16 @@ class RealSpaceCatalog:
 
     @property
     def cartesian(self) -> NDArray[np.float64]:
-        """Corrected Cartesian position, Mpc/h, shape (n_objects, 3). Box: the
+        """Corrected Cartesian position, in coordinate units, shape
+        (n_objects, 3). Box: the
         tracer with its axis coordinate moved. Lightcone: ``r (1 + shift /
         |r|)``, the tracer moved along its line of sight. NaN rows for the
         tracers not moved."""
 
     @property
     def shift(self) -> NDArray[np.float64]:
-        """Shift applied along the line of sight, Mpc/h, shape (n_objects,):
+        """Shift applied along the line of sight, in coordinate units, shape
+        (n_objects,):
         the factor times the averaged projection. NaN where nothing moved."""
 
     @property
@@ -1187,7 +1197,7 @@ class RealSpaceCatalog:
 
     @property
     def sigma(self) -> float:
-        """The width of the average, Mpc/h, as given."""
+        """The width of the average, in coordinate units, as given."""
 
     @property
     def weight_by_realizations(self) -> bool: ...
@@ -1268,8 +1278,9 @@ def neighbour_average(
         Non-negative integers, such as ``Result.valid_realizations``.
     sigma : float
         Width of the gaussian, in the unit of the positions; finite and
-        non-negative. 10 Mpc/h is a reasonable starting value; the best value
-        depends on the sample, and should be checked in each analysis.
+        non-negative. For coordinates in Mpc/h, 10 Mpc/h is a reasonable
+        starting value; the best value depends on the sample, and should be
+        checked in each analysis.
 
     Returns
     -------
@@ -1364,9 +1375,9 @@ def real_space_lightcone(
         The b(z) table, as in ``rsd_factor``; warns ``ExtrapolationWarning``
         once if b(z) is extrapolated.
     sigma : float
-        Width of the average, in Mpc/h; 0 for none. 10 Mpc/h is a reasonable
-        starting value; the best value depends on the sample, and should be
-        checked in each analysis.
+        Width of the average, in coordinate units; 0 for none. For coordinates
+        in Mpc/h, 10 Mpc/h is a reasonable starting value; the best value
+        depends on the sample, and should be checked in each analysis.
     correction : CorrectionConfig, optional
         ``weight_by_realizations``: weight each neighbour by its number of
         valid realizations as well. ``verbosity``: what the call prints; see

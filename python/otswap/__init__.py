@@ -3,8 +3,10 @@
 """Optimal transport reconstruction of the displacement field of a tracer
 catalogue, by local swapping.
 
-Coordinates are NumPy arrays of shape (N, 3). Cartesian coordinates are in
-Mpc/h; sky coordinates are ordered right ascension, declination, redshift,
+Coordinates are NumPy arrays of shape (N, 3). Cartesian coordinates, and
+every length, are in coordinate units: the unit of the tracers given in a box,
+that of the distance table in a lightcone (Mpc/h from
+``DistanceTable.flat``); sky coordinates are ordered right ascension, declination, redshift,
 with the angular unit given explicitly by ``angle_unit``. Inputs are
 converted to float64; the reconstruction works on its own copy of them.
 

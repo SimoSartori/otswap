@@ -967,7 +967,7 @@ int main ()
                     " of 900 randoms: " + std::to_string(randomsOutside) +
                     " outside the box [-2, 52] x [-2, 72] x [-2, 72]\notswap: mean particle "
                     "separation ") == 0 &&
-          more.find(" Mpc/h (from the box limits)\notswap: reconstructBox: ") != std::string::npos,
+          more.find(" in coordinate units (from the box limits)\notswap: reconstructBox: ") != std::string::npos,
           "given randoms, Detailed: both lines, then the mps from the box limits: " + more);
 
     c.verbosity = Verbosity::Silent;

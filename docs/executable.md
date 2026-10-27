@@ -100,7 +100,7 @@ library default is required in the runs it applies to.
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
 | `tracer_file` | string | required | B, L | the tracers, ASCII or FITS by the extension |
-| `column_tracer` | 3 strings | required | B, L | box: x, y, z, in Mpc/h; lightcone: right ascension, declination, redshift. Each an index from 0, or a column name |
+| `column_tracer` | 3 strings | required | B, L | box: x, y, z, in the file's coordinate units; lightcone: right ascension, declination, redshift. Each an index from 0, or a column name |
 | `id_column` | string | none, no IDs | B, L | an integer column of the tracer file, read exactly as the tracers' IDs; it must not be one of `column_tracer`, and no ID may appear twice |
 | `random_file` | string | box: none, the randoms are drawn uniformly in the box of `box_min` and `box_max`, or without it in the tracers' bounding box; lightcone: required | B, L | the randoms, as `tracer_file` |
 | `column_random` | 3 strings | required | B with `random_file`, L | as `column_tracer` |
@@ -145,9 +145,9 @@ library's message.
 | `bins` | unsigned | required | L | the redshift bins of the mean particle separation profile, at least 1 |
 | `reject_mask_crossings` | bool | true | L | reject a displacement whose path crosses unobserved pixels |
 | `max_unobserved_pixels_crossed` | unsigned | 0 | L with `reject_mask_crossings` | the distinct unobserved pixels a path may cross; 0 rejects at the first |
-| `box_min` | 3 doubles | none | B | the lower x, y, z of the box, in Mpc/h; with `box_max` or not at all |
+| `box_min` | 3 doubles | none | B | the lower x, y, z of the box, in coordinate units; with `box_max` or not at all |
 | `box_max` | 3 doubles | none | B | the upper x, y, z, each above `box_min`'s |
-| `mps` | double | none, measured | B | the mean particle separation, in Mpc/h, positive |
+| `mps` | double | none, measured | B | the mean particle separation, in coordinate units, positive |
 
 Without `box_min` and `box_max` the box is the bounding box of the tracers and
 the randoms of `random_file`, or of the tracers alone without it. The
@@ -158,14 +158,15 @@ the randoms of `random_file`, or of the tracers alone without it. The
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
 | `perform_recons` | bool | false | B, L | correct the tracers for redshift-space distortions after the reconstruction |
-| `rsd_smoothing_scale` | double | required | B, L with `perform_recons` | the width σ of the gaussian average of the displacements, in Mpc/h, non-negative; 0 for no average |
+| `rsd_smoothing_scale` | double | required | B, L with `perform_recons` | the width σ of the gaussian average of the displacements, in coordinate units (Mpc/h in a lightcone), non-negative; 0 for no average |
 | `rsd_weight_by_realizations` | bool | false | B, L with `perform_recons` | weight each neighbour by its number of valid realizations |
 | `redshift` | double | required | B with `perform_recons` | the box's redshift, in [0, 10] |
 | `bias` | double | required | B with `perform_recons` | the tracers' linear bias, positive |
 | `los_axis` | unsigned | required | B with `perform_recons` | the line of sight: 0, 1 or 2 for x, y or z |
 | `bias_file` | string | required | L with `perform_recons` | the bias b(z): ASCII columns 0 and 1, redshift and bias, or a FITS table with `REDSHIFT` and `BIAS` |
 
-10 Mpc/h is a reasonable starting value for `rsd_smoothing_scale`, but the
+For coordinates in Mpc/h, 10 Mpc/h is a reasonable starting value for
+`rsd_smoothing_scale`, but the
 best value depends on the sample and should be checked in each analysis.
 
 ### Output
