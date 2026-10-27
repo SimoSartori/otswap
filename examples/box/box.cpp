@@ -86,7 +86,7 @@ int main (int argc, char** argv)
     // from those of the others, so the random catalogue must hold at least
     // nRealizations x N objects: the catalogue read here has exactly 8 per
     // tracer. An empty random array lets otswap draw the randoms itself,
-    // uniformly in the tracers' bounding box
+    // uniformly in the bounding box of the tracers
     config.nRealizations = 8;
 
     // The sweeps stop once the fraction of successful swaps in a sweep,
@@ -125,7 +125,7 @@ int main (int argc, char** argv)
     // catalogue: with a strongly varying density use the lightcone
     // geometry, which measures it as a function of redshift. When the
     // volume is known, give the box limits, the last argument: the mps
-    // then comes from the box's volume, not from the bounding box
+    // then comes from the volume of the box, not from the bounding box
     const otswap::Result result = otswap::reconstructBox(tracers, randoms, config);
 
 

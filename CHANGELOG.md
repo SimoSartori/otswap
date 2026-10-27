@@ -17,8 +17,9 @@
   is now the bounding box of the tracers and the given randoms, not of the
   tracers alone, so every random matched to a tracer lies inside it; also when
   mps is given. A computed mps follows that box, so such runs give a slightly
-  different mps, and so different displacements, than in 0.2.0. Drawn randoms
-  and box limits are unchanged.
+  different mps, and so different displacements, than in 0.2.0. Tracers that
+  span no volume themselves, all in one plane for example, are accepted when
+  the given randoms do. Drawn randoms and box limits are unchanged.
 - Lengths are documented in coordinate units, the unit of the Cartesian
   coordinates: that of the tracers in a box, that of the distance table in a
   lightcone (Mpc/h from the cosmology constructor). The files otswap writes

@@ -1146,7 +1146,7 @@ int main ()
     const std::string computedText = captured_clog([&] { computedBox = reconstructBox(boxTracers, {}, boxDetailed); });
     std::ostringstream computedMps;
     computedMps << "otswap: mean particle separation " << computedBox.mps
-                << " in coordinate units (from the tracers' bounding box)\n";
+                << " in coordinate units (from the bounding box of the tracers)\n";
     check(computedText.find(computedMps.str()) == 0, "Detailed box, mps computed: " + computedText);
     const Result unmasked = reconstructLightcone(sky, randomsSky, 800., 1, table, config);
     check(unmasked.outsideMask == std::vector<std::uint8_t>(n, 0) && !unmasked.selection.maskApplied &&

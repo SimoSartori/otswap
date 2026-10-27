@@ -100,9 +100,9 @@ library default is required in the runs it applies to.
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
 | `tracer_file` | string | required | B, L | the tracers, ASCII or FITS by the extension |
-| `column_tracer` | 3 strings | required | B, L | box: x, y, z, in the file's coordinate units; lightcone: right ascension, declination, redshift. Each an index from 0, or a column name |
+| `column_tracer` | 3 strings | required | B, L | box: x, y, z, in the coordinate units of the file; lightcone: right ascension, declination, redshift. Each an index from 0, or a column name |
 | `id_column` | string | none, no IDs | B, L | an integer column of the tracer file, read exactly as the tracers' IDs; it must not be one of `column_tracer`, and no ID may appear twice |
-| `random_file` | string | box: none, the randoms are drawn uniformly in the box of `box_min` and `box_max`, or without it in the tracers' bounding box; lightcone: required | B, L | the randoms, as `tracer_file` |
+| `random_file` | string | box: none, the randoms are drawn uniformly in the box of `box_min` and `box_max`, or without it in the bounding box of the tracers; lightcone: required | B, L | the randoms, as `tracer_file` |
 | `column_random` | 3 strings | required | B with `random_file`, L | as `column_tracer` |
 | `units` | string | required | L | `degrees` or `radians`: the angles of tracers and randoms |
 | `delimiter` | character | `" "` | B, L | the column separator of every ASCII input, the bias file included; `" "` for a space, `\t` for a tab |

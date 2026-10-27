@@ -161,7 +161,8 @@ def compute():
         out[f"reconstruct_box.{label}.displacement"] = digest(box.displacement)
         out[f"reconstruct_box.{label}.mean_displacement"] = digest(box.mean_displacement)
 
-    # The mps of the tracers' bounding box, computed by the library.
+    # The mps of the bounding box of the tracers and the given randoms, computed
+    # by the library.
     computed = otswap.reconstruct_box(tracers, randoms, config=config)
     out["reconstruct_box.computed_mps.mps"] = digest([computed.mps])
     out["reconstruct_box.computed_mps.displacement"] = digest(computed.displacement)

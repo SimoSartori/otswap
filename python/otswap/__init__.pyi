@@ -614,7 +614,7 @@ class DistanceTable:
     @property
     def distance(self) -> NDArray[np.float64]:
         """The comoving distance at each sampled redshift, Mpc/h from ``flat``,
-        the caller's unit from ``from_table``; a read-only view."""
+        the unit of the table given to ``from_table``; a read-only view."""
 
     @property
     def growth_rate(self) -> Optional[NDArray[np.float64]]:
@@ -639,7 +639,7 @@ def to_cartesian(
     angle_unit: AngleUnit,
 ) -> NDArray[np.float64]:
     """Convert sky coordinates, shape (N, 3), to Cartesian ones in the
-    distance table's unit,
+    unit of the distance table,
     using the same convention as ``reconstruct_lightcone``. Raises if the
     array is not of shape (N, 3), if an entry is not finite, if a declination
     lies outside [-90, 90] degrees ([-pi/2, pi/2] radians), or if a redshift

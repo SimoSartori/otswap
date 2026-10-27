@@ -1428,7 +1428,7 @@ def test_box_and_correction_reports(table, lightcone, capfd):
                                  config=otswap.Config(n_realizations=2, seed=1, verbosity="detailed"))
     out, err = capfd.readouterr()
     assert out == (f"otswap: mean particle separation {box.mps:g} in coordinate units "
-                   "(from the tracers' bounding box)\n" + call_line("reconstructBox", box) + "\n") and err == ""
+                   "(from the bounding box of the tracers)\n" + call_line("reconstructBox", box) + "\n") and err == ""
     otswap.reconstruct_box(tracers, mps=10.0, config=otswap.Config(n_realizations=1, verbosity="detailed"))
     assert capfd.readouterr()[0].startswith("otswap: mean particle separation 10 in coordinate units (given)\n")
 
@@ -2386,7 +2386,7 @@ def test_write_displacement_mean(tmp_path, table, lightcone, sieve_mask):
     path = tmp_path / "d.dat"
     otswap.io.write_displacement_mean(path, r)
     text = path.read_text()
-    assert text.startswith("## PRODUCT = displacements / what the file holds\n## OTSWAPV = 0.2.0")
+    assert text.startswith("## PRODUCT = displacements / what the file holds\n## OTSWAPV = 0.2.1")
     assert "## SEED = 5 /" in text and "## ZCUTMIN = 0.35 /" in text
     names = ["tracRA", "tracDec", "tracRed", "lagrRA", "lagrDec", "lagrRed", "tracX", "tracY", "tracZ",
              "lagrX", "lagrY", "lagrZ", "displX", "displY", "displZ"]
@@ -2587,7 +2587,7 @@ def test_read_displacement_complete_box(tmp_path, name):
 
 
 # The files of otswap 0.1.0: the index column read as the IDs, no sky, profile
-# or table, and for a box its tracers' bounding box.
+# or table, and for a box the bounding box of its tracers.
 @pytest.mark.parametrize("ext", [".dat", ".fits"])
 def test_read_displacement_complete_v010(ext):
     box = otswap.io.read_displacement_complete(os.path.join(DATA, "v0.1.0_box" + ext), angle_unit="deg")

@@ -791,7 +791,7 @@ void otswap::io::writeParts (const std::string& file, const std::vector<TablePar
     for (const Keyword& keyword : parts[k].options.keywords)
       if (keyword.name == "EXTNAME")
         throw Error("parts[" + std::to_string(k) + "] of " + file + " holds a keyword EXTNAME; "
-                    "give the name as the part's extname");
+                    "give the name as the extname of the part");
   }
 
   auto length = [] (const Column& c) { return c.type == 'K' ? c.integers.size() : c.data.size(); };

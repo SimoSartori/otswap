@@ -281,8 +281,8 @@ def read_part(
     integer_columns: Sequence[Union[str, int]] = (),
 ) -> Table:
     """Read selected columns of one part of a file ``write_parts`` wrote, the
-    first included, as ``read`` does, given the part's ``extname`` and
-    ``twin``. FITS: the table of that EXTNAME, compared ignoring case, or with
+    first included, as ``read`` does, given the ``extname`` and
+    ``twin`` of the part. FITS: the table of that EXTNAME, compared ignoring case, or with
     an empty ``extname`` the first table; ``twin`` is ignored. ASCII: the table
     in ``twin_file(file, twin)``, or with an empty ``twin`` in the file itself;
     ``extname`` is ignored.
@@ -296,8 +296,8 @@ def read_part(
 
 
 def has_part(file: Path, *, extname: str, twin: str) -> bool:
-    """Whether a file holds a part, the first included, given the part's
-    ``extname`` and ``twin``. FITS: whether it holds a table of that EXTNAME,
+    """Whether a file holds a part, the first included, given the
+    ``extname`` and ``twin`` of the part. FITS: whether it holds a table of that EXTNAME,
     compared ignoring case, or with an empty ``extname`` a first table;
     ``twin`` is ignored. ASCII: whether ``twin_file(file, twin)`` or, with an
     empty ``twin``, the file itself can be opened; ``extname`` is ignored, and
@@ -307,7 +307,7 @@ def has_part(file: Path, *, extname: str, twin: str) -> bool:
 
 def twin_file(file: Path, twin: str) -> str:
     """The ASCII twin file of a part: ``<stem>.<twin>.<ext>``, ext the text
-    after the last ``.`` of the file's name and stem what precedes it, or
+    after the last ``.`` of the file name and stem what precedes it, or
     ``<file>.<twin>`` when the name holds no ``.``; for example
     ``out/field.dat`` with twin ``mps`` gives ``out/field.mps.dat``."""
 

@@ -75,7 +75,7 @@ otswap::io::writeDisplacementMean("displacements.dat", result);
 
 `tracers` is an array of shape (N, 3) in Python, a `std::vector<double>` of
 `3 * N` entries in C++, in coordinate units. Without randoms, otswap draws them in the
-tracers' bounding box. The [examples](examples.md) read real catalogues and
+bounding box of the tracers. The [examples](examples.md) read real catalogues and
 show every step.
 
 ```{toctree}

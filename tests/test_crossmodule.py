@@ -214,7 +214,7 @@ def test_cpp_box_result_used_by_otswap(tmp_path, table):
     assert (result.config.seed, result.config.n_realizations) == (7, 2)
     assert result.tracers_sky is None and result.lagrangian_sky is None and result.distances is None
     assert result.mean_displacement.shape == (216, 3)
-    # the mps of the tracers' bounding box, [0, 50]^3
+    # the mps of the bounding box of the tracers (drawn randoms), [0, 50]^3
     assert result.mps == pytest.approx((50.0 ** 3 / 216) ** (1 / 3))
     catalog = otswap.real_space_box(result, axis=2, redshift=0.5, distances=table, bias=1.5,
                                     sigma=SIGMA, correction=QUIET_CORRECTION)

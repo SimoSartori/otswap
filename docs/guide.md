@@ -7,10 +7,11 @@ side by side; [names side by side](naming.md) maps them all.
 
 **Box.** Cartesian coordinates, and a single mean particle separation (mps),
 given or computed from the tracers as $(V/N)^{1/3}$, with $V$ the volume of
-the bounding box of the tracers and the given randoms:
+the bounding box of the tracers and the given randoms (of the tracers alone
+when the randoms are drawn):
 {cpp:func}`otswap::reconstructBox`, {py:func}`otswap.reconstruct_box`. Randoms
-may be given, or drawn uniformly in the tracers' bounding box, which is then
-the box. Use it for any catalogue in comoving Cartesian
+may be given, or drawn uniformly in the bounding box of the tracers, which is
+then the box. Use it for any catalogue in comoving Cartesian
 coordinates whose density is about constant, cubic or not.
 
 The box may be given instead, as closed limits on each axis
@@ -46,8 +47,9 @@ reconstructing, to choose `nBins` beforehand:
 - Cartesian coordinates and every length (the mps, box limits,
   displacements, σ) are in coordinate units: the unit of the tracers given in a
   box, otswap assuming none; in a lightcone that of the distance table, Mpc/h
-  when it comes from the cosmology constructor, the caller's unit when it comes
-  from a table. The files otswap writes give lengths no unit for that reason.
+  when it comes from the cosmology constructor, the unit of the table given
+  when it comes from a table. The files otswap writes give lengths no unit
+  for that reason.
 - Sky coordinates are ordered right ascension, declination, redshift.
 - In C++ angles are in radians; {cpp:func}`otswap::skyToRadians` and
   {cpp:func}`otswap::skyToDegrees` convert a sky array. In Python every

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(otswap VERSION 0.2.0 LANGUAGES C CXX)
+project(otswap VERSION 0.2.1 LANGUAGES C CXX)
 
 # PROJECT_IS_TOP_LEVEL needs CMake 3.21; this is the 3.16 equivalent, true
 # for a standalone build and false under add_subdirectory or FetchContent.
@@ -57,8 +57,8 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 # Healpix and the extension module. It is not exported: all of otswap's
 # arithmetic is in its own archive.
 #
-# -fno-math-errno lets the compiler inline the library's sqrt, floor and
-# similar calls without setting errno, as Apple clang does by default. These
+# -fno-math-errno lets the compiler inline the sqrt, floor and similar
+# calls of the C library without setting errno, as Apple clang does by default. These
 # functions are exact, so it changes speed only, never a result.
 # ---------------------------------------------------------------------------
 

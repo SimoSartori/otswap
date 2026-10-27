@@ -1296,7 +1296,7 @@ NB_MODULE(_otswap, m)
     .def_prop_ro("distance", [] (nb::handle_t<otswap::DistanceTable> self) {
         const auto& t = nb::cast<const otswap::DistanceTable&>(self);
         return view<double>(self, t.distance().data(), {t.distance().size()});
-      }, "The comoving distance at each sampled redshift, in the table's unit; a read-only view.")
+      }, "The comoving distance at each sampled redshift, in the unit of the table; a read-only view.")
     .def_prop_ro("growth_rate", [] (nb::handle_t<otswap::DistanceTable> self) -> nb::object {
         const auto& t = nb::cast<const otswap::DistanceTable&>(self);
         if (!t.hasGrowthRate()) return nb::none();
@@ -1322,7 +1322,7 @@ NB_MODULE(_otswap, m)
         return owned(otswap::toCartesian(s, table), {n, 3});
       },
       "sky"_a.none(), "distances"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
-      "Convert sky coordinates, shape (N, 3), to Cartesian ones in the distance table's unit.");
+      "Convert sky coordinates, shape (N, 3), to Cartesian ones in the unit of the distance table.");
 
   m.def("to_sky",
       [] (nb::handle cartesian, nb::handle distances, nb::handle angleUnit) {
@@ -1335,7 +1335,7 @@ NB_MODULE(_otswap, m)
         return owned(std::move(sky), {n, 3});
       },
       "cartesian"_a.none(), "distances"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
-      "Convert Cartesian coordinates, shape (N, 3), in the distance table's unit, to sky coordinates.");
+      "Convert Cartesian coordinates, shape (N, 3), in the unit of the distance table, to sky coordinates.");
 
   // ==========================================================================
   // Mask
@@ -1436,7 +1436,7 @@ NB_MODULE(_otswap, m)
       "tracers"_a.none(), "randoms"_a = nb::none(), nb::kw_only(), "mps"_a = nb::none(),
       "box"_a = nb::none(), "config"_a.none() = otswap::Config(),
       "Reconstruct in box geometry, with a constant mean particle separation: the one given, or "
-      "(V/N)^(1/3) of box or, without it, of the tracers' bounding box.");
+      "(V/N)^(1/3) of box or, without it, of the bounding box of the tracers and the given randoms.");
 
   m.def("reconstruct_lightcone",
       [] (nb::handle tracersSky, nb::handle randomsSky, nb::handle skyAreaDeg2, nb::handle mask,

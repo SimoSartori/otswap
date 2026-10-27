@@ -73,7 +73,7 @@ def main():
     # randoms, disjoint from those of the others, so the random catalogue
     # must hold at least n_realizations x N objects: the catalogue read here
     # has exactly 8 per tracer. Omitting the randoms lets otswap draw them
-    # itself, uniformly in the tracers' bounding box.
+    # itself, uniformly in the bounding box of the tracers.
     #
     # convergence: the sweeps stop once the fraction of successful swaps in a
     # sweep, swaps per tracer visited, no longer exceeds this threshold.

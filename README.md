@@ -94,9 +94,10 @@ FetchContent, and the same target.
 With a fixed seed, a reconstruction gives the same result whatever the number
 of threads, bit for bit. The seed 0 draws one, and the seed used is recorded in
 the result, so any run can be repeated. Every translation unit is compiled with
-`-ffp-contract=off`, and the math functions the results depend on come from a
-vendored copy of FreeBSD's msun rather than the platform's library, so the same
-inputs give the same bits on every supported platform and compiler.
+`-ffp-contract=off` (and `-fno-math-errno`, which changes speed only), and the
+math functions the results depend on come from a vendored copy of the FreeBSD
+msun library rather than from the platform library, so the same inputs give
+the same bits on every supported platform and compiler.
 <!-- docs:reproducibility-end -->
 
 ## Tests

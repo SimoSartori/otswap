@@ -413,7 +413,7 @@ int main ()
     }
   }
 
-  group("randoms outside the tracers' bounding box are accepted");
+  group("randoms outside the bounding box of the tracers are accepted");
   {
     // The randoms reach a full spacing beyond the tracers on every side.
     Config c;
@@ -601,7 +601,7 @@ int main ()
     }, "too many bins for the catalog raises");
 
     // Randoms spread wider on the sky and deeper in redshift than the
-    // tracers, so that many lie outside the tracers' bounding box.
+    // tracers, so that many lie outside the bounding box of the tracers.
     std::vector<double> wideSky(3 * nLc);
     for (std::size_t i = 0; i < nLc; ++i) {
       wideSky[3*i]   = internal::uniform_real(rng, 0.1, 0.7);
@@ -619,7 +619,7 @@ int main ()
     catch (const Error&) {
       wideRan = false;
     }
-    check(wideRan, "a lightcone with randoms outside the tracers' bounding box runs");
+    check(wideRan, "a lightcone with randoms outside the bounding box of the tracers runs");
 
     std::vector<double> shortSky(sky.begin(), sky.end() - 3);
     check_throws([&] {
@@ -663,7 +663,7 @@ int main ()
           "the tracers as given, the mps given, nothing of a lightcone");
     const BoxLimits bounds = internal::bounding_box(tracers);
     check(r.box && r.box->lower == bounds.lower && r.box->upper == bounds.upper,
-          "Result::box: the tracers' bounding box, with mps given too");
+          "Result::box: the bounding box of the tracers, with mps given too");
     check(r.outsideBox == std::vector<std::uint8_t>(nObjects, 0) && !r.selection.boxLimits &&
           r.selection.tracers == 0 && r.selection.message().empty(),
           "without limits, no tracer is flagged and nothing is selected");
@@ -683,7 +683,7 @@ int main ()
           "and reproduces the result");
   }
 
-  group("the box mps computed from the tracers' bounding box, with drawn randoms, when not given");
+  group("the box mps computed from the bounding box of the tracers, with drawn randoms, when not given");
   {
     Config c;
     c.nRealizations = 2;
@@ -764,7 +764,7 @@ int main ()
     const BoxLimits tracerBox = internal::bounding_box(tracers);
     const Result drawn = reconstructBox(tracers, {}, c);
     check(drawn.box && drawn.box->lower == tracerBox.lower && drawn.box->upper == tracerBox.upper,
-          "with drawn randoms, Result::box is the tracers' bounding box");
+          "with drawn randoms, Result::box is the bounding box of the tracers");
 
     std::vector<double> flat = tracers;
     for (std::size_t i = 0; i < nObjects; ++i) flat[3*i+2] = 1.;
@@ -878,7 +878,7 @@ int main ()
           r.outsideBox == outside, "the counts of the randoms given and dropped");
   }
 
-  group("box limits equal to the tracers' bounding box give the result without limits, bit for bit");
+  group("box limits equal to the bounding box of the tracers give the result without limits, bit for bit");
   {
     Config c;
     c.nRealizations = 2;

@@ -108,8 +108,8 @@ namespace otswap {
    *  coordinate units: the unit of the Cartesian coordinates. In a box it is
    *  the unit of the tracers given; otswap assumes none. In a lightcone it is
    *  the unit of the distance table: Mpc/h when the table comes from the
-   *  cosmology constructor of DistanceTable, the caller's unit when it comes
-   *  from the table constructor.
+   *  cosmology constructor of DistanceTable, the unit of the table given when
+   *  it comes from the table constructor.
    *
    *  Nothing is copied into a nested container at any point: the layout is
    *  the one the algorithm walks, and the one a numpy array maps onto
@@ -595,7 +595,8 @@ namespace otswap {
     const std::vector<double>& redshift () const;
 
     /// The comoving distance at each sampled redshift: Mpc/h from the
-    /// cosmology constructor, the caller's unit from the table constructor.
+    /// cosmology constructor, the unit of the table given to the table
+    /// constructor.
     const std::vector<double>& distance () const;
 
     /// The growth rate at each sampled redshift; empty when the table
@@ -714,7 +715,7 @@ namespace otswap {
    *  tracers reconstructed. When given, the array must hold at least
    *  config.nRealizations * N of them, both counted inside the limits when
    *  they are given, since each realization consumes a disjoint subset;
-   *  without limits they may lie outside the tracers' bounding box.
+   *  without limits they may lie outside the bounding box of the tracers.
    *
    *  @param mps mean particle separation; must be positive.
    *
@@ -788,7 +789,7 @@ namespace otswap {
    *  ascension, declination, redshift; angles in radians. May be empty.
    *  @param distances the redshift to distance relation.
    *
-   *  @return Cartesian coordinates in the distance table's unit,
+   *  @return Cartesian coordinates in the unit of the distance table,
    *  3 * nObjects entries ordered x, y, z.
    *
    *  @exception Error if the array's size is not a multiple of three, if
@@ -811,8 +812,7 @@ namespace otswap {
    *  folded into [0, 2 pi).
    *
    *  @param cartesian 3 * nObjects entries, ordered x, y, z, in the
-   *  distance table's unit. May
-   *  be empty. A row holding a NaN gives a NaN row.
+   *  unit of the distance table. May be empty. A row holding a NaN gives a NaN row.
    *  @param distances the redshift to distance relation; its range bounds
    *  the distances accepted.
    *

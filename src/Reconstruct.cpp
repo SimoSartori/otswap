@@ -489,9 +489,9 @@ void otswap::recomputeMeans (Result& result)
 namespace {
 
   /// Both box overloads; a null mps is computed from the box: the limits
-  /// when given, the tracers' bounding box otherwise. With limits, the
-  /// tracers and randoms outside them are left out before anything else
-  /// is computed.
+  /// when given, the bounding box of the tracers and the given randoms
+  /// otherwise. With limits, the tracers and randoms outside them are left
+  /// out before anything else is computed.
   otswap::Result box (const std::vector<double>& tracers, const std::vector<double>& randoms,
                       const double* givenMps, const otswap::Config& config,
                       const std::optional<otswap::BoxLimits>& limits)
@@ -581,7 +581,7 @@ namespace {
         out << "otswap: mean particle separation " << mps << " in coordinate units ("
             << (givenMps != nullptr ? "given"
                 : limits ? "from the box limits"
-                : randoms.empty() ? "from the tracers' bounding box"
+                : randoms.empty() ? "from the bounding box of the tracers"
                 : "from the bounding box of the tracers and the given randoms") << ")\n";
       out << internal::reconstruction_line("reconstructBox", result);
       *config.log << out.str() << std::flush;

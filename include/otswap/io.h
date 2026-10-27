@@ -131,7 +131,7 @@ namespace otswap {
       std::vector<std::int64_t> integers;    ///< flat, row-major [row][integer column]
     };
 
-    /// A header keyword: a FITS keyword in the header of a table's HDU, an
+    /// A header keyword: a FITS keyword in the header of the HDU of a table, an
     /// ASCII "## NAME = value / comment" line. The name is at most 8 characters
     /// of A-Z, 0-9, '-' and '_'. The value is at most 68 characters, and
     /// neither value nor comment holds a line break. In FITS a value that
@@ -254,7 +254,7 @@ namespace otswap {
      *
      *  Comments are not read: Keyword::comment is empty. A keyword written
      *  by io::write reads back with the same name and, but for the
-     *  exponent's case in FITS and outer blanks of a FITS string, the same
+     *  case of the exponent in FITS and outer blanks of a FITS string, the same
      *  value; numbers written with 17 significant digits read back as the
      *  same double.
      *
@@ -316,8 +316,8 @@ namespace otswap {
 
     /**
      *  @brief Read selected columns of one part of a file writeParts wrote,
-     *  the first included, as io::read does, given the part's extname and
-     *  twin. FITS: the table of that EXTNAME, compared ignoring case, or
+     *  the first included, as io::read does, given the extname and twin of
+     *  the part. FITS: the table of that EXTNAME, compared ignoring case, or
      *  with an empty extname the first table (HDU 2); twin is ignored.
      *  ASCII: the table in twinFile(file, twin), or with an empty twin in
      *  the file itself, read with the default delimiter and comment
@@ -332,7 +332,7 @@ namespace otswap {
 
     /**
      *  @brief Whether a file holds a part, the first included, given the
-     *  part's extname and twin. FITS: whether it holds a table of that
+     *  extname and twin of the part. FITS: whether it holds a table of that
      *  EXTNAME, compared ignoring case, or with an empty extname a first
      *  table (HDU 2); twin is ignored. ASCII: whether twinFile(file, twin)
      *  or, with an empty twin, the file itself can be opened; extname is
@@ -344,7 +344,7 @@ namespace otswap {
 
     /**
      *  @brief The ASCII twin file of a part: \<stem\>.\<twin\>.\<ext\>, where
-     *  ext is the text after the last '.' of the file's name and stem what
+     *  ext is the text after the last '.' of the file name and stem what
      *  precedes it, or \<file\>.\<twin\> when the name holds no '.'. For
      *  example out/field.dat with twin mps gives out/field.mps.dat.
      */
