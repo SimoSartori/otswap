@@ -2036,13 +2036,13 @@ def test_io_stub_lists_the_module():
     stub = os.path.join(os.path.dirname(otswap.__file__), "io.pyi")
     with open(stub) as f:
         text = f.read()
-    for line in ("class Column:", "class Table:", "def read(", "def write(", "def read_bias_table(",
-                 "def write_displacement_mean(", "def write_displacement_complete(",
+    for line in ("class Column:", "class Table:", "def read(", "def write(", "def read_keywords(",
+                 "def read_bias_table(", "def write_displacement_mean(", "def write_displacement_complete(",
                  "def read_displacement_complete(", "def write_real_space_catalog(",
                  "def write_mps_profile("):
         assert line in text, line
     assert sorted(otswap.io.__all__) == ["Column", "Table", "read", "read_bias_table",
-                                         "read_displacement_complete", "write",
+                                         "read_displacement_complete", "read_keywords", "write",
                                          "write_displacement_complete", "write_displacement_mean",
                                          "write_mps_profile", "write_real_space_catalog"]
 
@@ -2066,6 +2066,30 @@ def test_io_write_matches_cpp(tmp_path, name, precision):
                     precision=precision,
                     keywords=[("PRODUCT", "test table", "written by cpp_reference"), ("SEED", "12345", "")])
     assert py.read_bytes() == cpp.read_bytes()
+
+
+# read_keywords returns the keywords write wrote, as the tuples write takes,
+# with empty comments; extname is a keyword-only str.
+@pytest.mark.parametrize("name", ["keywords.dat", "keywords.fits"])
+def test_read_keywords(tmp_path, name):
+    path = tmp_path / name
+    written = [("PRODUCT", "test table", "what the file holds"), ("SEED", "12345", "")]
+    otswap.io.write(path, [otswap.io.Column("x", np.array([1.0, 2.0]))], keywords=written)
+    read = otswap.io.read_keywords(path)
+    assert isinstance(read, list) and all(isinstance(k, tuple) and len(k) == 3 for k in read)
+    ours = [k for k in read if k[0] in ("PRODUCT", "SEED")]
+    assert ours == [("PRODUCT", "test table", ""), ("SEED", "12345", "")]
+    if name.endswith(".dat"):
+        assert read == ours
+    else:
+        assert read[0][0] == "XTENSION"
+    assert otswap.io.read_keywords(str(path), extname="") == read
+    with pytest.raises(TypeError):
+        otswap.io.read_keywords(path, "")
+    with pytest.raises(otswap.Error, match="extname must be a str"):
+        otswap.io.read_keywords(path, extname=None)
+    with pytest.raises(otswap.Error, match="absent"):
+        otswap.io.read_keywords(tmp_path / ("absent" + path.suffix))
 
 
 # --------------------------------------------------------------------------

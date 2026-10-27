@@ -177,6 +177,34 @@ def write(
     """
 
 
+def read_keywords(file: Path, *, extname: str = "") -> list[tuple[str, str, str]]:
+    """Read the keywords of a table, in file order, as ``(name, value,
+    comment)`` tuples, the form ``write`` takes; ``comment`` is always "".
+
+    FITS (a name ending in .fits, .fit or .fits.gz): the header of the first
+    extension or, with ``extname``, of the extension of that EXTNAME. Every
+    card is returned but COMMENT, HISTORY and those without a name, the
+    structural ones included (XTENSION, NAXISn, TTYPEn, TFORMn, EXTNAME and
+    the like). A string value is returned without its quotes and outer
+    blanks, any other value as its card text: a number as written, with an
+    exponent in E, a logical as T or F.
+
+    ASCII: the ``## NAME = value / comment`` lines of the header, before the
+    ``###`` line or the first data row; ``extname`` is ignored. The value is
+    the text after the ``=`` up to the first ``/`` with a blank on each side,
+    as written, so a value that itself holds such a ``/`` is cut there.
+
+    Values are str: convert them as needed, for example with ``float``, which
+    reads a number written with 17 significant digits back exactly.
+
+    Raises
+    ------
+    Error
+        If the file cannot be opened, is not a valid FITS file, has no first
+        extension, or has no extension of that EXTNAME.
+    """
+
+
 def read_bias_table(file: Path, *, delimiter: str = " ", comment: str = "#") -> BiasTable:
     """Read a b(z) table: FITS from the columns named REDSHIFT and BIAS, ASCII
     from columns 0 and 1. Checked as ``BiasTable`` checks its arrays. Raises

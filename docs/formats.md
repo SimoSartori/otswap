@@ -24,6 +24,9 @@ columns of a table, as double, and others exactly as 64-bit integers.
 - NaN and infinities are returned as stored, in both formats, so a file
   written with NaN rows reads back with them.
 
+{cpp:func}`otswap::io::readKeywords` and {py:func}`otswap.io.read_keywords`
+read the keywords of a table.
+
 The other inputs:
 
 - **A mask:** a full-sky HEALPix map, from a FITS file ({cpp:class}`otswap::Mask`,

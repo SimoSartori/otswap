@@ -513,6 +513,105 @@ int main ()
     std::remove(file.c_str());
   }
 
+  group("readKeywords returns the keywords io::write wrote, in order, in both formats");
+  {
+    io::WriteOptions options;
+    options.keywords = {{"PRODUCT", "displacements", "what the file holds"},
+                        {"SEED", "12345", ""},
+                        {"MPS", "1.0817912345678901e+01", "Mpc/h"},
+                        {"SPLIT", "a / b", ""}};
+    const std::vector<io::Column> columns {{"x", 'D', "a value", "", {1., 2.}, {}}};
+    auto names = [] (const std::vector<io::Keyword>& keywords) {
+      std::vector<std::string> n;
+      for (const io::Keyword& k : keywords) n.push_back(k.name);
+      return n;
+    };
+    auto value = [] (const std::vector<io::Keyword>& keywords, const std::string& name) {
+      for (const io::Keyword& k : keywords) if (k.name == name) return k.value;
+      return std::string("missing");
+    };
+    auto comments_empty = [] (const std::vector<io::Keyword>& keywords) {
+      for (const io::Keyword& k : keywords) if (!k.comment.empty()) return false;
+      return true;
+    };
+
+    const std::string ascii = temporary("keywords.dat");
+    io::write(ascii, columns, options);
+    const std::vector<io::Keyword> a = io::readKeywords(ascii);
+    check(names(a) == std::vector<std::string>{"PRODUCT", "SEED", "MPS", "SPLIT"},
+          "ASCII: exactly the keywords written, in order");
+    check(value(a, "PRODUCT") == "displacements" && value(a, "SEED") == "12345" &&
+          value(a, "MPS") == "1.0817912345678901e+01", "ASCII: the values as written");
+    check(value(a, "SPLIT") == "a", "ASCII: a value holding \" / \" is cut there");
+    check(comments_empty(a), "ASCII: comments are not read");
+    check(names(io::readKeywords(ascii, "ANYNAME")) == names(a), "ASCII: extname is ignored");
+    std::remove(ascii.c_str());
+
+    const std::string fits = temporary("keywords.fits");
+    io::write(fits, columns, options);
+    const std::vector<io::Keyword> f = io::readKeywords(fits);
+    const std::vector<std::string> fn = names(f);
+    std::vector<std::string> ours;
+    for (const std::string& n : fn)
+      if (n == "PRODUCT" || n == "SEED" || n == "MPS" || n == "SPLIT") ours.push_back(n);
+    check(ours == std::vector<std::string>{"PRODUCT", "SEED", "MPS", "SPLIT"} &&
+          fn.front() == "XTENSION" && value(f, "TTYPE1") == "x",
+          "FITS: the keywords written, in order, after the structural ones");
+    check(value(f, "PRODUCT") == "displacements" && value(f, "SEED") == "12345" &&
+          value(f, "MPS") == "1.0817912345678901E+01" && value(f, "SPLIT") == "a / b",
+          "FITS: the values, the exponent in E, a string whole");
+    check(std::strtod(value(f, "MPS").c_str(), nullptr) == 10.817912345678901,
+          "FITS: a number with 17 significant digits reads back as the same double");
+    check(comments_empty(f), "FITS: comments are not read");
+    std::remove(fits.c_str());
+  }
+
+  group("readKeywords by EXTNAME, and its refusals");
+  {
+    const std::string fits = temporary("parts.fits");
+    io::write(fits, {{"x", 'D', "", "", {1.}, {}}}, {9, {{"PRODUCT", "first", ""}}});
+    {
+      fitsfile* f = nullptr;
+      int status = 0;
+      char ttype[] = "y", tform[] = "1D", extname[] = "SECOND";
+      char* types[] = {ttype};
+      char* forms[] = {tform};
+      fits_open_file(&f, fits.c_str(), READWRITE, &status);
+      fits_create_tbl(f, BINARY_TBL, 0, 1, types, forms, nullptr, extname, &status);
+      fits_write_key(f, TSTRING, "PRODUCT", (void*)"second", nullptr, &status);
+      fits_close_file(f, &status);
+      check(status == 0, "a second HDU appended");
+    }
+    auto product = [] (const std::vector<io::Keyword>& keywords) {
+      for (const io::Keyword& k : keywords) if (k.name == "PRODUCT") return k.value;
+      return std::string("missing");
+    };
+    check(product(io::readKeywords(fits)) == "first", "without extname, HDU 2");
+    check(product(io::readKeywords(fits, "SECOND")) == "second", "with extname, the HDU of that EXTNAME");
+    const std::string missing = message_of([&] { io::readKeywords(fits, "THIRD"); });
+    check(missing.find("THIRD") != std::string::npos && missing.find(fits) != std::string::npos,
+          "a missing EXTNAME is refused, naming it and the file: " + missing);
+    std::remove(fits.c_str());
+
+    const std::string primary = temporary("primary.fits");
+    {
+      fitsfile* f = nullptr;
+      int status = 0;
+      std::remove(primary.c_str());
+      fits_create_file(&f, primary.c_str(), &status);
+      fits_create_img(f, BYTE_IMG, 0, nullptr, &status);
+      fits_close_file(f, &status);
+    }
+    const std::string noTable = message_of([&] { io::readKeywords(primary); });
+    check(noTable.find(primary) != std::string::npos, "a FITS file without HDU 2 is refused: " + noTable);
+    std::remove(primary.c_str());
+
+    for (const std::string& absent : {temporary("absent.dat"), temporary("absent.fits")}) {
+      const std::string m = message_of([&] { io::readKeywords(absent); });
+      check(m.find(absent) != std::string::npos, "a missing file is refused, naming it: " + m);
+    }
+  }
+
   group("ASCII columns by name, from the ### line");
   {
     const std::string file = temporary("named.dat");

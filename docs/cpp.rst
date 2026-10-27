@@ -156,6 +156,8 @@ Tables
 
 .. doxygenfunction:: otswap::io::write(const std::string&, const std::vector<Column>&, std::size_t, const std::function<void(std::size_t, std::vector<double>&, std::vector<std::int64_t>&)>&, const WriteOptions&)
 
+.. doxygenfunction:: otswap::io::readKeywords
+
 .. doxygenfunction:: otswap::io::readBiasTable
 
 Writers

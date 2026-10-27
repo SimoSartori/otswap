@@ -126,6 +126,8 @@ Tables
 
 .. autoapifunction:: otswap.io.write
 
+.. autoapifunction:: otswap.io.read_keywords
+
 .. autoapifunction:: otswap.io.read_bias_table
 
 Writers

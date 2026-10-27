@@ -127,8 +127,8 @@ namespace otswap {
       std::vector<std::int64_t> integers;    ///< flat, row-major [row][integer column]
     };
 
-    /// A header keyword: a FITS keyword in the header of HDU 2, an ASCII
-    /// "## NAME = value / comment" line. The name is at most 8 characters
+    /// A header keyword: a FITS keyword in the header of a table's HDU, an
+    /// ASCII "## NAME = value / comment" line. The name is at most 8 characters
     /// of A-Z, 0-9, '-' and '_'. The value is at most 68 characters, and
     /// neither value nor comment holds a line break. In FITS a value that
     /// reads entirely as an integer or a finite number is written as one,
@@ -231,6 +231,34 @@ namespace otswap {
                 const std::function<void(std::size_t, std::vector<double>&,
                                          std::vector<std::int64_t>&)>& fillRow,
                 const WriteOptions& options = {});
+
+    /**
+     *  @brief Read the keywords of a table, in file order.
+     *
+     *  FITS (a file name ending in .fits, .fit or .fits.gz): the header of
+     *  HDU 2 or, with @p extname, of the HDU of that EXTNAME. Every card is
+     *  returned but COMMENT, HISTORY and those without a name, the
+     *  structural ones included (XTENSION, NAXISn, TTYPEn, TFORMn, EXTNAME
+     *  and the like). A string value is returned without its quotes and
+     *  outer blanks, any other value as its card text: a number as written,
+     *  with an exponent in E, a logical as T or F.
+     *
+     *  ASCII: the "## NAME = value / comment" lines of the header, before
+     *  the "###" line or the first data row; @p extname is ignored. The
+     *  value is the text after " = " up to the first " / ", as written, so
+     *  a value that itself holds " / " is cut there.
+     *
+     *  Comments are not read: Keyword::comment is empty. A keyword written
+     *  by io::write reads back with the same name and, but for the
+     *  exponent's case in FITS and outer blanks of a FITS string, the same
+     *  value; numbers written with 17 significant digits read back as the
+     *  same double.
+     *
+     *  @exception Error if the file cannot be opened, is not a valid FITS
+     *  file, has no HDU 2, or has no HDU of that EXTNAME (the message names
+     *  the file).
+     */
+    std::vector<Keyword> readKeywords (const std::string& file, const std::string& extname = "");
 
     // ========================================================================
     // Bias table

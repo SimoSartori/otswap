@@ -97,6 +97,7 @@ passed as `config=` or `correction=`; a flat
 | `io::read`, two overloads | `io.read` | `integer_columns=` for the second |
 | `io::write`, `WriteOptions`, `Keyword` | `io.write`, keywords `precision`, `keywords` | keywords as `(name, value, comment)` tuples |
 | `io::write` with a row function | — | |
+| `io::readKeywords` | `io.read_keywords`, keyword `extname` | `(name, value, comment)` tuples; comment empty |
 | `io::readBiasTable` | `io.read_bias_table` | |
 | `io::writeDisplacementMean`, `writeDisplacementComplete`, `writeRealSpaceCatalog`, `writeMpsProfile` | `io.write_displacement_mean`, `write_displacement_complete`, `write_real_space_catalog`, `write_mps_profile` | |
 | `io::readDisplacementComplete` | `io.read_displacement_complete` | `angle_unit=` required |

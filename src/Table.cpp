@@ -740,6 +740,16 @@ void otswap::io::write (const std::string& file, const std::vector<Column>& colu
 // ============================================================================
 
 
+std::vector<otswap::io::Keyword> otswap::io::readKeywords (const std::string& file,
+                                                           const std::string& extname)
+{
+  return internal::read_keywords(file, extname);
+}
+
+
+// ============================================================================
+
+
 otswap::BiasTable otswap::io::readBiasTable (const std::string& file,
                                                  const char delimiter, const char comment)
 {

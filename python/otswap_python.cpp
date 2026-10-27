@@ -1840,6 +1840,24 @@ NB_MODULE(_otswap, m)
       "keywords"_a = nb::none(),
       "Write a table, ASCII or FITS by the extension of file. An existing file is overwritten.");
 
+  io.def("read_keywords",
+      [] (nb::handle file, nb::handle extname) {
+        const std::string path = to_path(file, "file");
+        const std::string name = to_string(extname, "extname");
+        std::vector<otswap::io::Keyword> keywords;
+        {
+          nb::gil_scoped_release released;
+          keywords = otswap::io::readKeywords(path, name);
+        }
+        auto text = [] (const std::string& s) { return nb::str(s.data(), s.size()); };
+        nb::list out;
+        for (const otswap::io::Keyword& k : keywords)
+          out.append(nb::make_tuple(text(k.name), text(k.value), text(k.comment)));
+        return out;
+      },
+      "file"_a.none(), nb::kw_only(), "extname"_a.none() = "",
+      "Read the keywords of a table, in file order, as (name, value, comment) tuples.");
+
   io.def("write_displacement_mean",
       [] (nb::handle file, nb::handle result, nb::handle groups) {
         const std::string path = to_path(file, "file");

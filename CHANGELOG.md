@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- `io::readKeywords` (Python `io.read_keywords`) reads the keywords of a
+  table, ASCII or FITS, from the first extension or one named by EXTNAME.
+
 ### Changed
 
 - Every translation unit is compiled with `-fno-math-errno` as well as
