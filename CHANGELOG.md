@@ -6,6 +6,10 @@
 
 - `io::readKeywords` (Python `io.read_keywords`) reads the keywords of a
   table, ASCII or FITS, from the first extension or one named by EXTNAME.
+- `io::writeParts`, `io::readPart`, `io::hasPart` and `io::twinFile` (Python
+  `io.write_parts`, `read_part`, `has_part`, `twin_file`, with `io.TablePart`)
+  write and read files of several tables: FITS extensions named by EXTNAME, or
+  ASCII twin files.
 
 ### Changed
 

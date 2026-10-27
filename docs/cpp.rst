@@ -158,6 +158,17 @@ Tables
 
 .. doxygenfunction:: otswap::io::readKeywords
 
+.. doxygenstruct:: otswap::io::TablePart
+   :members:
+
+.. doxygenfunction:: otswap::io::writeParts
+
+.. doxygenfunction:: otswap::io::readPart
+
+.. doxygenfunction:: otswap::io::hasPart
+
+.. doxygenfunction:: otswap::io::twinFile
+
 .. doxygenfunction:: otswap::io::readBiasTable
 
 Writers

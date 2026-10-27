@@ -205,6 +205,110 @@ def read_keywords(file: Path, *, extname: str = "") -> list[tuple[str, str, str]
     """
 
 
+class TablePart:
+    """One table of a file holding several, for ``write_parts``.
+
+    In FITS each part is a binary table of the same file, the first in the
+    first extension and the others after it, in order, each with its
+    EXTNAME. In ASCII the first part is written to the file itself and each
+    other one to its twin file, ``twin_file(file, twin)``; each file is a
+    table as ``write`` writes it, readable by ``read``.
+
+    Parameters
+    ----------
+    columns : sequence of Column
+        The columns, all of the same length.
+    extname : str, optional
+        The EXTNAME of the FITS table: 1 to 68 characters of A-Z, a-z, 0-9,
+        ``-`` and ``_``. Optional for the first part; required for the others,
+        and unique in the file, ignoring case.
+    twin : str, optional
+        The name of the ASCII twin file, with the same rules. Ignored for the
+        first part; required for the others, and unique in the file, ignoring
+        case.
+    precision : int, optional
+        As in ``write``.
+    keywords : sequence of (str, str, str), optional
+        As in ``write``; a keyword named EXTNAME is refused by ``write_parts``.
+    """
+
+    def __init__(
+        self,
+        columns: Sequence[Column],
+        *,
+        extname: str = "",
+        twin: str = "",
+        precision: int = 9,
+        keywords: Optional[Sequence[tuple[str, str, str]]] = None,
+    ) -> None: ...
+    @property
+    def columns(self) -> tuple[Column, ...]: ...
+    @property
+    def extname(self) -> str: ...
+    @property
+    def twin(self) -> str: ...
+    @property
+    def precision(self) -> int: ...
+    @property
+    def keywords(self) -> tuple[tuple[str, str, str], ...]: ...
+
+
+def write_parts(file: Path, parts: Sequence[TablePart]) -> None:
+    """Write a file holding several tables: FITS, one binary table per part,
+    from the first extension; ASCII, the first part in the file and each
+    other one in its twin file. Existing files are overwritten; twin files of
+    an earlier write that this one does not write are left where they are,
+    so ``has_part`` still finds them.
+
+    Raises
+    ------
+    Error
+        If no part is given, if an extname or a twin is missing, malformed or
+        repeated as described in ``TablePart``, if a part holds a keyword named
+        EXTNAME, or as ``write`` for any part.
+    """
+
+
+def read_part(
+    file: Path,
+    *,
+    extname: str,
+    twin: str,
+    columns: Sequence[Union[str, int]],
+    integer_columns: Sequence[Union[str, int]] = (),
+) -> Table:
+    """Read selected columns of one part of a file ``write_parts`` wrote, the
+    first included, as ``read`` does, given the part's ``extname`` and
+    ``twin``. FITS: the table of that EXTNAME, compared ignoring case, or with
+    an empty ``extname`` the first table; ``twin`` is ignored. ASCII: the table
+    in ``twin_file(file, twin)``, or with an empty ``twin`` in the file itself;
+    ``extname`` is ignored.
+
+    Raises
+    ------
+    Error
+        As ``read``, and if the file has no table of that EXTNAME, or the
+        twin file is missing.
+    """
+
+
+def has_part(file: Path, *, extname: str, twin: str) -> bool:
+    """Whether a file holds a part, the first included, given the part's
+    ``extname`` and ``twin``. FITS: whether it holds a table of that EXTNAME,
+    compared ignoring case, or with an empty ``extname`` a first table;
+    ``twin`` is ignored. ASCII: whether ``twin_file(file, twin)`` or, with an
+    empty ``twin``, the file itself can be opened; ``extname`` is ignored, and
+    with a ``twin`` the file itself is not checked. Raises ``Error`` if a FITS
+    file cannot be opened."""
+
+
+def twin_file(file: Path, twin: str) -> str:
+    """The ASCII twin file of a part: ``<stem>.<twin>.<ext>``, ext the text
+    after the last ``.`` of the file's name and stem what precedes it, or
+    ``<file>.<twin>`` when the name holds no ``.``; for example
+    ``out/field.dat`` with twin ``mps`` gives ``out/field.mps.dat``."""
+
+
 def read_bias_table(file: Path, *, delimiter: str = " ", comment: str = "#") -> BiasTable:
     """Read a b(z) table: FITS from the columns named REDSHIFT and BIAS, ASCII
     from columns 0 and 1. Checked as ``BiasTable`` checks its arrays. Raises

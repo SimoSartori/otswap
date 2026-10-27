@@ -36,7 +36,8 @@
 /**
  *  @defgroup file_formats File formats
  *
- *  @brief The layouts of the tables io::write and the writers produce.
+ *  @brief The layouts of the tables io::write, io::writeParts and the
+ *  writers produce.
  *
  *  ASCII:
  *
@@ -65,7 +66,8 @@
  *  of HDU 2. The displacement writers name that table DISPLACEMENTS
  *  (EXTNAME); the complete displacement file adds one HDU per further
  *  table, each named by its EXTNAME, which an ASCII file writes as twin
- *  files of its own.
+ *  files of its own. io::writeParts writes such files from the caller's
+ *  tables.
  *
  *  The writers of a Result and of a RealSpaceCatalog write one row per
  *  input object, in input order, tracers left out of the reconstruction
@@ -259,6 +261,89 @@ namespace otswap {
      *  the file).
      */
     std::vector<Keyword> readKeywords (const std::string& file, const std::string& extname = "");
+
+    /**
+     *  @brief One table of a file holding several, for writeParts.
+     *
+     *  In FITS each part is a binary table of the same file, the first in
+     *  HDU 2 and the others in the next HDUs, in order, each with its
+     *  EXTNAME. In ASCII the first part is written to the file itself and
+     *  each other one to its twin file, twinFile(file, twin); each file is
+     *  a table as io::write writes it, readable by io::read.
+     *
+     *  The rows come from fillRow when it is set, as with the row overload
+     *  of io::write: nRows rows, the data and integers of the columns
+     *  ignored. Without it they come from the columns, which must then all
+     *  hold the same number of entries, as with io::write; nRows is
+     *  ignored.
+     */
+    struct TablePart {
+      /// The EXTNAME of the FITS table: 1 to 68 characters of A-Z, a-z,
+      /// 0-9, '-' and '_'. Optional for the first part; required for the
+      /// others, and unique in the file, ignoring case.
+      std::string extname;
+
+      /// The name of the ASCII twin file: 1 to 68 characters of A-Z, a-z,
+      /// 0-9, '-' and '_'. Ignored for the first part; required for the
+      /// others, and unique in the file, ignoring case.
+      std::string twin;
+
+      std::vector<Column> columns;
+      std::size_t nRows = 0;
+      std::function<void(std::size_t, std::vector<double>&, std::vector<std::int64_t>&)> fillRow;
+      WriteOptions options;
+    };
+
+    /**
+     *  @brief Write a file holding several tables: FITS, one binary table
+     *  per part, from HDU 2; ASCII, the first part in the file and each
+     *  other one in its twin file. Existing files are overwritten; twin
+     *  files of an earlier write that this one does not write are left
+     *  where they are, so hasPart still finds them.
+     *
+     *  @exception Error if no part is given, if an extname or a twin is
+     *  missing, malformed or repeated as described in TablePart, if a part
+     *  holds a keyword named EXTNAME, or as io::write for any part. Every
+     *  part is checked before any file is opened, but for the values of
+     *  'J' columns, checked as they are written.
+     */
+    void writeParts (const std::string& file, const std::vector<TablePart>& parts);
+
+    /**
+     *  @brief Read selected columns of one part of a file writeParts wrote,
+     *  the first included, as io::read does, given the part's extname and
+     *  twin. FITS: the table of that EXTNAME, compared ignoring case, or
+     *  with an empty extname the first table (HDU 2); twin is ignored.
+     *  ASCII: the table in twinFile(file, twin), or with an empty twin in
+     *  the file itself, read with the default delimiter and comment
+     *  character; extname is ignored.
+     *
+     *  @exception Error as io::read, and if the file has no table of that
+     *  EXTNAME, or the twin file is missing.
+     */
+    Table readPart (const std::string& file, const std::string& extname, const std::string& twin,
+                    const std::vector<std::string>& columns,
+                    const std::vector<std::string>& integerColumns = {});
+
+    /**
+     *  @brief Whether a file holds a part, the first included, given the
+     *  part's extname and twin. FITS: whether it holds a table of that
+     *  EXTNAME, compared ignoring case, or with an empty extname a first
+     *  table (HDU 2); twin is ignored. ASCII: whether twinFile(file, twin)
+     *  or, with an empty twin, the file itself can be opened; extname is
+     *  ignored, and with a twin the file itself is not checked.
+     *
+     *  @exception Error if a FITS file cannot be opened.
+     */
+    bool hasPart (const std::string& file, const std::string& extname, const std::string& twin);
+
+    /**
+     *  @brief The ASCII twin file of a part: \<stem\>.\<twin\>.\<ext\>, where
+     *  ext is the text after the last '.' of the file's name and stem what
+     *  precedes it, or \<file\>.\<twin\> when the name holds no '.'. For
+     *  example out/field.dat with twin mps gives out/field.mps.dat.
+     */
+    std::string twinFile (const std::string& file, const std::string& twin);
 
     // ========================================================================
     // Bias table

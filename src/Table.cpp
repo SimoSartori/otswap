@@ -750,6 +750,131 @@ std::vector<otswap::io::Keyword> otswap::io::readKeywords (const std::string& fi
 // ============================================================================
 
 
+void otswap::io::writeParts (const std::string& file, const std::vector<TablePart>& parts)
+{
+  if (parts.empty())
+    throw Error("no table was given for: " + file);
+
+  auto valid = [] (const std::string& name) {
+    return !name.empty() && name.size() <= kMaxKeywordValue &&
+      std::all_of(name.begin(), name.end(), [] (const char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+               c == '-' || c == '_';
+      });
+  };
+  auto upper = [] (std::string name) {
+    for (char& c : name) c = (char)std::toupper((unsigned char)c);
+    return name;
+  };
+  auto check_name = [&] (const std::size_t k, const std::string& name, const std::string& what,
+                         std::string TablePart::* const member) {
+    const std::string at = "parts[" + std::to_string(k) + "] of " + file;
+    if (name.empty())
+      throw Error(at + " has no " + what + "; every part after the first needs one");
+    if (!valid(name))
+      throw Error("the " + what + " '" + name + "' of " + at + " is not 1 to " +
+                  std::to_string(kMaxKeywordValue) + " characters of A-Z, a-z, 0-9, '-' and '_'");
+    for (std::size_t j = 0; j < k; ++j)
+      if ((j > 0 || member == &TablePart::extname) && upper(parts[j].*member) == upper(name))
+        throw Error("the " + what + " '" + name + "' of " + at + " repeats that of parts[" +
+                    std::to_string(j) + "], ignoring case");
+  };
+
+  for (std::size_t k = 0; k < parts.size(); ++k) {
+    if (k > 0 || !parts[k].extname.empty())
+      check_name(k, parts[k].extname, "extname", &TablePart::extname);
+    if (k > 0)
+      check_name(k, parts[k].twin, "twin", &TablePart::twin);
+    for (const Keyword& keyword : parts[k].options.keywords)
+      if (keyword.name == "EXTNAME")
+        throw Error("parts[" + std::to_string(k) + "] of " + file + " holds a keyword EXTNAME; "
+                    "give the name as the part's extname");
+  }
+
+  auto length = [] (const Column& c) { return c.type == 'K' ? c.integers.size() : c.data.size(); };
+  std::vector<internal::TablePart> converted(parts.size());
+  for (std::size_t k = 0; k < parts.size(); ++k) {
+    const TablePart& part = parts[k];
+    internal::TablePart& out = converted[k];
+    out.extname = part.extname;
+    out.twin = part.twin;
+    out.options = part.options;
+    for (const Column& c : part.columns)
+      out.columns.push_back({c.name, c.type, c.description, c.unit, {}, {}});
+    if (part.fillRow) {
+      out.nRows = part.nRows;
+      out.fillRow = part.fillRow;
+      continue;
+    }
+    const std::vector<Column>& columns = part.columns;
+    for (std::size_t i = 1; i < columns.size(); ++i)
+      if (length(columns[i]) != length(columns[0]))
+        throw Error("the column '" + columns[i].name + "' holds " +
+                    std::to_string(length(columns[i])) + " entries, against " +
+                    std::to_string(length(columns[0])) + " in '" + columns[0].name + "'");
+    out.nRows = columns.empty() ? 0 : length(columns[0]);
+    out.fillRow = [&columns] (const std::size_t row, std::vector<double>& values,
+                              std::vector<std::int64_t>& integers) {
+      for (std::size_t c = 0; c < columns.size(); ++c) {
+        if (columns[c].type == 'K') integers[c] = columns[c].integers[row];
+        else                        values[c] = columns[c].data[row];
+      }
+    };
+  }
+
+  internal::write_parts(file, converted);
+}
+
+
+// ============================================================================
+
+
+otswap::io::Table otswap::io::readPart (const std::string& file, const std::string& extname,
+                                        const std::string& twin,
+                                        const std::vector<std::string>& columns,
+                                        const std::vector<std::string>& integerColumns)
+{
+  if (is_fits(file))
+    return extname.empty() ? read(file, columns, integerColumns)
+                           : internal::read_part(file, extname, columns, integerColumns);
+  return read(twin.empty() ? file : internal::twin_file(file, twin), columns, integerColumns);
+}
+
+
+// ============================================================================
+
+
+bool otswap::io::hasPart (const std::string& file, const std::string& extname, const std::string& twin)
+{
+  if (!is_fits(file))
+    return std::ifstream(twin.empty() ? file : internal::twin_file(file, twin)).good();
+  if (!extname.empty())
+    return internal::has_part(file, extname);
+
+  fitsfile* fptr = nullptr;
+  int status = 0;
+  if (fits_open_file(&fptr, file.c_str(), READONLY, &status))
+    throw Error("cannot open the input file, or it is not a valid FITS file: " + file);
+  int hdutype = IMAGE_HDU;
+  const bool found = fits_movabs_hdu(fptr, 2, &hdutype, &status) == 0 && hdutype != IMAGE_HDU;
+  int closeStatus = 0;
+  fits_close_file(fptr, &closeStatus);
+  return found;
+}
+
+
+// ============================================================================
+
+
+std::string otswap::io::twinFile (const std::string& file, const std::string& twin)
+{
+  return internal::twin_file(file, twin);
+}
+
+
+// ============================================================================
+
+
 otswap::BiasTable otswap::io::readBiasTable (const std::string& file,
                                                  const char delimiter, const char comment)
 {

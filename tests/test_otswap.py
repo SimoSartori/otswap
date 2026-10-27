@@ -2036,15 +2036,17 @@ def test_io_stub_lists_the_module():
     stub = os.path.join(os.path.dirname(otswap.__file__), "io.pyi")
     with open(stub) as f:
         text = f.read()
-    for line in ("class Column:", "class Table:", "def read(", "def write(", "def read_keywords(",
+    for line in ("class Column:", "class Table:", "class TablePart:", "def read(", "def write(",
+                 "def read_keywords(", "def write_parts(", "def read_part(", "def has_part(", "def twin_file(",
                  "def read_bias_table(", "def write_displacement_mean(", "def write_displacement_complete(",
                  "def read_displacement_complete(", "def write_real_space_catalog(",
                  "def write_mps_profile("):
         assert line in text, line
-    assert sorted(otswap.io.__all__) == ["Column", "Table", "read", "read_bias_table",
-                                         "read_displacement_complete", "read_keywords", "write",
-                                         "write_displacement_complete", "write_displacement_mean",
-                                         "write_mps_profile", "write_real_space_catalog"]
+    assert sorted(otswap.io.__all__) == ["Column", "Table", "TablePart", "has_part", "read", "read_bias_table",
+                                         "read_displacement_complete", "read_keywords", "read_part",
+                                         "twin_file", "write", "write_displacement_complete",
+                                         "write_displacement_mean", "write_mps_profile", "write_parts",
+                                         "write_real_space_catalog"]
 
 
 @needs_cpp
@@ -2066,6 +2068,30 @@ def test_io_write_matches_cpp(tmp_path, name, precision):
                     precision=precision,
                     keywords=[("PRODUCT", "test table", "written by cpp_reference"), ("SEED", "12345", "")])
     assert py.read_bytes() == cpp.read_bytes()
+
+
+@needs_cpp
+@pytest.mark.parametrize("name", ["parts.dat", "parts.fits"])
+def test_write_parts_matches_cpp(tmp_path, name):
+    x, n, ids, _ = sample_columns()
+    np.ascontiguousarray(x).tofile(tmp_path / "x.in")
+    np.ascontiguousarray(n).tofile(tmp_path / "n.in")
+    np.ascontiguousarray(ids).tofile(tmp_path / "id.in")
+    cpp = tmp_path / ("cpp_" + name)
+    subprocess.run([CPP_REFERENCE, "parts", f"x={tmp_path / 'x.in'}", f"n={tmp_path / 'n.in'}",
+                    f"id={tmp_path / 'id.in'}", "precision=17", f"out={cpp}"],
+                   check=True, capture_output=True, text=True)
+    py = tmp_path / ("py_" + name)
+    otswap.io.write_parts(py, [
+        otswap.io.TablePart([otswap.io.Column("x", x, description="a value", unit="Mpc/h"),
+                             otswap.io.Column("id", ids, type="K")],
+                            extname="MAIN", precision=17, keywords=[("PRODUCT", "test parts", "")]),
+        otswap.io.TablePart([otswap.io.Column("n", n, type="J", description="a count")],
+                            extname="SECOND", twin="second", keywords=[("SEED", "12345", "")])])
+    assert py.read_bytes() == cpp.read_bytes()
+    if name.endswith(".dat"):
+        twins = [tmp_path / os.path.basename(otswap.io.twin_file(f, "second")) for f in (py, cpp)]
+        assert twins[0].read_bytes() == twins[1].read_bytes()
 
 
 # read_keywords returns the keywords write wrote, as the tuples write takes,
@@ -2090,6 +2116,64 @@ def test_read_keywords(tmp_path, name):
         otswap.io.read_keywords(path, extname=None)
     with pytest.raises(otswap.Error, match="absent"):
         otswap.io.read_keywords(tmp_path / ("absent" + path.suffix))
+
+
+# write_parts writes several tables; read_part reads each back, the first
+# included, from its extname and twin, in both formats.
+@pytest.mark.parametrize("name", ["parts.dat", "parts.fits"])
+def test_write_and_read_parts(tmp_path, name):
+    path = tmp_path / name
+    x, n, ids, _ = sample_columns()
+    parts = [otswap.io.TablePart([otswap.io.Column("x", x), otswap.io.Column("id", ids, type="K")],
+                                 extname="MAIN", precision=17, keywords=[("PRODUCT", "main", "")]),
+             otswap.io.TablePart([otswap.io.Column("n", n[:3], type="J")], extname="Second", twin="second")]
+    otswap.io.write_parts(path, parts)
+    first = otswap.io.read_part(path, extname="", twin="", columns=["x"], integer_columns=["id"])
+    assert same_bytes(first.values[:, 0], x) and np.array_equal(first.integers[:, 0], ids)
+    second = otswap.io.read_part(path, extname="SECOND", twin="second", columns=["n"])
+    assert np.array_equal(second.values[:, 0], n[:3])
+    assert otswap.io.has_part(path, extname="", twin="") and otswap.io.has_part(path, extname="MAIN", twin="")
+    assert otswap.io.has_part(path, extname="second", twin="second")
+    assert not otswap.io.has_part(path, extname="THIRD", twin="third")
+    assert otswap.io.twin_file(path, "second") == str(tmp_path / "parts.second") + path.suffix
+    assert otswap.io.twin_file("out/field.dat", "mps") == "out/field.mps.dat"
+    if name.endswith(".dat"):
+        assert (tmp_path / ("parts.second" + path.suffix)).exists()
+        assert ("PRODUCT", "main", "") in otswap.io.read_keywords(path)
+    else:
+        assert ("PRODUCT", "main", "") in otswap.io.read_keywords(path, extname="MAIN")
+    with pytest.raises(TypeError):
+        otswap.io.read_part(path, "", "", ["x"])
+
+
+def test_table_part_and_write_parts_refusals(tmp_path):
+    column = otswap.io.Column("a", np.array([1.0]))
+    part = otswap.io.TablePart([column], extname="A", twin="a", keywords=[("SEED", "1", "")])
+    assert part.columns == (column,) and part.extname == "A" and part.twin == "a"
+    assert part.precision == 9 and part.keywords == (("SEED", "1", ""),)
+    assert repr(part) == "TablePart([a], extname='A', twin='a')"
+    with pytest.raises(AttributeError):
+        part.extname = "B"
+    with pytest.raises(otswap.Error, match="columns must be a sequence of otswap.io.Column"):
+        otswap.io.TablePart([1.0])
+    with pytest.raises(otswap.Error, match="extname must be a str"):
+        otswap.io.TablePart([column], extname=None)
+    with pytest.raises(otswap.Error, match="twin must be a str"):
+        otswap.io.TablePart([column], twin=3)
+    first = otswap.io.TablePart([column])
+    path = tmp_path / "refused.fits"
+    for parts, match in (([], "no table was given"),
+                         ([column], "parts must be a sequence of otswap.io.TablePart"),
+                         ([first, otswap.io.TablePart([column], extname="B")], "has no twin"),
+                         ([first, part, otswap.io.TablePart([column], extname="a", twin="b")],
+                          "repeats that of parts\\[1\\], ignoring case"),
+                         ([first, otswap.io.TablePart([column], extname="A", twin="a",
+                                                      keywords=[("EXTNAME", "A", "")])], "keyword EXTNAME"),
+                         ([first, otswap.io.TablePart([column], extname="A", twin="a", precision=0)],
+                          "the precision is 0")):
+        with pytest.raises(otswap.Error, match=match):
+            otswap.io.write_parts(path, parts)
+        assert not path.exists()
 
 
 # --------------------------------------------------------------------------

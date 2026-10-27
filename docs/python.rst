@@ -128,6 +128,17 @@ Tables
 
 .. autoapifunction:: otswap.io.read_keywords
 
+.. autoapiclass:: otswap.io.TablePart
+   :members:
+
+.. autoapifunction:: otswap.io.write_parts
+
+.. autoapifunction:: otswap.io.read_part
+
+.. autoapifunction:: otswap.io.has_part
+
+.. autoapifunction:: otswap.io.twin_file
+
 .. autoapifunction:: otswap.io.read_bias_table
 
 Writers

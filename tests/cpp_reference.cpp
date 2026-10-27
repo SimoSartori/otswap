@@ -54,6 +54,12 @@
  *  and a unit, n (float64) as 'J', id (native int64) as 'K', and the
  *  keywords PRODUCT and SEED.
  *
+ *    cpp_reference parts x=F n=F id=F precision=N out=FILE
+ *
+ *  parts writes FILE with io::writeParts: part MAIN with x and id, at that
+ *  precision, and keyword PRODUCT; part SECOND (twin second) with n, and
+ *  keyword SEED.
+ *
  *  Input files hold native float64 values, flat and row-major; sky angles
  *  are in radians. A reconstruction writes P.displacement and
  *  P.mean_displacement (float64), P.valid and P.outside_mask (uint8) and
@@ -223,6 +229,18 @@ int main (int argc, char** argv)
                         {{"x", 'D', "a value", "Mpc/h", read("x"), {}},
                          {"n", 'J', "a count", "", read("n"), {}},
                          {"id", 'K', "", "", {}, read_int64("id")}}, options);
+    }
+    else if (mode == "parts") {
+      std::vector<otswap::io::TablePart> parts(2);
+      parts[0].extname = "MAIN";
+      parts[0].columns = {{"x", 'D', "a value", "Mpc/h", read("x"), {}},
+                          {"id", 'K', "", "", {}, read_int64("id")}};
+      parts[0].options = {(int)integer("precision"), {{"PRODUCT", "test parts", ""}}};
+      parts[1].extname = "SECOND";
+      parts[1].twin = "second";
+      parts[1].columns = {{"n", 'J', "a count", "", read("n"), {}}};
+      parts[1].options = {9, {{"SEED", "12345", ""}}};
+      otswap::io::writeParts(arg("out"), parts);
     }
     else {
       std::fprintf(stderr, "cpp_reference: unknown mode %s\n", mode.c_str());

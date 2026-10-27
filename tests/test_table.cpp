@@ -612,6 +612,164 @@ int main ()
     }
   }
 
+  group("writeParts writes several tables that readPart reads back, the first included, in both formats");
+  {
+    const std::vector<double> x {0.1, 1. / 3., -2.5e-300};
+    const std::vector<std::int64_t> big {-9007199254740993, 0, 9223372036854775807};
+    std::vector<io::TablePart> parts(3);
+    parts[0].extname = "MAIN";
+    parts[0].columns = {{"x", 'D', "a value", "", x, {}}, {"n", 'J', "", "", {1., 2., 3.}, {}}};
+    parts[0].options = {17, {{"PRODUCT", "main", ""}}};
+    parts[1].extname = "MpsProf";
+    parts[1].twin = "mps";
+    parts[1].columns = {{"z", 'D', "", "", {}, {}}, {"id", 'K', "", "", {}, {}}};
+    parts[1].nRows = 3;
+    parts[1].fillRow = [&] (const std::size_t row, std::vector<double>& values,
+                            std::vector<std::int64_t>& integers) {
+      values[0] = x[row] * 2.;
+      integers[1] = big[row];
+    };
+    parts[1].options = {17, {{"PRODUCT", "profile", ""}}};
+    parts[2].extname = "THIRD";
+    parts[2].twin = "third";
+    parts[2].columns = {{"w", 'D', "", "", {4., 5.}, {}}};
+
+    for (const std::string& name : {std::string("parts.fits"), std::string("parts.dat")}) {
+      const bool fits = name.back() == 's';
+      const std::string file = temporary(name);
+      io::writeParts(file, parts);
+      auto same = [] (const std::vector<double>& a, const std::vector<double>& b) {
+        if (a.size() != b.size()) return false;
+        for (std::size_t i = 0; i < a.size(); ++i) if (!same_bits(a[i], b[i])) return false;
+        return true;
+      };
+      const io::Table first = io::readPart(file, "", "", {"x", "n"});
+      check(first.nRows == 3 && same({first.values[0], first.values[2], first.values[4]}, x) &&
+            first.values[1] == 1. && first.values[5] == 3.,
+            name + ": the first part, empty extname and twin, bit for bit");
+      const io::Table again = io::readPart(file, "MAIN", "", {"x"});
+      check(same(again.values, x), name + ": the first part by its extname");
+      check(same(io::read(file, {"x"}).values, x), name + ": the first part by io::read");
+      const io::Table second = io::readPart(file, "MPSPROF", "mps", {"z"}, {"id"});
+      check(second.nRows == 3 && second.values == std::vector<double>{x[0] * 2., x[1] * 2., x[2] * 2.} &&
+            second.integers == big, name + ": the second part from its row function, K exactly");
+      check(io::readPart(file, "THIRD", "third", {"w"}).values == std::vector<double>{4., 5.},
+            name + ": the third part, of another length");
+      const std::string profileFile = fits ? file : io::twinFile(file, "mps");
+      std::string product;
+      for (const io::Keyword& k : io::readKeywords(profileFile, fits ? "MpsProf" : ""))
+        if (k.name == "PRODUCT") product = k.value;
+      check(product == "profile", name + ": each part carries its own keywords");
+      check(io::hasPart(file, "", "") && io::hasPart(file, "MAIN", "") &&
+            io::hasPart(file, "mpsprof", "mps") && !io::hasPart(file, "FOURTH", "fourth"),
+            name + ": hasPart, the first part included");
+      if (fits) check(io::readKeywords(file, "THIRD").front().name == "XTENSION", "FITS: HDU 4 by its EXTNAME");
+      else {
+        const std::string direct = temporary("direct_third.dat");
+        io::write(direct, parts[2].columns, parts[2].options);
+        check(text_of(io::twinFile(file, "third")) == text_of(direct),
+              "ASCII: a twin file is what io::write writes for the same table, byte for byte");
+        std::remove(direct.c_str());
+        std::remove(io::twinFile(file, "mps").c_str());
+        std::remove(io::twinFile(file, "third").c_str());
+      }
+      std::remove(file.c_str());
+    }
+  }
+
+  group("twinFile, and hasPart on missing and stale parts");
+  {
+    check(io::twinFile("out/field.dat", "mps") == "out/field.mps.dat", "the documented example");
+    check(io::twinFile("a/b.c/d", "mps") == "a/b.c/d.mps", "a '.' in a directory is not the extension's");
+    check(io::twinFile("d", "mps") == "d.mps" && io::twinFile("d.v1.dat", "mps") == "d.v1.mps.dat",
+          "no '.', and the last '.'");
+
+    const std::string file = temporary("stale.dat");
+    std::vector<io::TablePart> two(2);
+    two[0].columns = {{"a", 'D', "", "", {1.}, {}}};
+    two[1].extname = "B";
+    two[1].twin = "b";
+    two[1].columns = {{"b", 'D', "", "", {2.}, {}}};
+    io::writeParts(file, two);
+    io::writeParts(file, {two[0]});
+    check(io::hasPart(file, "B", "b") && io::readPart(file, "B", "b", {"b"}).values[0] == 2.,
+          "ASCII: a twin of an earlier write is left, and still found");
+    std::remove(io::twinFile(file, "b").c_str());
+    check(!io::hasPart(file, "B", "b") && io::hasPart(file, "", ""), "ASCII: once removed, not found");
+    std::remove(file.c_str());
+    check(!io::hasPart(file, "", ""), "ASCII: a missing file is not a part");
+
+    const std::string primary = temporary("parts_primary.fits");
+    {
+      fitsfile* f = nullptr;
+      int status = 0;
+      std::remove(primary.c_str());
+      fits_create_file(&f, primary.c_str(), &status);
+      fits_create_img(f, BYTE_IMG, 0, nullptr, &status);
+      fits_close_file(f, &status);
+    }
+    check(!io::hasPart(primary, "", ""), "FITS: no first table in a file with a primary HDU only");
+    std::remove(primary.c_str());
+    const std::string absent = temporary("absent_parts.fits");
+    check(message_of([&] { io::hasPart(absent, "", ""); }).find(absent) != std::string::npos,
+          "FITS: a file that cannot be opened is refused");
+    check(message_of([&] { io::readPart(absent, "X", "", {"a"}); }).find(absent) != std::string::npos &&
+          message_of([&] { io::readPart(temporary("absent_parts.dat"), "", "x", {"a"}); })
+            .find("absent_parts.x.dat") != std::string::npos,
+          "readPart: a missing file or twin is refused, naming it");
+  }
+
+  group("writeParts refuses malformed parts before opening any file");
+  {
+    auto part = [] (const std::string& extname, const std::string& twin) {
+      io::TablePart p;
+      p.extname = extname;
+      p.twin = twin;
+      p.columns = {{"a", 'D', "", "", {1.}, {}}};
+      return p;
+    };
+    const io::TablePart first = part("", "");
+    struct Case { std::vector<io::TablePart> parts; std::string expected; };
+    io::TablePart keyword = part("K", "k");
+    keyword.options.keywords = {{"EXTNAME", "K", ""}};
+    io::TablePart noColumn = part("C", "c");
+    noColumn.columns.clear();
+    io::TablePart unequal = part("U", "u");
+    unequal.columns.push_back({"b", 'D', "", "", {1., 2.}, {}});
+    io::TablePart precision = part("P", "p");
+    precision.options.precision = 18;
+    const std::vector<Case> cases {
+      {{}, "no table was given"},
+      {{first, part("", "b")}, "parts[1] of "},
+      {{first, part("B", "")}, "has no twin"},
+      {{first, part("B", "b"), part("b", "c")}, "repeats that of parts[1], ignoring case"},
+      {{part("MAIN", ""), part("main", "b")}, "repeats that of parts[0]"},
+      {{first, part("B", "b"), part("C", "B")}, "the twin 'B'"},
+      {{first, part("B.1", "b")}, "is not 1 to 68 characters"},
+      {{first, part("B", "b/c")}, "is not 1 to 68 characters"},
+      {{first, part(std::string(69, 'B'), "b")}, "is not 1 to 68 characters"},
+      {{part("A B", "")}, "is not 1 to 68 characters"},
+      {{first, keyword}, "holds a keyword EXTNAME"},
+      {{first, noColumn}, "no column was given"},
+      {{first, unequal}, "holds 2 entries"},
+      {{first, precision}, "the precision is 18"}};
+    for (const std::string& name : {std::string("refused.fits"), std::string("refused.dat")}) {
+      const std::string file = temporary(name);
+      for (const Case& c : cases) {
+        std::remove(file.c_str());
+        const std::string message = message_of([&] { io::writeParts(file, c.parts); });
+        check(message.find(c.expected) != std::string::npos && !std::ifstream(file).good(),
+              name + ": refused with \"" + c.expected + "\", no file written: " + message);
+      }
+    }
+    check(io::twinFile("x.dat", std::string(68, 'b')).size() == 74, "68 characters are accepted");
+    const std::string ok = temporary("accepted.dat");
+    io::writeParts(ok, {first, part(std::string(68, 'B'), std::string(68, 'b'))});
+    check(io::hasPart(ok, "", std::string(68, 'b')), "a part with 68-character names is written");
+    std::remove(io::twinFile(ok, std::string(68, 'b')).c_str());
+    std::remove(ok.c_str());
+  }
+
   group("ASCII columns by name, from the ### line");
   {
     const std::string file = temporary("named.dat");

@@ -327,6 +327,83 @@ namespace {
     return nb::str(path).c_str();
   }
 
+  /// The columns, precision and keywords of a table to write, from the
+  /// arguments of io.write, checked as io.write checks them. The columns'
+  /// data stay in the Python objects, which the caller keeps alive.
+  struct PythonTable {
+    std::vector<const otswap::io::Column*> given;
+    std::vector<otswap::io::Column> header;
+    otswap::io::WriteOptions options;
+    std::size_t nRows = 0;
+
+    std::function<void(std::size_t, std::vector<double>&, std::vector<std::int64_t>&)> fillRow () const
+    {
+      return [given = given] (const std::size_t row, std::vector<double>& values,
+                              std::vector<std::int64_t>& integers) {
+        for (std::size_t c = 0; c < given.size(); ++c) {
+          if (given[c]->type == 'K') integers[c] = given[c]->integers[row];
+          else                       values[c] = given[c]->data[row];
+        }
+      };
+    }
+  };
+
+  PythonTable python_table (const std::string& path, nb::handle columns, nb::handle precision,
+                            nb::handle keywords)
+  {
+    PythonTable table;
+    try {
+      for (nb::handle item : nb::iter(columns)) {
+        const otswap::io::Column& c = instance<otswap::io::Column>(item, "each column", "io.Column");
+        table.given.push_back(&c);
+        table.header.push_back({c.name, c.type, c.description, c.unit, {}, {}});
+      }
+    }
+    catch (nb::python_error&) {
+      throw otswap::Error("columns must be a sequence of otswap.io.Column; got " + repr_of(columns));
+    }
+    long long p;
+    try {
+      p = nb::cast<long long>(precision);
+    }
+    catch (nb::cast_error&) {
+      if (!PyIndex_Check(precision.ptr()))
+        throw otswap::Error("precision must be an integer; got " + repr_of(precision));
+      throw otswap::Error("the precision is " + repr_of(precision) + "; it must lie in [1, 17]");
+    }
+    if (p < 1 || p > 17)
+      throw otswap::Error("the precision is " + std::to_string(p) + "; it must lie in [1, 17]");
+    table.options.precision = (int)p;
+    if (!keywords.is_none()) {
+      try {
+        for (nb::handle item : nb::iter(keywords)) {
+          if (!nb::isinstance<nb::tuple>(item) || nb::len(item) != 3)
+            throw otswap::Error("each keyword must be a (name, value, comment) tuple; got " +
+                                repr_of(item));
+          const nb::tuple k = nb::borrow<nb::tuple>(item);
+          table.options.keywords.push_back({to_string(k[0], "a keyword name"),
+                                            to_string(k[1], "a keyword value"),
+                                            to_string(k[2], "a keyword comment")});
+        }
+      }
+      catch (nb::python_error&) {
+        throw otswap::Error("keywords must be a sequence of (name, value, comment) tuples; got " +
+                            repr_of(keywords));
+      }
+    }
+    if (table.given.empty()) throw otswap::Error("no column was given for: " + path);
+    auto length = [] (const otswap::io::Column* c) {
+      return c->type == 'K' ? c->integers.size() : c->data.size();
+    };
+    for (const auto* c : table.given)
+      if (length(c) != length(table.given[0]))
+        throw otswap::Error("the column '" + c->name + "' holds " + std::to_string(length(c)) +
+                            " entries, against " + std::to_string(length(table.given[0])) + " in '" +
+                            table.given[0]->name + "'");
+    table.nRows = length(table.given[0]);
+    return table;
+  }
+
   char to_char (nb::handle value, const std::string& name)
   {
     const std::string s = to_string(value, name);
@@ -1775,66 +1852,9 @@ NB_MODULE(_otswap, m)
   io.def("write",
       [] (nb::handle file, nb::handle columns, nb::handle precision, nb::handle keywords) {
         const std::string path = to_path(file, "file");
-        std::vector<const otswap::io::Column*> given;
-        std::vector<otswap::io::Column> header;
-        try {
-          for (nb::handle item : nb::iter(columns)) {
-            const otswap::io::Column& c = instance<otswap::io::Column>(item, "each column", "io.Column");
-            given.push_back(&c);
-            header.push_back({c.name, c.type, c.description, c.unit, {}, {}});
-          }
-        }
-        catch (nb::python_error&) {
-          throw otswap::Error("columns must be a sequence of otswap.io.Column; got " + repr_of(columns));
-        }
-        otswap::io::WriteOptions options;
-        long long p;
-        try {
-          p = nb::cast<long long>(precision);
-        }
-        catch (nb::cast_error&) {
-          if (!PyIndex_Check(precision.ptr()))
-            throw otswap::Error("precision must be an integer; got " + repr_of(precision));
-          throw otswap::Error("the precision is " + repr_of(precision) + "; it must lie in [1, 17]");
-        }
-        if (p < 1 || p > 17)
-          throw otswap::Error("the precision is " + std::to_string(p) + "; it must lie in [1, 17]");
-        options.precision = (int)p;
-        if (!keywords.is_none()) {
-          try {
-            for (nb::handle item : nb::iter(keywords)) {
-              if (!nb::isinstance<nb::tuple>(item) || nb::len(item) != 3)
-                throw otswap::Error("each keyword must be a (name, value, comment) tuple; got " +
-                                    repr_of(item));
-              const nb::tuple k = nb::borrow<nb::tuple>(item);
-              options.keywords.push_back({to_string(k[0], "a keyword name"),
-                                          to_string(k[1], "a keyword value"),
-                                          to_string(k[2], "a keyword comment")});
-            }
-          }
-          catch (nb::python_error&) {
-            throw otswap::Error("keywords must be a sequence of (name, value, comment) tuples; got " +
-                                repr_of(keywords));
-          }
-        }
-        if (given.empty()) throw otswap::Error("no column was given for: " + path);
-        auto length = [] (const otswap::io::Column* c) {
-          return c->type == 'K' ? c->integers.size() : c->data.size();
-        };
-        for (const auto* c : given)
-          if (length(c) != length(given[0]))
-            throw otswap::Error("the column '" + c->name + "' holds " + std::to_string(length(c)) +
-                                " entries, against " + std::to_string(length(given[0])) + " in '" +
-                                given[0]->name + "'");
+        const PythonTable table = python_table(path, columns, precision, keywords);
         nb::gil_scoped_release released;
-        otswap::io::write(path, header, length(given[0]),
-                          [&given] (const std::size_t row, std::vector<double>& values,
-                                    std::vector<std::int64_t>& integers) {
-                            for (std::size_t c = 0; c < given.size(); ++c) {
-                              if (given[c]->type == 'K') integers[c] = given[c]->integers[row];
-                              else                       values[c] = given[c]->data[row];
-                            }
-                          }, options);
+        otswap::io::write(path, table.header, table.nRows, table.fillRow(), table.options);
       },
       "file"_a.none(), "columns"_a.none(), nb::kw_only(), "precision"_a.none() = 9,
       "keywords"_a = nb::none(),
@@ -1857,6 +1877,61 @@ NB_MODULE(_otswap, m)
       },
       "file"_a.none(), nb::kw_only(), "extname"_a.none() = "",
       "Read the keywords of a table, in file order, as (name, value, comment) tuples.");
+
+  io.def("_write_parts",
+      [] (nb::handle file, nb::handle parts) {
+        const std::string path = to_path(file, "file");
+        std::vector<PythonTable> tables;
+        std::vector<otswap::io::TablePart> converted;
+        for (nb::handle item : nb::iter(parts)) {
+          const nb::tuple part = nb::borrow<nb::tuple>(item);
+          tables.push_back(python_table(path, part[0], part[3], part[4]));
+          otswap::io::TablePart c;
+          c.extname = to_string(part[1], "extname");
+          c.twin = to_string(part[2], "twin");
+          c.columns = tables.back().header;
+          c.nRows = tables.back().nRows;
+          c.fillRow = tables.back().fillRow();
+          c.options = tables.back().options;
+          converted.push_back(std::move(c));
+        }
+        nb::gil_scoped_release released;
+        otswap::io::writeParts(path, converted);
+      },
+      "file"_a.none(), "parts"_a.none(),
+      "Write the parts given as (columns, extname, twin, precision, keywords) tuples; use write_parts.");
+
+  io.def("read_part",
+      [] (nb::handle file, nb::handle extname, nb::handle twin, nb::handle columns,
+          nb::handle integerColumns) {
+        const std::string path = to_path(file, "file");
+        const std::string e = to_string(extname, "extname"), t = to_string(twin, "twin");
+        const std::vector<std::string> c = column_names(columns, "columns");
+        const std::vector<std::string> i = column_names(integerColumns, "integer_columns");
+        nb::gil_scoped_release released;
+        return otswap::io::readPart(path, e, t, c, i);
+      },
+      "file"_a.none(), nb::kw_only(), "extname"_a.none(), "twin"_a.none(), "columns"_a.none(),
+      "integer_columns"_a.none() = nb::tuple(),
+      "Read selected columns of one part of a file write_parts wrote.");
+
+  io.def("has_part",
+      [] (nb::handle file, nb::handle extname, nb::handle twin) {
+        const std::string path = to_path(file, "file");
+        const std::string e = to_string(extname, "extname"), t = to_string(twin, "twin");
+        nb::gil_scoped_release released;
+        return otswap::io::hasPart(path, e, t);
+      },
+      "file"_a.none(), nb::kw_only(), "extname"_a.none(), "twin"_a.none(),
+      "Whether a file holds a part.");
+
+  io.def("twin_file",
+      [] (nb::handle file, nb::handle twin) {
+        const std::string name = otswap::io::twinFile(to_path(file, "file"), to_string(twin, "twin"));
+        return nb::str(name.data(), name.size());
+      },
+      "file"_a.none(), "twin"_a.none(),
+      "The ASCII twin file of a part.");
 
   io.def("write_displacement_mean",
       [] (nb::handle file, nb::handle result, nb::handle groups) {

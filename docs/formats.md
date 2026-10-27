@@ -27,6 +27,14 @@ columns of a table, as double, and others exactly as 64-bit integers.
 {cpp:func}`otswap::io::readKeywords` and {py:func}`otswap.io.read_keywords`
 read the keywords of a table.
 
+A file can hold several tables, written by {cpp:func}`otswap::io::writeParts`
+or {py:func}`otswap.io.write_parts`: in FITS one extension per table, each
+named by its EXTNAME; in ASCII the first table in the file and each other one
+in a twin file of its own ({cpp:func}`otswap::io::twinFile`). Every table,
+the first included, is read by {cpp:func}`otswap::io::readPart` or
+{py:func}`otswap.io.read_part` from its EXTNAME and twin name, and its
+keywords by `readKeywords` with the EXTNAME, or on the twin file.
+
 The other inputs:
 
 - **A mask:** a full-sky HEALPix map, from a FITS file ({cpp:class}`otswap::Mask`,
