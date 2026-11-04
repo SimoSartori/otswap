@@ -843,7 +843,7 @@ int main ()
     check(throws_naming([&] { reconstructLightcone(sky, skewed, 800., 1, table, three, cut); }, "randoms"),
           "a cut keeping too few randoms raises, with the counts");
 
-    group("rejectMaskCrossings leaves cut tracers alone, and refuses a NaN anywhere else");
+    group("rejectMaskCrossings leaves cut tracers alone, and refuses a NaN in a valid entry");
     const std::string maskFile = temporary("full.fits");
     write_full_mask(maskFile);
     const Mask mask(maskFile);
@@ -893,8 +893,21 @@ int main ()
 
       Result nanInvalid = invalid;
       nanInvalid.displacement[3 * 1] = kNaN;
-      check_throws([&] { rejectMaskCrossings(nanInvalid, mask); },
-                   "a NaN in an uncut row is refused even where the realization is invalid, as before" + label);
+      bool nanThrew = false;
+      try {
+        rejectMaskCrossings(nanInvalid, mask);
+      }
+      catch (const Error&) {
+        nanThrew = true;
+      }
+      check(!nanThrew && nanInvalid.valid == invalid.valid &&
+            nanInvalid.validRealizations == invalid.validRealizations && std::isnan(nanInvalid.meanDisplacement[3]),
+            "a NaN in an uncut row is accepted where the realization is invalid, and left as it was" + label);
+
+      Result nanValid = invalid;
+      nanValid.displacement[3 * n] = kNaN;
+      check_throws([&] { rejectMaskCrossings(nanValid, mask); },
+                   "a NaN in an uncut row is refused where the realization is valid" + label);
     }
 
     group("the correction leaves cut tracers out: uncorrected, diagnostics 0, never a neighbour");
