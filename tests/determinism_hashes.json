@@ -40,8 +40,8 @@
   "reject_mask_crossings.0.lagrangian_sky": "d5a3f9bc42849a6c61b870571b8c64cd17d03f486d4181b5feb9293f1105349a",
   "reject_mask_crossings.0.mean_displacement": "391492a908980254f2f109cd04218e11cd52ce34209c113f920dfc4e3ad366eb",
   "reject_mask_crossings.0.valid": "aec99dbfbff19485c3e0072ffd42306f7986e413667a4993bee8fee2794aa29e",
-  "reject_mask_crossings.2.mean_displacement": "0e3fa239d1308514b2cdb9862d2c9153078447e380fe932e6e836796858ca6a4",
-  "reject_mask_crossings.2.valid": "e7a6baf9cef22a6cb7ae18ab3bcf7534335d68e46c052b79aad8f937c24e497c",
+  "reject_mask_crossings.2.mean_displacement": "61726f2e5f24fff6c7ed09b3c6f90c3130b6d5bae4e1300dd665b40ce1519f80",
+  "reject_mask_crossings.2.valid": "351f135f9df1cbed011f3728aa442b350d85435d1dff68477179c4f791422c1e",
   "rsd.factor": "c9d25f638eb046612b8da898ecaa5de82cb6287b954f4053bf8bd242ca5ce6b3",
   "rsd.factor_box": "3e6af8559344ab7bbafd6b5769310c376dc40986e06d52c4555e4c9f28d803fe",
   "rsd.neighbour_average": "abcb2ea6341635130306cbae985e82d94d8d77b68d5298d29c35258dcb660b43",
@@ -79,7 +79,7 @@
   "to_sky.rad": "65236ff76b856bc70826e316436066f4d0cf9c3dc6b83e98fbfd3f3ec5c12771"
  },
  "recorded": {
-  "date": "2026-10-27",
+  "date": "2026-11-04",
   "machine": "arm64",
   "numpy": "2.5.3",
   "platform": "macOS-14.5-arm64-arm-64bit-Mach-O",

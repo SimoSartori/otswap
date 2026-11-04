@@ -120,7 +120,8 @@ class Config:
     only."""
 
     max_unobserved_pixels_crossed: int
-    """The threshold of that filter. To filter with another threshold, set
+    """The threshold of that filter, the longest run of unobserved pixels a
+    displacement's arc may cross. To filter with another threshold, set
     it here: a second filter with the same mask and a higher threshold
     changes nothing, since the filter only marks displacements invalid. Read
     by ``reconstruct_lightcone`` with a mask only."""
@@ -929,7 +930,7 @@ def reconstruct_lightcone(
 
             otswap: kept <n> of <N> tracers: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
             otswap: kept <m> of <M> randoms: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
-            otswap: rejected <r> of <D> displacements crossing more than <L> unobserved pixels
+            otswap: rejected <r> of <D> displacements crossing more than <L> unobserved pixels in a row
             otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
 
         ``"detailed"`` adds the mps(z) profile before the last line.
@@ -1041,12 +1042,16 @@ def reject_mask_crossings(
     max_unobserved_pixels_crossed: int = 0,
 ) -> None:
     """Mark as invalid the displacements whose path crosses more than
-    ``max_unobserved_pixels_crossed`` distinct unobserved pixels of the mask;
+    ``max_unobserved_pixels_crossed`` unobserved pixels of the mask in a row;
     0 rejects at the first one.
 
     The path is the great-circle arc between the directions of the tracer
-    (``result.tracers``) and of the tracer plus its displacement. The pixels
-    containing the two endpoints are not tested. The count depends on NSIDE.
+    (``result.tracers``) and of the tracer plus its displacement. Unobserved
+    pixels met one after another along it, with no observed pixel between
+    them, form a run, counted in distinct pixels; a displacement is judged by
+    its longest run, and pixels in separate runs are not added together. The
+    pixels containing the two endpoints are not tested and end a run. The
+    count depends on NSIDE.
     Updates ``result`` in place; it only ever marks displacements invalid, and
     raises if ``result`` was already filtered against a mask of a different
     NSIDE, or if ``result`` is a box result, which has no sky to filter

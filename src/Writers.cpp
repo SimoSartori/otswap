@@ -136,7 +136,7 @@ namespace {
     k.push_back({"CELLSIZE", number(r.config.cellSize), "grid cell size, in units of the mps"});
     k.push_back({"REJCROSS", r.config.rejectCrossings ? "1" : "0", "config: reject mask crossings"});
     k.push_back({"CFMAXPIX", integer(r.config.maxUnobservedPixelsCrossed),
-                 "config: unobserved pixels a displacement may cross"});
+                 "config: max unobserved pixels in a row crossed"});
     k.push_back({"VERBOSE", verbosity_name(r.config.verbosity), "what the call reported"});
     if (r.geometry == otswap::Geometry::Box && !std::isnan(r.mps))
       k.push_back({"MPS", number(r.mps), "mean particle separation, in coordinate units"});
@@ -160,7 +160,7 @@ namespace {
       k.push_back({"FILTNSID", integer(r.filteredNside), "NSIDE of the mask filter"});
     if (s.maxUnobservedPixelsCrossed)
       k.push_back({"MAXPIXCR", integer(*s.maxUnobservedPixelsCrossed),
-                   "unobserved pixels a displacement may cross"});
+                   "unobserved pixels in a row an arc may cross"});
     const std::pair<const char*, std::pair<std::size_t, const char*>> counts[] = {
       {"NTRAC",   {s.tracers, "tracers given"}},
       {"NTRCUT",  {s.tracersOutsideRedshiftCut, "of them, outside the redshift cut"}},

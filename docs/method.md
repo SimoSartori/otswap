@@ -77,8 +77,9 @@ bins, and scales the seeding and the search with it.
 The survey's footprint is a HEALPix mask. Tracers and randoms on unobserved
 pixels are left out, and a displacement whose great-circle arc, from the
 tracer to its random, crosses unobserved pixels is rejected: the arc is
-bisected adaptively, and the displacement is rejected when it crosses more
-than a set number of distinct unobserved pixels.
+bisected adaptively, and the displacement is rejected when its longest run of
+unobserved pixels, met one after another along the arc, holds more than a set
+number of pixels.
 
 ## Cosmological use
 

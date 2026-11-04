@@ -104,8 +104,8 @@ the lightcone reconstruction, the mask is applied twice:
 
 - before it, tracers and randoms on unobserved pixels are left out;
 - after it, a displacement whose great-circle arc crosses more than
-  `maxUnobservedPixelsCrossed` (`max_unobserved_pixels_crossed`) distinct
-  unobserved pixels is marked invalid, with 0, the default, at the first one
+  `maxUnobservedPixelsCrossed` (`max_unobserved_pixels_crossed`) unobserved
+  pixels in a row is marked invalid, with 0, the default, at the first one
   ({cpp:func}`otswap::rejectMaskCrossings`,
   {py:func}`otswap.reject_mask_crossings`).
 

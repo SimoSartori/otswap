@@ -611,7 +611,7 @@ std::string otswap::SelectionCounts::message () const
   if (maxUnobservedPixelsCrossed)
     out << "otswap: rejected " << displacementsCrossingMask << " of " << displacements
         << " displacements crossing more than " << *maxUnobservedPixelsCrossed
-        << " unobserved pixels\n";
+        << " unobserved pixels in a row\n";
 
   return out.str();
 }

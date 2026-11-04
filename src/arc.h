@@ -71,18 +71,23 @@ namespace otswap {
       return mask.observed[(std::size_t)pixel] != 0;
     }
 
-    /// Distinct unobserved pixels met along the great circle arc from @p a
-    /// to @p b, by the adaptive bisection rejectMaskCrossings documents.
-    /// The pixels holding a and b are exempt.
+    /// The longest run of unobserved pixels along the great circle arc
+    /// from @p a to @p b, by the adaptive bisection rejectMaskCrossings
+    /// documents: consecutive unobserved pixels along the arc, counted as
+    /// distinct pixels. The pixels holding a and b are exempt, and end a
+    /// run as an observed pixel does.
     ///
     /// @param a,b unit vectors, not exactly opposite
-    /// @param limit the search stops as soon as more than this many are found
-    /// @param found receives the pixels, in the order met; cleared first
-    /// @return found.size(), which exceeds @p limit only when the search
+    /// @param limit the search stops as soon as a run holds more than this
+    ///   many
+    /// @param path receives the pixels met, in order along the arc, without
+    ///   repeating the previous one: from the pixel of a to the pixel of b,
+    ///   or to where the search stopped; replaced first
+    /// @return the longest run, which exceeds @p limit only when the search
     ///   stopped early
-    std::size_t arc_unobserved_pixels (const PixelMask& mask,
-                                       const Vec3& a, const Vec3& b,
-                                       unsigned limit, std::vector<std::int64_t>& found);
+    std::size_t arc_longest_unobserved_run (const PixelMask& mask,
+                                            const Vec3& a, const Vec3& b,
+                                            unsigned limit, std::vector<std::int64_t>& path);
 
   }
 

@@ -13,6 +13,16 @@
 
 - `reconstructBox` and `reconstructLightcone` refuse more than 2^32 − 1
   tracers.
+- `rejectMaskCrossings` (Python `reject_mask_crossings`), and the filter of
+  `reconstructLightcone` with a mask, judge a displacement by the longest run
+  of unobserved pixels its arc crosses one after another, no longer by the
+  number of distinct unobserved pixels: `maxUnobservedPixelsCrossed`
+  (`max_unobserved_pixels_crossed`, keywords CFMAXPIX and MAXPIXCR) is the
+  longest run tolerated. An arc crossing several small holes, each within the
+  threshold, is now kept. Results change for thresholds above 0; with 0, the
+  default, they are unchanged. The selection report says "unobserved pixels in
+  a row", and the comments of CFMAXPIX and MAXPIXCR say so too, now short
+  enough to be written whole in FITS.
 
 ## 0.2.1 — 2026-10-28
 

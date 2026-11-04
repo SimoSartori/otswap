@@ -131,8 +131,8 @@ int main (int argc, char** argv)
 
     // After the reconstruction, a displacement whose path on the sky (the
     // great-circle arc from the tracer to its random) crosses more than
-    // maxUnobservedPixelsCrossed unobserved pixels of the mask is marked
-    // invalid. The count is of pixels, so the same threshold means a
+    // maxUnobservedPixelsCrossed unobserved pixels of the mask in a row is
+    // marked invalid. The count is of pixels, so the same threshold means a
     // different angle at a different NSIDE. These are the defaults
     config.rejectCrossings = true;
     config.maxUnobservedPixelsCrossed = 0;

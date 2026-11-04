@@ -96,6 +96,16 @@ def sieve_mask(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
+def holes_mask(tmp_path_factory):
+    """NSIDE 256, NESTED, one block of 4 x 4 pixels in seven unobserved: arcs
+    cross runs of several unobserved pixels, so each limit up to 3 rejects
+    some displacements and keeps others."""
+    pixels = np.ones(12 * 256 ** 2)
+    pixels[(np.arange(pixels.size) // 16) % 7 == 0] = 0
+    return write_mask(tmp_path_factory.mktemp("mask") / "holes.fits", pixels, 256, "NESTED")
+
+
+@pytest.fixture(scope="module")
 def full_mask32(tmp_path_factory):
     return write_mask(tmp_path_factory.mktemp("mask") / "full32.fits",
                       np.ones(12 * 32 ** 2), 32)
@@ -1367,7 +1377,7 @@ def test_lightcone_selection_counts(table, lightcone):
         f" of 4800 randoms: {s.randoms_outside_redshift_cut} outside the redshift cut [0.35, 0.55], "
         f"{s.randoms_outside_mask} outside the mask ({s.randoms_outside_both} outside both)",
         f"otswap: rejected {s.displacements_crossing_mask} of {s.displacements} displacements "
-        "crossing more than 0 unobserved pixels"]
+        "crossing more than 0 unobserved pixels in a row"]
     # the counts keep the result alive
     del result
     gc.collect()
@@ -1852,7 +1862,7 @@ def test_box_matches_cpp(tmp_path, with_randoms):
 
 @needs_cpp
 @pytest.mark.parametrize("cartesian", [False, True])
-def test_lightcone_matches_cpp(tmp_path, table, lightcone, sieve_mask, cartesian):
+def test_lightcone_matches_cpp(tmp_path, table, lightcone, holes_mask, cartesian):
     tracers_sky, randoms_sky = lightcone
     arrays = {"tracers_sky": to_radians(tracers_sky), "randoms_sky": to_radians(randoms_sky)}
     extra = {}
@@ -1862,18 +1872,18 @@ def test_lightcone_matches_cpp(tmp_path, table, lightcone, sieve_mask, cartesian
         arrays.update(extra)
     config = dict(n_realizations=2, convergence=1e-3, seed=5, cell_size=4.0)
     out = run_cpp(tmp_path, "lightcone", arrays, sky_area_deg2=patch_area_deg2(), n_bins=3,
-                  **TABLE_ARGS, **config, mask=sieve_mask, max_unobserved_pixels_crossed=1)
+                  **TABLE_ARGS, **config, mask=holes_mask, max_unobserved_pixels_crossed=1)
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=patch_area_deg2(),
                                           n_bins=3, distances=table, angle_unit="deg",
                                           config=otswap.Config(**config), **extra)
-    otswap.reject_mask_crossings(result, otswap.Mask(sieve_mask), max_unobserved_pixels_crossed=1)
+    otswap.reject_mask_crossings(result, otswap.Mask(holes_mask), max_unobserved_pixels_crossed=1)
     assert not result.valid.all()
     assert_same_result(result, read_cpp_result(out, 2, len(tracers_sky)))
 
 
 @needs_cpp
 @pytest.mark.parametrize("cartesian", [False, True])
-def test_lightcone_mask_overload_matches_cpp(tmp_path, table, lightcone, sieve_mask, cartesian):
+def test_lightcone_mask_overload_matches_cpp(tmp_path, table, lightcone, holes_mask, cartesian):
     tracers_sky, randoms_sky = lightcone
     arrays = {"tracers_sky": to_radians(tracers_sky), "randoms_sky": to_radians(randoms_sky)}
     extra = {}
@@ -1883,8 +1893,8 @@ def test_lightcone_mask_overload_matches_cpp(tmp_path, table, lightcone, sieve_m
         arrays.update(extra)
     config = dict(n_realizations=2, convergence=1e-3, seed=5, cell_size=4.0)
     out = run_cpp(tmp_path, "lightcone", arrays, n_bins=3, **TABLE_ARGS, **config,
-                  mask=sieve_mask, max_unobserved_pixels_crossed=1)
-    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=otswap.Mask(sieve_mask),
+                  mask=holes_mask, max_unobserved_pixels_crossed=1)
+    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=otswap.Mask(holes_mask),
                                           n_bins=3, distances=table, angle_unit="deg",
                                           config=otswap.Config(max_unobserved_pixels_crossed=1,
                                                                verbosity="silent", **config), **extra)
@@ -2264,19 +2274,19 @@ def test_result_fields_lightcone(table, lightcone, unit):
     assert r.elapsed_seconds > 0
 
 
-def test_selection_follows_a_later_filter(table, lightcone, sieve_mask):
+def test_selection_follows_a_later_filter(table, lightcone, holes_mask):
     result = lightcone_result(table, lightcone)
     assert result.selection.max_unobserved_pixels_crossed is None
     before = int(result.valid.sum())
-    otswap.reject_mask_crossings(result, otswap.Mask(sieve_mask), max_unobserved_pixels_crossed=3)
+    otswap.reject_mask_crossings(result, otswap.Mask(holes_mask), max_unobserved_pixels_crossed=3)
     after3 = int(result.valid.sum())
-    otswap.reject_mask_crossings(result, otswap.Mask(sieve_mask))
+    otswap.reject_mask_crossings(result, otswap.Mask(holes_mask))
     after0 = int(result.valid.sum())
     s = result.selection
     assert s.max_unobserved_pixels_crossed == 0 and s.displacements == before
     assert s.displacements_crossing_mask == before - after0 and after0 < after3 < before
     assert repr(s) == (f"otswap: rejected {before - after0} of {before} displacements crossing "
-                       "more than 0 unobserved pixels")
+                       "more than 0 unobserved pixels in a row")
 
 
 def test_result_from_arrays(table, lightcone, sieve_mask):

@@ -112,9 +112,9 @@ def main():
     # reject_crossings, max_unobserved_pixels_crossed: after the
     # reconstruction, a displacement whose path on the sky (the great-circle
     # arc from the tracer to its random) crosses more than this many
-    # unobserved pixels of the mask is marked invalid. The count is of
-    # pixels, so the same threshold means a different angle at a different
-    # NSIDE. These are the defaults.
+    # unobserved pixels of the mask in a row is marked invalid. The count is
+    # of pixels, so the same threshold means a different angle at a
+    # different NSIDE. These are the defaults.
     #
     # verbosity: what the reconstruction prints. With "normal", the
     # default, how many tracers and randoms the redshift cut and the mask

@@ -68,21 +68,21 @@ def sky_points(n, seed):
                      for _ in range(n)])
 
 
-def mask_values(nside):
+def mask_values(nside, one_in=9):
     """The pixel values of an NSIDE nside map, RING, as big-endian float32.
-    Pixels are unobserved by an integer rule, about one in nine; observed
+    Pixels are unobserved by an integer rule, about one in one_in; observed
     ones hold one of 0.25, 0.5, 0.75, 1."""
     npix = 12 * nside * nside
     values = []
     for p in range(npix):
         h = (p * 2654435761) & 0xFFFFFFFF
-        values.append(0.0 if (h >> 7) % 9 == 0 else 0.25 * (1 + (h >> 3) % 4))
+        values.append(0.0 if (h >> 7) % one_in == 0 else 0.25 * (1 + (h >> 3) % 4))
     return np.array(values, dtype=">f4")
 
 
-def write_mask(path, nside):
-    """mask_values(nside) written as a FITS map."""
-    pixels = mask_values(nside)
+def write_mask(path, nside, one_in=9):
+    """mask_values(nside, one_in) written as a FITS map."""
+    pixels = mask_values(nside, one_in)
     npix = len(pixels)
 
     def card(key, value):
@@ -224,9 +224,10 @@ def compute():
         out["reject_mask_crossings.0.valid"] = digest(r.valid)
         out["reject_mask_crossings.0.mean_displacement"] = digest(r.mean_displacement)
 
-        # A limit of 2 on a finer mask, where arcs cross enough pixels for
-        # it to reject some displacements and keep others.
-        fine = otswap.Mask(write_mask(Path(tmp) / "fine.fits", 256))
+        # A limit of 2 on a finer mask, a third of its pixels unobserved,
+        # where arcs cross runs long enough for it to reject some
+        # displacements and keep others.
+        fine = otswap.Mask(write_mask(Path(tmp) / "fine.fits", 256, 3))
         r2 = lightcone()
         otswap.reject_mask_crossings(r2, fine, 2)
         assert r2.valid.any() and not r2.valid.all(), \

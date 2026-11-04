@@ -451,7 +451,9 @@ namespace otswap {
      *  is set, and BOXLIM = 1 when it holds the limits given to
      *  reconstructBox; ZCUTMIN and ZCUTMAX for the finite bounds of a
      *  redshift cut, MASK = 1 when a mask selected the objects, FILTNSID and
-     *  MAXPIXCR when a mask filter was applied; NTRAC, NTRCUT, NTRMASK,
+     *  MAXPIXCR when a mask filter was applied (CFMAXPIX and MAXPIXCR are
+     *  thresholds of rejectMaskCrossings: the longest run of unobserved
+     *  pixels a displacement's arc may cross); NTRAC, NTRCUT, NTRMASK,
      *  NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NDISPL and
      *  NDISPCR, the counts of Result::selection, each when it is not 0.
      *  Doubles are written as the shortest decimal that reads back as the

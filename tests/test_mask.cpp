@@ -64,16 +64,32 @@ namespace cbl_reference {
   constexpr double kArcFloorInPixels = 1.e-6;
 
 
-  bool edge_crossing_safe (const Healpix_Map<float>& mask, const int pix_p, const int pix_q,
-                           const int pix_a, const int pix_b) {
+  struct ArcSearch {
+    const Healpix_Map<float>& mask;
+    int pix_a, pix_b;
+    double floor2, pixel2;
+    unsigned int max_run;
+    std::vector<int> path;
+    size_t run_start;
+    size_t run;
+  };
+
+
+  bool counted (const ArcSearch& search, const int pix) {
+    return pix != search.pix_a && pix != search.pix_b && !(search.mask[pix] > 0.);
+  }
+
+
+  bool edge_crossing_safe (const ArcSearch& search, const int pix_p, const int pix_q) {
     fix_arr<int, 8> nb_p, nb_q;
-    mask.neighbors(pix_p, nb_p);
+    search.mask.neighbors(pix_p, nb_p);
     if (nb_p[0] != pix_q && nb_p[2] != pix_q && nb_p[4] != pix_q && nb_p[6] != pix_q) return false;
 
-    mask.neighbors(pix_q, nb_q);
+    const bool both_counted = counted(search, pix_p) && counted(search, pix_q);
+    search.mask.neighbors(pix_q, nb_q);
     for (int i = 0; i < 8; ++i) {
       const int r = nb_p[i];
-      if (r < 0 || r == pix_q || r == pix_a || r == pix_b || mask[r] > 0.) continue;
+      if (r < 0 || r == pix_q || (!both_counted && !counted(search, r))) continue;
       for (int j = 0; j < 8; ++j)
         if (nb_q[j] == r) return false;
     }
@@ -81,27 +97,39 @@ namespace cbl_reference {
   }
 
 
-  bool arc_segment_crosses_mask (const Healpix_Map<float>& mask,
-                                 const vec3& p, const int pix_p, const vec3& q, const int pix_q,
-                                 const int pix_a, const int pix_b, const double floor2, const double pixel2) {
+  bool meet (ArcSearch& search, const int pix) {
+    if (pix == search.path.back()) return false;
+    if (!counted(search, pix)) {
+      search.path.push_back(pix);
+      search.run_start = search.path.size();
+      search.run = 0;
+      return false;
+    }
+    if (std::find(search.path.begin() + (std::ptrdiff_t)search.run_start, search.path.end(), pix) == search.path.end()) ++search.run;
+    search.path.push_back(pix);
+    return search.run > search.max_run;
+  }
+
+
+  bool arc_segment_crosses_mask (ArcSearch& search, const vec3& p, const int pix_p, const vec3& q, const int pix_q) {
     if (pix_p == pix_q) return false;
     const double d2 = (p - q).SquaredLength();
-    if (d2 < floor2) return false;
-    if (d2 < pixel2 && edge_crossing_safe(mask, pix_p, pix_q, pix_a, pix_b)) return false;
+    if (d2 < search.floor2) return false;
+    if (d2 < search.pixel2 && edge_crossing_safe(search, pix_p, pix_q)) return false;
 
     const vec3 m = (p + q).Norm();
-    const int pix_m = mask.vec2pix(m);
-    if (pix_m != pix_a && pix_m != pix_b && !(mask[pix_m] > 0.)) return true;
+    const int pix_m = search.mask.vec2pix(m);
 
-    return arc_segment_crosses_mask(mask, p, pix_p, m, pix_m, pix_a, pix_b, floor2, pixel2)
-        || arc_segment_crosses_mask(mask, m, pix_m, q, pix_q, pix_a, pix_b, floor2, pixel2);
+    return arc_segment_crosses_mask(search, p, pix_p, m, pix_m)
+        || meet(search, pix_m)
+        || arc_segment_crosses_mask(search, m, pix_m, q, pix_q);
   }
 
 
   bool arc_crosses_mask (const Healpix_Map<float>& mask,
                          const double x0, const double y0, const double z0,
                          const double x1, const double y1, const double z1,
-                         const double pixel_size) {
+                         const double pixel_size, const unsigned int max_run) {
     const double r0 = std::sqrt(x0*x0 + y0*y0 + z0*z0);
     const double r1 = std::sqrt(x1*x1 + y1*y1 + z1*z1);
     if (r0 == 0. || r1 == 0.) return false;
@@ -111,7 +139,8 @@ namespace cbl_reference {
     const int pix_a = mask.vec2pix(a);
     const int pix_b = mask.vec2pix(b);
     const double arc_floor = kArcFloorInPixels * pixel_size;
-    return arc_segment_crosses_mask(mask, a, pix_a, b, pix_b, pix_a, pix_b, arc_floor*arc_floor, pixel_size*pixel_size);
+    ArcSearch search {mask, pix_a, pix_b, arc_floor*arc_floor, pixel_size*pixel_size, max_run, std::vector<int>(1, pix_a), 1, 0};
+    return arc_segment_crosses_mask(search, a, pix_a, b, pix_b);
   }
 
 }
@@ -205,27 +234,56 @@ namespace {
     return internal::Vec3(v.x, v.y, v.z);
   }
 
-  // Every unobserved pixel met by points spaced at most step pixels apart
-  // along the arc, the endpoint pixels excluded.
-  std::set<std::int64_t> brute_force (const internal::PixelMask& map, const vec3& a,
-                                      const vec3& b, const double step)
+  std::vector<std::int64_t> sampled_path (const internal::PixelMask& map, const vec3& a,
+                                          const vec3& b, const double step)
   {
     const double pixelSize = std::sqrt(4. * kPi / (double)map.base.npix());
     const double angle = std::acos(std::max(-1., std::min(1., dotprod(a, b))));
     const long n = std::max(1L, (long)std::ceil(angle / (step * pixelSize)));
-    const std::int64_t pixA = internal::vec2pix(map.base, vec_of(a)),
-                       pixB = internal::vec2pix(map.base, vec_of(b));
     const double s = std::sin(angle);
 
-    std::set<std::int64_t> found;
+    std::vector<std::int64_t> path;
     for (long i = 0; i <= n; ++i) {
       const double t = (double)i / (double)n;
       const vec3 w = (angle < 1.e-12) ? a
         : (a * (std::sin((1. - t) * angle) / s) + b * (std::sin(t * angle) / s)).Norm();
       const std::int64_t p = internal::vec2pix(map.base, vec_of(w));
-      if (p != pixA && p != pixB && !internal::pixel_observed(map, p)) found.insert(p);
+      if (path.empty() || p != path.back()) path.push_back(p);
     }
-    return found;
+    return path;
+  }
+
+  std::set<std::int64_t> unobserved_on (const internal::PixelMask& map,
+                                        const std::vector<std::int64_t>& path)
+  {
+    std::set<std::int64_t> pixels;
+    for (const std::int64_t p : path)
+      if (p != path.front() && p != path.back() && !internal::pixel_observed(map, p))
+        pixels.insert(p);
+    return pixels;
+  }
+
+  std::size_t longest_run (const internal::PixelMask& map, const std::vector<std::int64_t>& path)
+  {
+    std::size_t longest = 0;
+    std::set<std::int64_t> run;
+    for (const std::int64_t p : path) {
+      if (p == path.front() || p == path.back() || internal::pixel_observed(map, p)) run.clear();
+      else run.insert(p);
+      longest = std::max(longest, run.size());
+    }
+    return longest;
+  }
+
+  // Every unobserved pixel met by points spaced at most step pixels apart
+  // along the arc, the endpoint pixels excluded.
+  std::set<std::int64_t> brute_force (const internal::PixelMask& map, const vec3& a,
+                                      const vec3& b, const double step)
+  {
+    std::vector<std::int64_t> path = sampled_path(map, a, b, step);
+    path.front() = internal::vec2pix(map.base, vec_of(a));
+    path.back() = internal::vec2pix(map.base, vec_of(b));
+    return unobserved_on(map, path);
   }
 
   // True when points spaced step pixels apart along the arc, over the part
@@ -396,42 +454,54 @@ namespace {
 
     std::size_t crossing = 0, cblDisagree = 0, filterDisagree = 0, misses = 0;
     std::size_t confirmed = 0, unconfirmed = 0;
-    std::size_t countDisagree = 0, multiple = 0;
-    const unsigned limits[5] = {1, 2, 3, 5, 8};
+    std::size_t runDisagree = 0, explained = 0, multiple = 0, split = 0, stopDisagree = 0;
+    const unsigned limits[6] = {0, 1, 2, 3, 5, 8};
 
     Result filtered = arcs;
     rejectMaskCrossings(filtered, mask, 0);
 
-    // What the arc crosses: every pixel the sampler at 0.001 pixel meets,
-    // and every other one the search reports that a scan at 1e-6 pixel
-    // confirms the arc enters.
-    std::vector<std::set<std::int64_t>> brute(n), crossed(n);
-    std::vector<std::int64_t> found;
+    // The longest run of each arc, from the search's own path; it is
+    // checked against the path of a sampler at 0.001 pixel, a difference
+    // being allowed only where the search meets a pixel the sampler steps
+    // over and a scan at 1e-6 pixel confirms the arc enters it.
+    std::vector<std::size_t> runs(n);
+    std::vector<std::int64_t> path;
 
     for (std::size_t i = 0; i < n; ++i) {
       const bool cbl = cbl_reference::arc_crosses_mask(
         map, e[3*i], e[3*i+1], e[3*i+2],
-        l[3*i], l[3*i+1], l[3*i+2], pixelSize);
-      const bool ours = internal::arc_unobserved_pixels(bytes, vec_of(from[i]), vec_of(to[i]), 0, found) > 0;
+        l[3*i], l[3*i+1], l[3*i+2], pixelSize, 0);
+      const bool ours = internal::arc_longest_unobserved_run(bytes, vec_of(from[i]), vec_of(to[i]), 0, path) > 0;
       if (cbl) ++crossing;
       if (cbl != ours) ++cblDisagree;
       if (filtered.valid[i] != (cbl ? 0 : 1)) ++filterDisagree;
 
-      internal::arc_unobserved_pixels(bytes, vec_of(from[i]), vec_of(to[i]), UINT_MAX, found);
-      const std::set<std::int64_t> all(found.begin(), found.end());
-      brute[i] = brute_force(bytes, from[i], to[i], 1.e-3);
-      crossed[i] = brute[i];
-      for (const std::int64_t p : brute[i]) if (all.count(p) == 0) ++misses;
-      for (const std::int64_t p : all)
-        if (brute[i].count(p) == 0) {
-          if (arc_enters(bytes, from[i], to[i], p, 1.e-6)) { ++confirmed; crossed[i].insert(p); }
+      runs[i] = internal::arc_longest_unobserved_run(bytes, vec_of(from[i]), vec_of(to[i]), UINT_MAX, path);
+      if (runs[i] != longest_run(bytes, path)) ++runDisagree;
+      const std::set<std::int64_t> all = unobserved_on(bytes, path);
+      const std::vector<std::int64_t> sampled = sampled_path(bytes, from[i], to[i], 1.e-3);
+      const std::set<std::int64_t> brute = brute_force(bytes, from[i], to[i], 1.e-3);
+      const std::set<std::int64_t> onSampled(sampled.begin(), sampled.end());
+      for (const std::int64_t p : brute) if (all.count(p) == 0) ++misses;
+      bool stepsOver = false;
+      for (const std::int64_t p : path)
+        if (onSampled.count(p) == 0) {
+          if (arc_enters(bytes, from[i], to[i], p, 1.e-6)) { ++confirmed; stepsOver = true; }
           else ++unconfirmed;
         }
-      if (crossed[i].size() > 1) ++multiple;
+      if (runs[i] != longest_run(bytes, sampled)) {
+        if (stepsOver) ++explained;
+        else ++runDisagree;
+      }
+      if (all.size() > 1) ++multiple;
+      if (runs[i] < all.size()) ++split;
 
       for (const unsigned k : limits) {
-        const bool exceeds = internal::arc_unobserved_pixels(bytes, vec_of(from[i]), vec_of(to[i]), k, found) > k;
-        if (exceeds != (crossed[i].size() > k)) ++countDisagree;
+        const bool exceeds = internal::arc_longest_unobserved_run(bytes, vec_of(from[i]), vec_of(to[i]), k, path) > k;
+        if (exceeds != (runs[i] > k)) ++stopDisagree;
+        const bool cblExceeds = cbl_reference::arc_crosses_mask(
+          map, e[3*i], e[3*i+1], e[3*i+2], l[3*i], l[3*i+1], l[3*i+2], pixelSize, k);
+        if (cblExceeds != exceeds) ++cblDisagree;
       }
     }
 
@@ -439,17 +509,18 @@ namespace {
       Result r = arcs;
       rejectMaskCrossings(r, mask, k);
       for (std::size_t i = 0; i < n; ++i)
-        if (r.valid[i] != (crossed[i].size() > k ? 0 : 1)) ++countDisagree;
+        if (r.valid[i] != (runs[i] > k ? 0 : 1)) ++stopDisagree;
     }
 
     std::cout << "    " << label << ": " << crossing << " of " << n << " arcs cross, "
-              << multiple << " cross more than one pixel; " << confirmed
-              << " pixels found that the sampler at 0.001 pixel steps over" << std::endl;
+              << multiple << " cross more than one pixel, " << split << " in separate runs; "
+              << confirmed << " pixels found that the sampler at 0.001 pixel steps over, "
+              << explained << " runs differing from the sampler's by them" << std::endl;
 
     check(crossing > n / 10 && crossing < n - n / 10,
           label + ": the arcs include many that cross and many that do not");
     check(cblDisagree == 0,
-          label + ": with a limit of 0 the decision is CosmoBolognaLib's, arc by arc (" +
+          label + ": at every limit the decision is CosmoBolognaLib's, arc by arc (" +
           std::to_string(cblDisagree) + " differ)");
     check(filterDisagree == 0,
           label + ": and rejectMaskCrossings with 0 clears exactly those (" +
@@ -458,12 +529,15 @@ namespace {
           label + ": no pixel the brute-force sampler meets is missed (" +
           std::to_string(misses) + " missed)");
     check(unconfirmed == 0,
-          label + ": every other pixel reported is one a scan at 1e-6 pixel confirms (" +
+          label + ": every other pixel met is one a scan at 1e-6 pixel confirms (" +
           std::to_string(unconfirmed) + " not confirmed)");
     check(multiple > n / 20, label + ": many arcs cross more than one pixel");
-    check(countDisagree == 0,
-          label + ": for limits above 0 the decision follows the count of pixels crossed (" +
-          std::to_string(countDisagree) + " differ)");
+    check(runDisagree == 0,
+          label + ": the longest run is the one along the path, and the sampler's unless the "
+          "search meets a pixel the sampler steps over (" + std::to_string(runDisagree) + " differ)");
+    check(stopDisagree == 0,
+          label + ": the decision at each limit, and rejectMaskCrossings', follow the longest run (" +
+          std::to_string(stopDisagree) + " differ)");
   }
 
 
@@ -1053,7 +1127,7 @@ int main ()
           "a tolerance above the pixels crossed keeps the displacement");
   }
 
-  group("the count is of distinct pixels, and depends on NSIDE");
+  group("the run is counted in pixels, and depends on NSIDE");
   {
     // The band of |dec| < 0.2, crossed along a meridian, at NSIDE 16 and
     // at NSIDE 32.
@@ -1092,6 +1166,91 @@ int main ()
     rejectMaskCrossings(r, fineMask, atCoarse);
     check(r.valid[0] == 0,
           "so a limit that keeps the arc at one NSIDE rejects it at the other");
+  }
+
+  group("a displacement is rejected by its longest run of unobserved pixels, not by their total");
+  {
+    const int nside = 64;
+    const T_Healpix_Base<int> nest(nside, NEST, SET_NSIDE);
+    std::vector<int> chain {nest.xyf2pix(20, 28, 4)};
+    for (int k = 0; k < 9; ++k) {
+      fix_arr<int, 8> nb;
+      nest.neighbors(chain.back(), nb);
+      chain.push_back(nb[4]);
+    }
+    const vec3 from = nest.pix2vec(chain.front()), to = nest.pix2vec(chain.back());
+    const std::size_t npix = (std::size_t)nest.Npix();
+
+    auto mask_without = [&] (const std::vector<int>& at) {
+      std::vector<double> values(npix, 1.);
+      for (const int k : at) values[(std::size_t)chain[(std::size_t)k]] = 0.;
+      return values;
+    };
+    auto pixel_mask = [&] (const std::vector<double>& values) {
+      internal::PixelMask m;
+      internal::set_geometry(m, nside, true, "the chain mask");
+      internal::mark_observed(m, 0, values.data(), values.size());
+      return m;
+    };
+    auto kept = [&] (const std::vector<int>& at, const unsigned limit) {
+      std::vector<double> e {1000. * from.x, 1000. * from.y, 1000. * from.z};
+      std::vector<double> l {1000. * to.x, 1000. * to.y, 1000. * to.z};
+      Result r = result_of(e, l);
+      rejectMaskCrossings(r, Mask(mask_without(at), PixelOrdering::Nested), limit);
+      return r.valid[0] == 1;
+    };
+
+    const std::vector<std::int64_t> expected(chain.begin(), chain.end());
+    check(sampled_path(pixel_mask(mask_without({})), from, to, 1.e-3) == expected,
+          "the arc runs through ten pixels in a row, each sharing an edge with the next");
+
+    const std::vector<int> two {2, 3, 6, 7}, long3 {1, 2, 3, 6};
+    std::vector<std::int64_t> path;
+    const internal::PixelMask twoRuns = pixel_mask(mask_without(two));
+    check(internal::arc_longest_unobserved_run(twoRuns, vec_of(from), vec_of(to), UINT_MAX, path) == 2 &&
+          path == expected,
+          "two runs of two pixels: the longest run is 2, and the path is the ten pixels in order");
+    check(!kept(two, 0) && !kept(two, 1), "two runs of two pixels are rejected at limits 0 and 1");
+    check(kept(two, 2) && kept(two, 3),
+          "and kept at limit 2, though the four pixels in all exceed it");
+
+    check(internal::arc_longest_unobserved_run(pixel_mask(mask_without(long3)), vec_of(from), vec_of(to),
+                                               UINT_MAX, path) == 3,
+          "a run of three pixels and a fourth apart: the longest run is 3");
+    check(!kept(long3, 2), "rejected at limit 2, which both the run and the total exceed");
+    check(kept(long3, 3), "kept at limit 3, the length of the run");
+
+    check(!kept({4}, 0) && kept({4}, 1), "a run of one pixel: rejected at limit 0, kept at 1");
+    check(!kept({4, 5}, 1) && kept({4, 5}, 2), "a run of two pixels: rejected at limit 1, kept at 2");
+    check(!kept({1, 2, 3, 4, 5, 6, 7, 8}, 7) && kept({1, 2, 3, 4, 5, 6, 7, 8}, 8),
+          "the eight pixels between the endpoints in one run: rejected at 7, kept at 8");
+    check(kept({0, 1}, 1) && !kept({0, 1}, 0) && kept({8, 9}, 1),
+          "the endpoint pixels are exempt and count in no run");
+    check(internal::arc_longest_unobserved_run(twoRuns, vec_of(from), vec_of(to), 1, path) == 2 &&
+          path.size() == 4,
+          "with limit 1 the search stops at the second pixel of the first run");
+
+    std::vector<double> e, l;
+    for (int k = 0; k < 3; ++k) {
+      e.insert(e.end(), {1000. * from.x, 1000. * from.y, 1000. * from.z});
+      l.insert(l.end(), {1000. * to.x, 1000. * to.y, 1000. * to.z});
+    }
+    Result r = result_of(e, l);
+    r.nObjects = 1;
+    r.nRealizations = 3;
+    r.tracers.resize(3);
+    r.valid = {1, 1, 0};
+    internal::summarize(r);
+    const Mask twoMask(mask_without(two), PixelOrdering::Nested);
+    rejectMaskCrossings(r, twoMask, 2);
+    const SelectionCounts& s = r.selection;
+    check(r.valid == std::vector<std::uint8_t>{1, 1, 0} && s.maxUnobservedPixelsCrossed == 2u &&
+          s.displacements == 2 && s.displacementsCrossingMask == 0,
+          "at limit 2 the counts record both valid displacements and none rejected");
+    rejectMaskCrossings(r, twoMask, 1);
+    check(r.valid == std::vector<std::uint8_t>{0, 0, 0} && s.maxUnobservedPixelsCrossed == 1u &&
+          s.displacements == 2 && s.displacementsCrossingMask == 2,
+          "and a second filter at limit 1 rejects both, counted against the same total");
   }
 
   group("a malformed or already filtered result is refused");
@@ -1231,8 +1390,8 @@ int main ()
 
   std::remove(file.c_str());
 
-  group("with a limit of 0 the search decides as CosmoBolognaLib's arc_crosses_mask, "
-        "misses nothing a sampler at 0.001 pixel finds, and counts as it does");
+  group("the search decides as CosmoBolognaLib's arc_crosses_mask at every limit, misses "
+        "nothing a sampler at 0.001 pixel finds, and measures the runs it does");
   {
     unsigned seed = 1;
     for (const int nside : {64, 256})

@@ -144,7 +144,7 @@ library's message.
 | `mesh_cellsize` | double | 4 | B, L | the grid cell size, in mean particle separations, positive; it changes the speed only |
 | `bins` | unsigned | required | L | the redshift bins of the mean particle separation profile, at least 1 |
 | `reject_mask_crossings` | bool | true | L | reject a displacement whose path crosses unobserved pixels |
-| `max_unobserved_pixels_crossed` | unsigned | 0 | L with `reject_mask_crossings` | the distinct unobserved pixels a path may cross; 0 rejects at the first |
+| `max_unobserved_pixels_crossed` | unsigned | 0 | L with `reject_mask_crossings` | the unobserved pixels in a row a path may cross; 0 rejects at the first |
 | `box_min` | 3 doubles | none | B | the lower x, y, z of the box, in coordinate units; with `box_max` or not at all |
 | `box_max` | 3 doubles | none | B | the upper x, y, z, each above `box_min`'s |
 | `mps` | double | none, measured | B | the mean particle separation, in coordinate units, positive |

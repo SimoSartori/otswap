@@ -63,57 +63,77 @@ namespace {
 
   using Pixel = std::int64_t;
 
+  struct ArcSearch {
+    const otswap::internal::PixelMask& mask;
+    Pixel pixA, pixB;
+    double floor2, pixel2;
+    unsigned limit;
+    std::vector<Pixel>& path;
+    std::size_t runStart;
+    std::size_t run;
+    std::size_t longest;
+  };
+
+  bool counted (const ArcSearch& search, const Pixel pixel)
+  {
+    return pixel != search.pixA && pixel != search.pixB &&
+           !otswap::internal::pixel_observed(search.mask, pixel);
+  }
+
   /// True when the sub-arc from a point in pixP to a point in pixQ, shorter
   /// than a pixel, needs no further splitting: pixQ shares an edge with
-  /// pixP, and no unobserved pixel other than pixQ and the two endpoint
-  /// pixels neighbours both.
-  bool edge_crossing_safe (const otswap::internal::PixelMask& mask, const Pixel pixP,
-                           const Pixel pixQ, const Pixel pixA, const Pixel pixB)
+  /// pixP, and no pixel they both neighbour could change the runs. When
+  /// both count, any common neighbour could split their run; otherwise
+  /// only a counted one could add to a run.
+  bool edge_crossing_safe (const ArcSearch& search, const Pixel pixP, const Pixel pixQ)
   {
     std::array<Pixel, 8> nbP, nbQ;
-    mask.base.neighbors(pixP, nbP);
+    search.mask.base.neighbors(pixP, nbP);
     if (nbP[0] != pixQ && nbP[2] != pixQ && nbP[4] != pixQ && nbP[6] != pixQ) return false;
 
-    mask.base.neighbors(pixQ, nbQ);
+    const bool bothCounted = counted(search, pixP) && counted(search, pixQ);
+    search.mask.base.neighbors(pixQ, nbQ);
     for (const Pixel r : nbP) {
-      if (r < 0 || r == pixQ || r == pixA || r == pixB ||
-          otswap::internal::pixel_observed(mask, r)) continue;
+      if (r < 0 || r == pixQ || (!bothCounted && !counted(search, r))) continue;
       for (const Pixel q : nbQ)
         if (q == r) return false;
     }
     return true;
   }
 
-  struct ArcSearch {
-    const otswap::internal::PixelMask& mask;
-    Pixel pixA, pixB;
-    double floor2, pixel2;
-    unsigned limit;
-    std::vector<Pixel>& found;
-  };
+  bool meet (ArcSearch& search, const Pixel pixel)
+  {
+    if (pixel == search.path.back()) return false;
+    if (!counted(search, pixel)) {
+      search.path.push_back(pixel);
+      search.runStart = search.path.size();
+      search.run = 0;
+      return false;
+    }
+    if (std::find(search.path.begin() + (std::ptrdiff_t)search.runStart, search.path.end(),
+                  pixel) == search.path.end())
+      search.longest = std::max(search.longest, ++search.run);
+    search.path.push_back(pixel);
+    return search.run > search.limit;
+  }
 
-  /// Examines the sub-arc from p to q, whose end pixels have been examined
-  /// already. Returns true once more than search.limit pixels are found.
-  bool segment_exceeds (const ArcSearch& search,
+  /// Examines the sub-arc from p to q, in order along the arc: the pixel of
+  /// p has been met already, the pixel of q is met after. Returns true once
+  /// a run holds more than search.limit pixels.
+  bool segment_exceeds (ArcSearch& search,
                         const otswap::internal::Vec3& p, const Pixel pixP,
                         const otswap::internal::Vec3& q, const Pixel pixQ)
   {
     if (pixP == pixQ) return false;
     const double d2 = (p - q).squared_length();
     if (d2 < search.floor2) return false;
-    if (d2 < search.pixel2 &&
-        edge_crossing_safe(search.mask, pixP, pixQ, search.pixA, search.pixB)) return false;
+    if (d2 < search.pixel2 && edge_crossing_safe(search, pixP, pixQ)) return false;
 
     const otswap::internal::Vec3 m = (p + q).normalized();
     const Pixel pixM = otswap::internal::vec2pix(search.mask.base, m);
-    if (pixM != search.pixA && pixM != search.pixB &&
-        !otswap::internal::pixel_observed(search.mask, pixM) &&
-        std::find(search.found.begin(), search.found.end(), pixM) == search.found.end()) {
-      search.found.push_back(pixM);
-      if (search.found.size() > search.limit) return true;
-    }
 
-    return segment_exceeds(search, p, pixP, m, pixM) || segment_exceeds(search, m, pixM, q, pixQ);
+    return segment_exceeds(search, p, pixP, m, pixM) || meet(search, pixM) ||
+           segment_exceeds(search, m, pixM, q, pixQ);
   }
 
 }
@@ -367,23 +387,22 @@ void otswap::internal::mark_observed (PixelMask& mask, const std::int64_t first,
 // ============================================================================
 
 
-std::size_t otswap::internal::arc_unobserved_pixels (const PixelMask& mask,
-                                                     const Vec3& a, const Vec3& b,
-                                                     const unsigned limit,
-                                                     std::vector<std::int64_t>& found)
+std::size_t otswap::internal::arc_longest_unobserved_run (const PixelMask& mask,
+                                                         const Vec3& a, const Vec3& b,
+                                                         const unsigned limit,
+                                                         std::vector<std::int64_t>& path)
 {
-  found.clear();
-
   const std::int64_t pixA = vec2pix(mask.base, a);
   const std::int64_t pixB = vec2pix(mask.base, b);
   const double pixelSize = std::sqrt(4. * kPi / (double)mask.base.npix());
   const double arcFloor = kArcFloorInPixels * pixelSize;
 
-  const ArcSearch search {mask, pixA, pixB, arcFloor * arcFloor, pixelSize * pixelSize,
-                          limit, found};
-  segment_exceeds(search, a, pixA, b, pixB);
+  path.assign(1, pixA);
+  ArcSearch search {mask, pixA, pixB, arcFloor * arcFloor, pixelSize * pixelSize,
+                    limit, path, 1, 0, 0};
+  if (!segment_exceeds(search, a, pixA, b, pixB)) meet(search, pixB);
 
-  return found.size();
+  return search.longest;
 }
 
 
@@ -464,7 +483,7 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
   for (std::size_t i = 0; i < nObjects; ++i) {
     try {
 
-      std::vector<std::int64_t> found;
+      std::vector<std::int64_t> path;
 
       for (unsigned rec = 0; rec < nRealizations; ++rec) {
 
@@ -489,7 +508,7 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
         const internal::Vec3 b(lx/r1, ly/r1, lz/r1);
 
         if ((a + b).squared_length() == 0. ||
-            internal::arc_unobserved_pixels(pixels, a, b, maxUnobservedPixelsCrossed, found) >
+            internal::arc_longest_unobserved_run(pixels, a, b, maxUnobservedPixelsCrossed, path) >
               maxUnobservedPixelsCrossed)
           result.valid[d] = 0;
       }

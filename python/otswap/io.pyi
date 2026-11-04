@@ -431,9 +431,11 @@ def write_displacement_complete(
     BOXLIM = 1 when it holds the limits given to ``reconstruct_box``; ZCUTMIN
     and ZCUTMAX for the finite bounds of a redshift cut, MASK = 1 when a mask
     selected the objects, FILTNSID and MAXPIXCR when a mask filter was
-    applied; NTRAC, NTRCUT, NTRMASK, NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNMASK,
-    NRNBOTH, NRNBOX, NDISPL and NDISPCR, the selection counts, each when it
-    is not 0. Then, in this file only, MPSPART = 1 and DISTPART = 1 when the
+    applied (CFMAXPIX and MAXPIXCR are thresholds of
+    ``reject_mask_crossings``: the longest run of unobserved pixels a
+    displacement's arc may cross); NTRAC, NTRCUT, NTRMASK, NTRBOTH, NTRBOX,
+    NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NDISPL and NDISPCR, the
+    selection counts, each when it is not 0. Then, in this file only, MPSPART = 1 and DISTPART = 1 when the
     profile and the table are written.
 
     The profile (redshift, MPS, nTracers, with the keywords ZMIN, ZMAX and

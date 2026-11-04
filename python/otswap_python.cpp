@@ -1533,7 +1533,7 @@ NB_MODULE(_otswap, m)
       },
       "result"_a.none(), "mask"_a.none(), "max_unobserved_pixels_crossed"_a.none() = 0,
       "Mark as invalid the displacements whose path crosses more than "
-      "max_unobserved_pixels_crossed distinct unobserved pixels of the mask. Updates result in "
+      "max_unobserved_pixels_crossed unobserved pixels of the mask in a row. Updates result in "
       "place.");
 
   m.def("recompute_means",

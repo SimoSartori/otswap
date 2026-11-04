@@ -945,7 +945,7 @@ int main ()
                          "5 outside the mask (2 outside both)\n"
                          "otswap: kept 350 of 400 randoms: 30 outside the redshift cut [-inf, 1e-05], "
                          "20 outside the mask (0 outside both)\n"
-                         "otswap: rejected 11 of 180 displacements crossing more than 2 unobserved pixels\n",
+                         "otswap: rejected 11 of 180 displacements crossing more than 2 unobserved pixels in a row\n",
           "both, an open bound, and the crossings: " + c.message());
   }
 

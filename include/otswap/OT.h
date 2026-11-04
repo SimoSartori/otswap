@@ -195,7 +195,8 @@ namespace otswap {
     /// Read by the mask overloads of reconstructLightcone only.
     bool rejectCrossings = true;
 
-    /// The threshold of that call; see rejectMaskCrossings. Read by the
+    /// The threshold of that call, the longest run of unobserved pixels a
+    /// displacement's arc may cross; see rejectMaskCrossings. Read by the
     /// mask overloads of reconstructLightcone only.
     unsigned maxUnobservedPixelsCrossed = 0;
 
@@ -283,7 +284,7 @@ namespace otswap {
      *
      *      otswap: kept <n> of <N> tracers: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
      *      otswap: kept <m> of <M> randoms: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
-     *      otswap: rejected <r> of <D> displacements crossing more than <L> unobserved pixels
+     *      otswap: rejected <r> of <D> displacements crossing more than <L> unobserved pixels in a row
      *
      *  For a box with limits, the tracer line, and the random line when
      *  randoms were given:
@@ -1125,16 +1126,21 @@ namespace otswap {
    *  bisected adaptively: a sub-arc whose ends fall in the same pixel is
    *  not split further, nor one shorter than a millionth of the pixel
    *  size, nor one shorter than a pixel whose end pixels share an edge
-   *  and have no unobserved pixel as a common neighbour. The pixel of
-   *  every midpoint is examined, and the distinct unobserved pixels met
-   *  are counted. The pixels holding the two endpoints are exempt.
+   *  and have no common neighbour that could change a run: with both end
+   *  pixels unobserved, none at all; otherwise, no unobserved one. The
+   *  pixels of the midpoints are examined in order along the arc, and the
+   *  unobserved pixels met one after another, with no observed pixel
+   *  between them, form a run; a run is counted in distinct pixels. The
+   *  pixels holding the two endpoints are exempt, and end a run as an
+   *  observed pixel does.
    *
-   *  A displacement is rejected when its arc crosses more than
-   *  maxUnobservedPixelsCrossed distinct unobserved pixels; the search stops as
-   *  soon as the count exceeds it. With 0, the first one rejects. A
-   *  displacement with an endpoint at the origin is kept, and one whose
-   *  endpoints lie in exactly opposite directions, which defines no arc,
-   *  is rejected.
+   *  A displacement is rejected when the longest run along its arc holds
+   *  more than maxUnobservedPixelsCrossed pixels; the search stops as soon
+   *  as a run exceeds it. Unobserved pixels in separate runs are not added
+   *  together: an arc that crosses two small holes is judged by the larger
+   *  one. With 0, the first unobserved pixel rejects. A displacement with
+   *  an endpoint at the origin is kept, and one whose endpoints lie in
+   *  exactly opposite directions, which defines no arc, is rejected.
    *
    *  A rejected displacement has its entry of valid cleared; entries
    *  already cleared stay cleared, so the filter composes with any other
@@ -1151,12 +1157,12 @@ namespace otswap {
    *  @param result a lightcone result, updated in place; a box result is
    *  refused, so a Result built by hand must set Result::geometry.
    *  @param mask the mask whose unobserved pixels are counted.
-   *  @param maxUnobservedPixelsCrossed distinct unobserved pixels tolerated
-   *  along the arc, the endpoint pixels excluded.
+   *  @param maxUnobservedPixelsCrossed the longest run of unobserved pixels
+   *  tolerated along the arc, the endpoint pixels excluded.
    *
-   *  @warning The count is of pixels, not an angular length, so it depends
-   *  on NSIDE: the same arc crosses about twice as many pixels when NSIDE
-   *  doubles, and the same threshold is a different criterion.
+   *  @warning The run is counted in pixels, not as an angular length, so it
+   *  depends on NSIDE: the same arc crosses about twice as many pixels when
+   *  NSIDE doubles, and the same threshold is a different criterion.
    *
    *  A tracer flagged in Result::outsideRedshiftCut or Result::outsideMask
    *  is left as it is: its tracers and displacement rows may be NaN, and
