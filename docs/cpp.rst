@@ -159,6 +159,8 @@ Tables
 
 .. doxygenfunction:: otswap::io::readKeywords
 
+.. doxygenfunction:: otswap::io::columnNames
+
 .. doxygenstruct:: otswap::io::TablePart
    :members:
 
@@ -178,8 +180,8 @@ Writers
 ``io::writeDisplacementMean``, ``io::writeDisplacementComplete``,
 ``io::writeRealSpaceCatalog``, ``io::writeMpsProfile`` and their group enums
 are documented on the :doc:`formats` page, with the layouts they write, and
-so is ``io::readDisplacementComplete``, which reads a complete displacement
-file back.
+so are ``io::readDisplacementMean`` and ``io::readDisplacementComplete``,
+which read a mean and a complete displacement file back.
 
 otswap/ParameterFile.h
 ----------------------

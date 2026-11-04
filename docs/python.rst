@@ -128,6 +128,8 @@ Tables
 
 .. autoapifunction:: otswap.io.read_keywords
 
+.. autoapifunction:: otswap.io.column_names
+
 .. autoapiclass:: otswap.io.TablePart
    :members:
 
@@ -147,6 +149,8 @@ Writers
 .. autoapifunction:: otswap.io.write_displacement_mean
 
 .. autoapidata:: otswap.io.DisplacementGroup
+
+.. autoapifunction:: otswap.io.read_displacement_mean
 
 .. autoapifunction:: otswap.io.write_displacement_complete
 

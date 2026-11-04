@@ -15,8 +15,10 @@ Table = _otswap.io.Table
 read = _otswap.io.read
 write = _otswap.io.write
 read_keywords = _otswap.io.read_keywords
+column_names = _otswap.io.column_names
 read_bias_table = _otswap.io.read_bias_table
 read_displacement_complete = _otswap.io.read_displacement_complete
+read_displacement_mean = _otswap.io.read_displacement_mean
 write_displacement_mean = _otswap.io.write_displacement_mean
 write_displacement_complete = _otswap.io.write_displacement_complete
 write_real_space_catalog = _otswap.io.write_real_space_catalog
@@ -88,6 +90,7 @@ def write_parts(file, parts):
     _otswap.io._write_parts(file, [(p.columns, p.extname, p.twin, p.precision, p.keywords) for p in given])
 
 
-__all__ = ["Column", "Table", "TablePart", "has_part", "read", "read_bias_table", "read_displacement_complete",
-           "read_keywords", "read_part", "twin_file", "write", "write_displacement_complete",
-           "write_displacement_mean", "write_mps_profile", "write_parts", "write_real_space_catalog"]
+__all__ = ["Column", "Table", "TablePart", "column_names", "has_part", "read", "read_bias_table",
+           "read_displacement_complete", "read_displacement_mean", "read_keywords", "read_part", "twin_file",
+           "write", "write_displacement_complete", "write_displacement_mean", "write_mps_profile", "write_parts",
+           "write_real_space_catalog"]

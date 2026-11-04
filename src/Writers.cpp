@@ -28,6 +28,7 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -62,6 +63,8 @@ namespace {
   const char* const kMainExtname = "DISPLACEMENTS";
   const char* const kProfileExtname = "MPSPROF";
   const char* const kTableExtname = "DISTANCE";
+  const char* const kMeanProduct = "mean displacements";
+  const char* const kCompleteProduct = "complete displacements";
 
   /// Radians to degrees, as skyToDegrees converts.
   constexpr double kRadToDeg = 180. / 3.14159265358979323846;
@@ -131,6 +134,8 @@ namespace {
   {
     std::vector<Keyword> k = common(product, r.geometry, r.nObjects);
     k.push_back({"NREC", integer(r.nRealizations), "realizations"});
+    if (r.nRealizationsMean > 1)
+      k.push_back({"NRECMEAN", integer(r.nRealizationsMean), "realizations averaged into the mean"});
     k.push_back({"SEED", integer(r.config.seed), "seed of the random streams"});
     k.push_back({"CONVERG", number(r.config.convergence), "convergence threshold of the swap loop"});
     k.push_back({"CELLSIZE", number(r.config.cellSize), "grid cell size, in units of the mps"});
@@ -187,6 +192,12 @@ namespace {
       throw otswap::Error("the result holds nRealizations = " + std::to_string(r.nRealizations) +
                           " and config.nRealizations = " + std::to_string(r.config.nRealizations) +
                           "; they must be equal");
+    if (r.nRealizationsMean == 0)
+      throw otswap::Error("the result holds nRealizationsMean = 0; it must be at least 1");
+    if (r.nRealizationsMean > 1 && r.nRealizations != 1)
+      throw otswap::Error("the result holds nRealizationsMean = " + std::to_string(r.nRealizationsMean) +
+                          " and nRealizations = " + std::to_string(r.nRealizations) +
+                          "; a mean over several realizations is held as one, so nRealizations must be 1");
     if (r.selection.boxLimits && !r.box)
       throw otswap::Error("the result holds selection.boxLimits and no box; box must equal the limits");
     if (r.selection.boxLimits && (r.selection.boxLimits->lower != r.box->lower ||
@@ -244,11 +255,12 @@ namespace {
             }};
   }
 
-  /// Write the groups, nRows rows; in FITS, in an HDU of that extname when
-  /// it is not empty.
+  /// Write the groups, nRows rows, then the further parts; in FITS, in an
+  /// HDU of that extname when it is not empty.
   void write_groups (const std::string& file, const std::vector<Group>& groups,
                      const std::size_t nRows, const otswap::io::WriteOptions& options,
-                     const std::string& extname = "")
+                     const std::string& extname = "",
+                     const std::vector<otswap::internal::TablePart>& further = {})
   {
     std::vector<Column> columns;
     std::vector<std::size_t> offset;
@@ -256,12 +268,79 @@ namespace {
       offset.push_back(columns.size());
       columns.insert(columns.end(), g.columns.begin(), g.columns.end());
     }
-    otswap::internal::write_parts(file, {{extname, "", columns, nRows,
+    std::vector<otswap::internal::TablePart> parts {{extname, "", columns, nRows,
       [&groups, &offset] (const std::size_t row, std::vector<double>& values,
                           std::vector<std::int64_t>& integers) {
         for (std::size_t k = 0; k < groups.size(); ++k)
           groups[k].fill(row, values.data() + offset[k], integers.data() + offset[k]);
-      }, options}});
+      }, options}};
+    parts.insert(parts.end(), further.begin(), further.end());
+    otswap::internal::write_parts(file, parts);
+  }
+
+  std::vector<otswap::internal::TablePart> lightcone_parts (const otswap::Result& result,
+                                                            const std::string& product, const bool tables,
+                                                            std::vector<Keyword>& keywords)
+  {
+    using otswap::internal::TablePart;
+    const bool lightcone = result.geometry == otswap::Geometry::Lightcone;
+    const otswap::MpsProfile& profile = result.mpsProfile;
+    const bool writeProfile = tables && lightcone && !profile.redshift.empty();
+    const bool writeTable = tables && lightcone && result.distances != nullptr;
+    std::vector<TablePart> parts;
+
+    if (writeProfile) {
+      check_size(profile.mps.size(), profile.redshift.size(), "the mps of the profile");
+      check_size(profile.count.size(), profile.redshift.size(), "the counts of the profile");
+      keywords.push_back({"MPSPART", "1", "the mps(z) profile is written"});
+      TablePart part;
+      part.extname = kProfileExtname;
+      part.twin = "mps";
+      part.columns = {column("redshift", 'D', "centre of the redshift bin"),
+                      column("MPS", 'D', "mean particle separation in the bin"),
+                      column("nTracers", 'J', "tracers in the bin")};
+      part.nRows = profile.redshift.size();
+      part.options.precision = kLossless;
+      part.options.keywords = {{"PRODUCT", product + " mps profile", "what the table holds"},
+                               {"OTSWAPV", OTSWAP_VERSION, "otswap version"},
+                               {"ZMIN", number(profile.redshiftMin), "lowest redshift binned"},
+                               {"ZMAX", number(profile.redshiftMax), "highest redshift binned"},
+                               {"MPSREPR", number(profile.representative),
+                                "representative mps, the count-weighted median, in coordinate units"}};
+      const otswap::MpsProfile* p = &profile;
+      part.fillRow = [p] (const std::size_t row, std::vector<double>& values, std::vector<std::int64_t>&) {
+        values[0] = p->redshift[row];
+        values[1] = p->mps[row];
+        values[2] = (double)p->count[row];
+      };
+      parts.push_back(part);
+    }
+
+    if (writeTable) {
+      keywords.push_back({"DISTPART", "1", "the distance table is written"});
+      const otswap::DistanceTable* t = result.distances.get();
+      const bool growth = t->hasGrowthRate();
+      TablePart part;
+      part.extname = kTableExtname;
+      part.twin = "distances";
+      part.columns = {column("redshift", 'D', "sampled redshift"),
+                      column("distance", 'D', "comoving distance")};
+      if (growth) part.columns.push_back(column("growthRate", 'D', "linear growth rate f"));
+      part.nRows = t->redshift().size();
+      part.options.precision = kLossless;
+      part.options.keywords = {{"PRODUCT", product + " distance table", "what the table holds"},
+                               {"OTSWAPV", OTSWAP_VERSION, "otswap version"},
+                               {"ZMIN", number(t->minRedshift()), "lowest redshift of the table"},
+                               {"ZMAX", number(t->maxRedshift()), "highest redshift of the table"}};
+      part.fillRow = [t, growth] (const std::size_t row, std::vector<double>& values,
+                                  std::vector<std::int64_t>&) {
+        values[0] = t->redshift()[row];
+        values[1] = t->distance()[row];
+        if (growth) values[2] = t->growthRate()[row];
+      };
+      parts.push_back(part);
+    }
+    return parts;
   }
 
   template <typename G>
@@ -375,13 +454,14 @@ namespace {
     return otswap::internal::read_numbered(at.file, at.extname, columns, integerColumns);
   }
 
-  /// The profile part a main table declares.
-  otswap::MpsProfile read_profile (const Header& main, const std::string& file)
+  /// The profile part a main table declares, its PRODUCT product + " mps
+  /// profile".
+  otswap::MpsProfile read_profile (const Header& main, const std::string& file, const std::string& product)
   {
     const otswap::internal::PartLocation at = otswap::internal::locate_part(file, kProfileExtname, "mps");
     if (!at.exists) main.fail("it declares MPSPART = 1, and " + at.name + " does not exist");
     const Header h {"cannot read the mps profile in " + at.name, otswap::internal::read_keywords(at.file, at.extname)};
-    h.product("complete displacements mps profile");
+    h.product(product + " mps profile");
 
     otswap::MpsProfile profile;
     profile.redshiftMin = h.real("ZMIN");
@@ -401,16 +481,17 @@ namespace {
     return profile;
   }
 
-  /// The distance table part a main table declares, as a new table equal
-  /// to the one written.
-  std::shared_ptr<const otswap::DistanceTable> read_table (const Header& main, const std::string& file)
+  /// The distance table part a main table declares, its PRODUCT product +
+  /// " distance table", as a new table equal to the one written.
+  std::shared_ptr<const otswap::DistanceTable> read_table (const Header& main, const std::string& file,
+                                                           const std::string& product)
   {
     const otswap::internal::PartLocation at = otswap::internal::locate_part(file, kTableExtname, "distances");
     if (!at.exists) main.fail("it declares DISTPART = 1, and " + at.name + " does not exist");
     const Header h {"cannot read the distance table in " + at.name, otswap::internal::read_keywords(at.file, at.extname)};
-    h.product("complete displacements distance table");
+    h.product(product + " distance table");
 
-    const std::vector<std::string> names = otswap::internal::column_names(at.file, at.extname);
+    const std::vector<std::string> names = otswap::io::columnNames(at.file, at.extname);
     const bool growth = std::find(names.begin(), names.end(), "growthRate") != names.end();
     std::vector<std::string> columns {"redshift", "distance"};
     if (growth) columns.push_back("growthRate");
@@ -430,6 +511,117 @@ namespace {
     }
   }
 
+  void read_result_keywords (const Header& h, otswap::Result& r)
+  {
+    using namespace otswap;
+    const std::string geometry = h.text("GEOMETRY");
+    if (geometry != "box" && geometry != "lightcone")
+      h.fail("its GEOMETRY is '" + geometry + "', neither box nor lightcone");
+    r.geometry = geometry == "box" ? Geometry::Box : Geometry::Lightcone;
+
+    constexpr std::uint64_t kUnsigned = std::numeric_limits<unsigned>::max();
+    constexpr std::uint64_t kSize = std::numeric_limits<std::size_t>::max();
+    const std::size_t n = (std::size_t)h.whole("NOBJECTS", kSize);
+    const unsigned nRec = (unsigned)h.whole("NREC", kUnsigned);
+    if (n == 0) h.fail("NOBJECTS is 0; a reconstruction has at least one object");
+    if (nRec == 0) h.fail("NREC is 0; a reconstruction has at least one realization");
+    r.nObjects = n;
+    r.nRealizations = nRec;
+    if (h.find("NRECMEAN")) {
+      r.nRealizationsMean = (unsigned)h.whole("NRECMEAN", kUnsigned);
+      if (r.nRealizationsMean == 0) h.fail("NRECMEAN is 0; a mean is taken over at least one realization");
+      if (nRec != 1)
+        h.fail("it holds NRECMEAN = " + std::to_string(r.nRealizationsMean) + " and NREC = " +
+               std::to_string(nRec) + "; a mean over several realizations is written with NREC = 1");
+    }
+
+    Config& config = r.config;
+    config.nRealizations = nRec;
+    config.seed = (unsigned)h.whole("SEED", kUnsigned);
+    config.convergence = h.real("CONVERG");
+    config.cellSize = h.real("CELLSIZE", Config().cellSize);
+    config.rejectCrossings = h.whole("REJCROSS", 1, Config().rejectCrossings ? 1 : 0) == 1;
+    config.maxUnobservedPixelsCrossed =
+      (unsigned)h.whole("CFMAXPIX", kUnsigned, Config().maxUnobservedPixelsCrossed);
+    const std::string verbosity = h.find("VERBOSE") ? h.text("VERBOSE") : verbosity_name(Config().verbosity);
+    if (verbosity == "silent") config.verbosity = Verbosity::Silent;
+    else if (verbosity == "normal") config.verbosity = Verbosity::Normal;
+    else if (verbosity == "detailed") config.verbosity = Verbosity::Detailed;
+    else h.fail("the keyword VERBOSE holds '" + verbosity + "', not silent, normal or detailed");
+
+    r.mps = h.real("MPS", std::numeric_limits<double>::quiet_NaN());
+    static const char* const boxKeywords[6] = {"BOXXLO", "BOXXHI", "BOXYLO", "BOXYHI", "BOXZLO", "BOXZHI"};
+    int boxFound = 0;
+    for (const char* k : boxKeywords) boxFound += h.find(k) ? 1 : 0;
+    if (boxFound != 0 && boxFound != 6)
+      h.fail("it holds " + std::to_string(boxFound) + " of the six keywords BOXXLO, BOXXHI, BOXYLO, BOXYHI, "
+             "BOXZLO, BOXZHI; a box has all six");
+    if (boxFound == 6) {
+      BoxLimits box;
+      for (int c = 0; c < 3; ++c) {
+        box.lower[c] = h.real(boxKeywords[2*c]);
+        box.upper[c] = h.real(boxKeywords[2*c+1]);
+      }
+      r.box = box;
+    }
+
+    SelectionCounts& s = r.selection;
+    if (h.one("BOXLIM")) {
+      if (!r.box) h.fail("BOXLIM = 1 records the limits as the box, and the box keywords are missing");
+      s.boxLimits = r.box;
+    }
+    if (h.find("ZCUTMIN") || h.find("ZCUTMAX"))
+      s.redshiftCut = RedshiftCut{h.real("ZCUTMIN", -std::numeric_limits<double>::infinity()),
+                                  h.real("ZCUTMAX", std::numeric_limits<double>::infinity())};
+    s.maskApplied = h.one("MASK");
+    r.filteredNside = (int)h.whole("FILTNSID", (std::uint64_t)std::numeric_limits<int>::max(), 0);
+    if (h.find("MAXPIXCR")) s.maxUnobservedPixelsCrossed = (unsigned)h.whole("MAXPIXCR", kUnsigned);
+    const std::pair<const char*, std::size_t*> counts[] = {
+      {"NTRAC", &s.tracers}, {"NTRCUT", &s.tracersOutsideRedshiftCut}, {"NTRMASK", &s.tracersOutsideMask},
+      {"NTRBOTH", &s.tracersOutsideBoth}, {"NTRBOX", &s.tracersOutsideBox}, {"NRAND", &s.randoms},
+      {"NRNCUT", &s.randomsOutsideRedshiftCut}, {"NRNMASK", &s.randomsOutsideMask},
+      {"NRNBOTH", &s.randomsOutsideBoth}, {"NRNBOX", &s.randomsOutsideBox}, {"NDISPL", &s.displacements},
+      {"NDISPCR", &s.displacementsCrossingMask}};
+    for (const auto& c : counts) *c.second = (std::size_t)h.whole(c.first, kSize, 0);
+  }
+
+  void check_counts (const Header& h, const otswap::Result& r, const bool selection, const bool box)
+  {
+    if (!h.find("NTRAC")) return;
+    const otswap::SelectionCounts& s = r.selection;
+    const std::size_t n = r.nObjects;
+    std::size_t cut = 0, mask = 0, both = 0, outside = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+      cut += r.outsideRedshiftCut[i];
+      mask += r.outsideMask[i];
+      both += r.outsideRedshiftCut[i] & r.outsideMask[i];
+      outside += r.outsideBox[i];
+    }
+    if (s.tracers != n)
+      h.fail("NTRAC records " + std::to_string(s.tracers) + " tracers given, where NOBJECTS = " +
+             std::to_string(n) + " is expected");
+    const std::tuple<const char*, std::size_t, std::size_t, const char*, bool> agree[] = {
+      {"NTRCUT", s.tracersOutsideRedshiftCut, cut, "outsideRedshiftCut flags", selection},
+      {"NTRMASK", s.tracersOutsideMask, mask, "outsideMask flags", selection},
+      {"NTRBOTH", s.tracersOutsideBoth, both, "outsideRedshiftCut and outsideMask both flag", selection},
+      {"NTRBOX", s.tracersOutsideBox, outside, "outsideBox flags", box}};
+    for (const auto& a : agree)
+      if (std::get<4>(a) && std::get<1>(a) != std::get<2>(a))
+        h.fail(std::string(std::get<0>(a)) + " records " + std::to_string(std::get<1>(a)) + " tracers, where " +
+               std::get<3>(a) + " " + std::to_string(std::get<2>(a)));
+  }
+
+  void read_lightcone_parts (const Header& h, otswap::Result& r, const std::string& file,
+                             const std::string& product)
+  {
+    const bool profile = h.one("MPSPART"), distances = h.one("DISTPART");
+    if (r.geometry != otswap::Geometry::Lightcone && (profile || distances))
+      h.fail(std::string("it declares ") + (profile ? "MPSPART" : "DISTPART") + " = 1 in a box file; only a "
+             "lightcone has an mps profile and a distance table");
+    if (profile) r.mpsProfile = read_profile(h, file, product);
+    if (distances) r.distances = read_table(h, file, product);
+  }
+
 }
 
 
@@ -437,7 +629,8 @@ namespace {
 
 
 void otswap::io::writeDisplacementMean (const std::string& file, const Result& result,
-                                        const std::vector<DisplacementGroup>& groups)
+                                        const std::vector<DisplacementGroup>& groups,
+                                        const bool lightconeTables)
 {
   using G = DisplacementGroup;
   static const char* const names[] = {"Id", "TracerSky", "LagrangianSky", "Tracer", "Lagrangian",
@@ -525,7 +718,9 @@ void otswap::io::writeDisplacementMean (const std::string& file, const Result& r
   WriteOptions options;
   options.precision = kPrecision;
   options.keywords = result_keywords("displacements", result);
-  write_groups(file, out, n, options, kMainExtname);
+  const std::vector<internal::TablePart> parts =
+    lightcone_parts(result, kMeanProduct, lightconeTables, options.keywords);
+  write_groups(file, out, n, options, kMainExtname, parts);
 }
 
 
@@ -545,14 +740,6 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
   check_size(result.valid.size(), rows, "valid");
   internal::check_flags(result);
   internal::check_ids(result.ids, n);
-
-  const MpsProfile& profile = result.mpsProfile;
-  const bool writeProfile = lightconeTables && lightcone && !profile.redshift.empty();
-  const bool writeTable = lightconeTables && lightcone && result.distances != nullptr;
-  if (writeProfile) {
-    check_size(profile.mps.size(), profile.redshift.size(), "the mps of the profile");
-    check_size(profile.count.size(), profile.redshift.size(), "the counts of the profile");
-  }
 
   std::vector<Column> columns {column("realization", 'J', "realization, from 0"), id_column()};
   if (lightcone) {
@@ -577,8 +764,8 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
   primary.nRows = rows;
   primary.options.precision = kLossless;
   primary.options.keywords = result_keywords("complete displacements", result);
-  if (writeProfile) primary.options.keywords.push_back({"MPSPART", "1", "the mps(z) profile is written"});
-  if (writeTable) primary.options.keywords.push_back({"DISTPART", "1", "the distance table is written"});
+  const std::vector<internal::TablePart> further =
+    lightcone_parts(result, kCompleteProduct, lightconeTables, primary.options.keywords);
   const Result* r = &result;
   primary.fillRow = [r, n, lightcone, xyz] (const std::size_t row, std::vector<double>& values,
                                             std::vector<std::int64_t>& integers) {
@@ -601,54 +788,7 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
   };
 
   std::vector<internal::TablePart> parts {primary};
-  if (writeProfile) {
-    internal::TablePart part;
-    part.extname = kProfileExtname;
-    part.twin = "mps";
-    part.columns = {column("redshift", 'D', "centre of the redshift bin"),
-                    column("MPS", 'D', "mean particle separation in the bin"),
-                    column("nTracers", 'J', "tracers in the bin")};
-    part.nRows = profile.redshift.size();
-    part.options.precision = kLossless;
-    part.options.keywords = {{"PRODUCT", "complete displacements mps profile", "what the table holds"},
-                             {"OTSWAPV", OTSWAP_VERSION, "otswap version"},
-                             {"ZMIN", number(profile.redshiftMin), "lowest redshift binned"},
-                             {"ZMAX", number(profile.redshiftMax), "highest redshift binned"},
-                             {"MPSREPR", number(profile.representative),
-                              "representative mps, the count-weighted median, in coordinate units"}};
-    const MpsProfile* p = &profile;
-    part.fillRow = [p] (const std::size_t row, std::vector<double>& values, std::vector<std::int64_t>&) {
-      values[0] = p->redshift[row];
-      values[1] = p->mps[row];
-      values[2] = (double)p->count[row];
-    };
-    parts.push_back(part);
-  }
-
-  if (writeTable) {
-    const DistanceTable* t = result.distances.get();
-    const bool growth = t->hasGrowthRate();
-    internal::TablePart part;
-    part.extname = kTableExtname;
-    part.twin = "distances";
-    part.columns = {column("redshift", 'D', "sampled redshift"),
-                    column("distance", 'D', "comoving distance")};
-    if (growth) part.columns.push_back(column("growthRate", 'D', "linear growth rate f"));
-    part.nRows = t->redshift().size();
-    part.options.precision = kLossless;
-    part.options.keywords = {{"PRODUCT", "complete displacements distance table", "what the table holds"},
-                             {"OTSWAPV", OTSWAP_VERSION, "otswap version"},
-                             {"ZMIN", number(t->minRedshift()), "lowest redshift of the table"},
-                             {"ZMAX", number(t->maxRedshift()), "highest redshift of the table"}};
-    part.fillRow = [t, growth] (const std::size_t row, std::vector<double>& values,
-                                std::vector<std::int64_t>&) {
-      values[0] = t->redshift()[row];
-      values[1] = t->distance()[row];
-      if (growth) values[2] = t->growthRate()[row];
-    };
-    parts.push_back(part);
-  }
-
+  parts.insert(parts.end(), further.begin(), further.end());
   internal::write_parts(file, parts);
 }
 
@@ -666,72 +806,13 @@ otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
            "displacements' (and otswap 0.1 'displacement field')");
 
   Result r;
-  const std::string geometry = h.text("GEOMETRY");
-  if (geometry != "box" && geometry != "lightcone")
-    h.fail("its GEOMETRY is '" + geometry + "', neither box nor lightcone");
-  r.geometry = geometry == "box" ? Geometry::Box : Geometry::Lightcone;
+  read_result_keywords(h, r);
   const bool lightcone = r.geometry == Geometry::Lightcone;
   const bool sky = lightcone && !v010;
-
-  constexpr std::uint64_t kUnsigned = std::numeric_limits<unsigned>::max();
-  constexpr std::uint64_t kSize = std::numeric_limits<std::size_t>::max();
-  const std::size_t n = (std::size_t)h.whole("NOBJECTS", kSize);
-  const unsigned nRec = (unsigned)h.whole("NREC", kUnsigned);
-  if (n == 0) h.fail("NOBJECTS is 0; a reconstruction has at least one object");
-  if (nRec == 0) h.fail("NREC is 0; a reconstruction has at least one realization");
-  if (nRec > kSize / n) h.fail("NOBJECTS x NREC overflows");
+  const std::size_t n = r.nObjects;
+  const unsigned nRec = r.nRealizations;
+  if (nRec > std::numeric_limits<std::size_t>::max() / n) h.fail("NOBJECTS x NREC overflows");
   const std::size_t rows = n * nRec;
-  r.nObjects = n;
-  r.nRealizations = nRec;
-
-  Config& config = r.config;
-  config.nRealizations = nRec;
-  config.seed = (unsigned)h.whole("SEED", kUnsigned);
-  config.convergence = h.real("CONVERG");
-  config.cellSize = h.real("CELLSIZE", Config().cellSize);
-  config.rejectCrossings = h.whole("REJCROSS", 1, Config().rejectCrossings ? 1 : 0) == 1;
-  config.maxUnobservedPixelsCrossed =
-    (unsigned)h.whole("CFMAXPIX", kUnsigned, Config().maxUnobservedPixelsCrossed);
-  const std::string verbosity = h.find("VERBOSE") ? h.text("VERBOSE") : verbosity_name(Config().verbosity);
-  if (verbosity == "silent") config.verbosity = Verbosity::Silent;
-  else if (verbosity == "normal") config.verbosity = Verbosity::Normal;
-  else if (verbosity == "detailed") config.verbosity = Verbosity::Detailed;
-  else h.fail("the keyword VERBOSE holds '" + verbosity + "', not silent, normal or detailed");
-
-  r.mps = h.real("MPS", std::numeric_limits<double>::quiet_NaN());
-  static const char* const boxKeywords[6] = {"BOXXLO", "BOXXHI", "BOXYLO", "BOXYHI", "BOXZLO", "BOXZHI"};
-  int boxFound = 0;
-  for (const char* k : boxKeywords) boxFound += h.find(k) ? 1 : 0;
-  if (boxFound != 0 && boxFound != 6)
-    h.fail("it holds " + std::to_string(boxFound) + " of the six keywords BOXXLO, BOXXHI, BOXYLO, BOXYHI, "
-           "BOXZLO, BOXZHI; a box has all six");
-  if (boxFound == 6) {
-    BoxLimits box;
-    for (int c = 0; c < 3; ++c) {
-      box.lower[c] = h.real(boxKeywords[2*c]);
-      box.upper[c] = h.real(boxKeywords[2*c+1]);
-    }
-    r.box = box;
-  }
-
-  SelectionCounts& s = r.selection;
-  if (h.one("BOXLIM")) {
-    if (!r.box) h.fail("BOXLIM = 1 records the limits as the box, and the box keywords are missing");
-    s.boxLimits = r.box;
-  }
-  if (h.find("ZCUTMIN") || h.find("ZCUTMAX"))
-    s.redshiftCut = RedshiftCut{h.real("ZCUTMIN", -std::numeric_limits<double>::infinity()),
-                                h.real("ZCUTMAX", std::numeric_limits<double>::infinity())};
-  s.maskApplied = h.one("MASK");
-  r.filteredNside = (int)h.whole("FILTNSID", (std::uint64_t)std::numeric_limits<int>::max(), 0);
-  if (h.find("MAXPIXCR")) s.maxUnobservedPixelsCrossed = (unsigned)h.whole("MAXPIXCR", kUnsigned);
-  const std::pair<const char*, std::size_t*> counts[] = {
-    {"NTRAC", &s.tracers}, {"NTRCUT", &s.tracersOutsideRedshiftCut}, {"NTRMASK", &s.tracersOutsideMask},
-    {"NTRBOTH", &s.tracersOutsideBoth}, {"NTRBOX", &s.tracersOutsideBox}, {"NRAND", &s.randoms},
-    {"NRNCUT", &s.randomsOutsideRedshiftCut}, {"NRNMASK", &s.randomsOutsideMask},
-    {"NRNBOTH", &s.randomsOutsideBoth}, {"NRNBOX", &s.randomsOutsideBox}, {"NDISPL", &s.displacements},
-    {"NDISPCR", &s.displacementsCrossingMask}};
-  for (const auto& c : counts) *c.second = (std::size_t)h.whole(c.first, kSize, 0);
 
   std::vector<std::string> columns;
   if (sky) columns = {"tracRA", "tracDec", "tracRed"};
@@ -787,36 +868,137 @@ otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
   }
 
   if (v010 && !lightcone) r.box = internal::bounding_box(r.tracers);
-  if (h.find("NTRAC")) {
-    std::size_t cut = 0, mask = 0, both = 0, box = 0;
-    for (std::size_t i = 0; i < n; ++i) {
-      cut += r.outsideRedshiftCut[i];
-      mask += r.outsideMask[i];
-      both += r.outsideRedshiftCut[i] & r.outsideMask[i];
-      box += r.outsideBox[i];
-    }
-    if (s.tracers != n)
-      h.fail("NTRAC records " + std::to_string(s.tracers) + " tracers given, where NOBJECTS = " +
-             std::to_string(n) + " is expected");
-    const std::tuple<const char*, std::size_t, std::size_t, const char*> agree[] = {
-      {"NTRCUT", s.tracersOutsideRedshiftCut, cut, "outsideRedshiftCut flags"},
-      {"NTRMASK", s.tracersOutsideMask, mask, "outsideMask flags"},
-      {"NTRBOTH", s.tracersOutsideBoth, both, "outsideRedshiftCut and outsideMask both flag"},
-      {"NTRBOX", s.tracersOutsideBox, box, "outsideBox flags"}};
-    for (const auto& a : agree)
-      if (std::get<1>(a) != std::get<2>(a))
-        h.fail(std::string(std::get<0>(a)) + " records " + std::to_string(std::get<1>(a)) + " tracers, where " +
-               std::get<3>(a) + " " + std::to_string(std::get<2>(a)));
-  }
-
-  const bool profile = h.one("MPSPART"), distances = h.one("DISTPART");
-  if (!lightcone && (profile || distances))
-    h.fail(std::string("it declares ") + (profile ? "MPSPART" : "DISTPART") + " = 1 in a box file; only a "
-           "lightcone has an mps profile and a distance table");
-  if (profile) r.mpsProfile = read_profile(h, file);
-  if (distances) r.distances = read_table(h, file);
+  check_counts(h, r, true, true);
+  read_lightcone_parts(h, r, file, kCompleteProduct);
 
   recomputeMeans(r);
+  return r;
+}
+
+
+// ============================================================================
+
+
+otswap::Result otswap::io::readDisplacementMean (const std::string& file)
+{
+  const Header h {"cannot read the mean displacement file " + file, internal::read_keywords(file)};
+  const std::string product = h.text("PRODUCT");
+  if (product != "displacements")
+    h.fail("its PRODUCT is '" + product + "', where a mean displacement file holds 'displacements'");
+
+  Result r;
+  read_result_keywords(h, r);
+  const bool lightcone = r.geometry == Geometry::Lightcone;
+  const std::size_t n = r.nObjects;
+  if (!h.find("NRECMEAN")) r.nRealizationsMean = r.nRealizations;
+  r.nRealizations = 1;
+  r.config.nRealizations = 1;
+
+  const bool fits = internal::fits_name(file);
+  const std::vector<std::string> names = columnNames(file);
+  auto upper = [] (std::string text) {
+    for (char& c : text) c = (char)std::toupper((unsigned char)c);
+    return text;
+  };
+  auto has = [&] (const std::string& name) {
+    for (const std::string& found : names)
+      if (fits ? upper(found) == upper(name) : found == name) return true;
+    return false;
+  };
+  auto any = [&] (const std::vector<std::string>& group) {
+    return std::any_of(group.begin(), group.end(), has);
+  };
+
+  std::vector<std::string> columns;
+  if (lightcone) columns = {"tracRA", "tracDec", "tracRed"};
+  for (const char* p : {"trac", "displ"})
+    for (const char* c : kXyz) columns.push_back(std::string(p) + c);
+  std::vector<std::string> integerColumns {"nValidRec"};
+  for (const std::vector<std::string>* required : {&columns, &integerColumns})
+    for (const std::string& c : *required)
+      if (!has(c)) h.fail("it has no column " + c + ", which a mean displacement file holds");
+
+  const std::vector<std::string> lagrangian {"lagrX", "lagrY", "lagrZ"};
+  const std::vector<std::string> lagrangianSky {"lagrRA", "lagrDec", "lagrRed"};
+  const std::vector<std::string> selection {"outsideRedshiftCut", "outsideMask"};
+  const bool readLagrangian = any(lagrangian);
+  const bool readLagrangianSky = lightcone && any(lagrangianSky);
+  const bool readId = has("id");
+  const bool readSelection = lightcone && any(selection);
+  const bool readBox = !lightcone && has("outsideBox");
+  const std::size_t atLagrangian = columns.size();
+  if (readLagrangian) columns.insert(columns.end(), lagrangian.begin(), lagrangian.end());
+  const std::size_t atLagrangianSky = columns.size();
+  if (readLagrangianSky) columns.insert(columns.end(), lagrangianSky.begin(), lagrangianSky.end());
+  const std::size_t atId = integerColumns.size();
+  if (readId) integerColumns.push_back("id");
+  const std::size_t atSelection = integerColumns.size();
+  if (readSelection) integerColumns.insert(integerColumns.end(), selection.begin(), selection.end());
+  const std::size_t atBox = integerColumns.size();
+  if (readBox) integerColumns.push_back("outsideBox");
+
+  const internal::NumberedTable numbered = internal::read_numbered(file, "", columns, integerColumns);
+  const Table& t = numbered.table;
+  if (t.nRows != n)
+    h.fail("it holds " + std::to_string(t.nRows) + " rows, where NOBJECTS = " + std::to_string(n) +
+           " are expected");
+
+  const std::size_t xyz = lightcone ? 3 : 0;
+  std::vector<double> skyDegrees(lightcone ? 3 * n : 0);
+  std::vector<double> lagrangianDegrees(readLagrangianSky ? 3 * n : 0);
+  std::vector<double> lagrangianRead(readLagrangian ? 3 * n : 0);
+  std::vector<unsigned> counts(n);
+  r.tracers.resize(3 * n);
+  r.displacement.resize(3 * n);
+  r.valid.resize(n);
+  r.outsideRedshiftCut.assign(n, 0);
+  r.outsideMask.assign(n, 0);
+  r.outsideBox.assign(n, 0);
+  if (readId) r.ids.resize(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    const double* v = &t.values[i * t.nColumns];
+    const std::int64_t* k = &t.integers[i * t.nIntegerColumns];
+    for (std::size_t c = 0; c < 3; ++c) {
+      if (lightcone) skyDegrees[3*i+c] = v[c];
+      r.tracers[3*i+c] = v[xyz+c];
+      r.displacement[3*i+c] = v[xyz+3+c];
+      if (readLagrangian) lagrangianRead[3*i+c] = v[atLagrangian+c];
+      if (readLagrangianSky) lagrangianDegrees[3*i+c] = v[atLagrangianSky+c];
+    }
+    if (k[0] < 0 || k[0] > (std::int64_t)r.nRealizationsMean)
+      h.fail("the column nValidRec holds " + std::to_string(k[0]) + " at " + numbered.row(i) +
+             "; it must lie in [0, " + std::to_string(r.nRealizationsMean) +
+             "], the number of realizations averaged");
+    counts[i] = (unsigned)k[0];
+    r.valid[i] = k[0] > 0 ? 1 : 0;
+    if (readId) r.ids[i] = k[atId];
+    if (readSelection) {
+      r.outsideRedshiftCut[i] = flag_of(h, k[atSelection], "outsideRedshiftCut", numbered, i);
+      r.outsideMask[i] = flag_of(h, k[atSelection+1], "outsideMask", numbered, i);
+    }
+    if (readBox) r.outsideBox[i] = flag_of(h, k[atBox], "outsideBox", numbered, i);
+  }
+
+  bool sequential = true;
+  for (std::size_t i = 0; sequential && i < r.ids.size(); ++i) sequential = r.ids[i] == (std::int64_t)i;
+  if (sequential) r.ids.clear();
+  try {
+    internal::check_ids(r.ids, n);
+    if (lightcone) r.tracersSky = skyToRadians(std::move(skyDegrees));
+    if (readLagrangianSky) lagrangianDegrees = skyToRadians(std::move(lagrangianDegrees));
+  }
+  catch (const Error& e) {
+    h.fail(e.what());
+  }
+
+  check_counts(h, r, readSelection, readBox);
+  read_lightcone_parts(h, r, file, kMeanProduct);
+
+  recomputeMeans(r);
+  r.meanDisplacement = r.displacement;
+  r.validRealizations = std::move(counts);
+  if (readLagrangian) r.lagrangian = std::move(lagrangianRead);
+  if (readLagrangianSky) r.lagrangianSky = std::move(lagrangianDegrees);
   return r;
 }
 

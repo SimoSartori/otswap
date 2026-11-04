@@ -79,8 +79,9 @@ Reads:
 - {repo-file}`examples/data/lightcone_randoms.dat`
 - {repo-file}`examples/data/lightcone_mask.fits`
 
-Writes `output/displacement_lightcone.dat`, with {py:func}`otswap.io.write_displacement_mean`; its columns
-and keywords are on the [file formats](formats.md) page.
+Writes `output/displacement_lightcone.dat`, with {py:func}`otswap.io.write_displacement_mean`, and its
+twin files `displacement_lightcone.mps.dat` and `displacement_lightcone.distances.dat`, the mps(z)
+profile and the distance table; their columns and keywords are on the [file formats](formats.md) page.
 
 ::::{tab-set}
 :sync-group: lang

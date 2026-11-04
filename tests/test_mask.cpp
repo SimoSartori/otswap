@@ -1309,6 +1309,17 @@ int main ()
     nanDisplacement.displacement[5] = std::numeric_limits<double>::infinity();
     check(names(nanDisplacement, "the result is malformed: displacement holds a non-finite coordinate at "
                                  "entry 5"), "a non-finite displacement raises, naming the entry");
+    Result nanCleared = result_of(e, l);
+    nanCleared.valid[1] = 0;
+    nanCleared.displacement[5] = std::numeric_limits<double>::quiet_NaN();
+    bool clearedRan = true;
+    try {
+      rejectMaskCrossings(nanCleared, mask);
+    }
+    catch (const Error&) {
+      clearedRan = false;
+    }
+    check(clearedRan && nanCleared.valid[1] == 0, "a NaN in a cleared entry, which the filter does not read, is accepted");
     Result noValid = result_of(e, l);
     noValid.valid.clear();
     check_throws([&] { rejectMaskCrossings(noValid, mask); }, "a valid of the wrong size raises");

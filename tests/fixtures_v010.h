@@ -21,11 +21,12 @@
 /**
  *  @file tests/fixtures_v010.h
  *
- *  @brief The inputs of the otswap 0.1.0 files in tests/data: written by
- *  tests/data/write_fixtures_v010.cpp built against otswap 0.1.0, and
- *  rebuilt by the tests, which reconstruct them again and compare. Every
- *  value is an integer times a constant, the same double in both
- *  programs.
+ *  @brief The inputs of the files of earlier versions in tests/data: the
+ *  otswap 0.1.0 files, written by tests/data/write_fixtures_v010.cpp built
+ *  against otswap 0.1.0, and the otswap 0.2.1 mean displacement files,
+ *  written by tests/data/write_fixtures_v021.cpp built against otswap
+ *  0.2.1. The tests reconstruct them again and compare. Every value is an
+ *  integer times a constant, the same double in every program.
  */
 
 #ifndef OTSWAP_TESTS_FIXTURES_V010_H
@@ -109,6 +110,14 @@ namespace fixtures_v010 {
     c.seed = kSeed;
     c.verbosity = otswap::Verbosity::Silent;
     return c;
+  }
+
+  /// The IDs of the lightcone objects in the otswap 0.2.1 files: 1000 + 3 i.
+  inline std::vector<std::int64_t> lightcone_ids ()
+  {
+    std::vector<std::int64_t> ids(kObjects);
+    for (std::size_t i = 0; i < kObjects; ++i) ids[i] = 1000 + 3 * (std::int64_t)i;
+    return ids;
   }
 
 }

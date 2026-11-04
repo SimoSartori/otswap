@@ -271,6 +271,16 @@ class Result:
     def n_realizations(self) -> int: ...
 
     @property
+    def n_realizations_mean(self) -> int:
+        """The number of realizations averaged into each displacement, when
+        the result holds a mean as its only realization, as
+        ``io.read_displacement_mean`` returns it; 1 when it does not, as in
+        every result of a reconstruction. The displacement writers record a
+        value above 1 as the keyword NRECMEAN, with NREC = 1. ``valid_realizations``
+        then counts the realizations averaged that were valid, up to it:
+        always at most ``n_realizations`` x ``n_realizations_mean``."""
+
+    @property
     def geometry(self) -> Literal["box", "lightcone"]: ...
 
     @property
@@ -1055,15 +1065,18 @@ def reject_mask_crossings(
     Updates ``result`` in place; it only ever marks displacements invalid, and
     raises if ``result`` was already filtered against a mask of a different
     NSIDE, or if ``result`` is a box result, which has no sky to filter
-    against. It also raises if ``result`` is malformed: a NaN outside the
-    rows of the flagged tracers, a flagged tracer with a valid entry, a
+    against. It also raises if ``result`` is malformed: a NaN in a tracer
+    outside the flagged ones or in a valid displacement, a flagged tracer
+    with a valid entry, a
     ``tracers`` array without N rows, a flag, ``tracers_sky``,
     ``lagrangian`` or ``lagrangian_sky`` array whose size is neither 0 nor
     the one of its layout, or an entry of ``valid`` neither 0 nor 1. Tracers
     flagged in ``outside_redshift_cut`` or ``outside_mask`` are left as they
     are. ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
     ``lagrangian_sky`` are recomputed, and ``result.selection`` records the
-    filter.
+    filter. On a result holding a mean (``n_realizations_mean`` above 1, one
+    realization), ``valid_realizations`` keeps the counts of the tracers kept,
+    and is 0 for those rejected.
     """
 
 

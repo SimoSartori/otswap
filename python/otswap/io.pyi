@@ -134,8 +134,8 @@ def read(
     of digits, is a 0-based index; any other str is a name, looked up in the
     last line starting with ``###`` before the first data row, where
     ``write`` puts the names. Lines that are empty, hold only blanks, tabs
-    and ``delimiter``, or hold ``comment`` as their first other character
-    are skipped; every other line is a data row, so a line of text such as a
+    and ``delimiter``, hold ``comment`` as their first other character, or
+    start with ``###`` (a names line, whatever ``comment`` is) are skipped; every other line is a data row, so a line of text such as a
     header must start with ``comment``, after any blanks, tabs or
     ``delimiter``. Fields are separated by ``delimiter``, blanks or tabs. Each
     requested field, and the first field of every data row, must be a number
@@ -213,6 +213,33 @@ def read_keywords(file: Path, *, extname: str = "") -> list[tuple[str, str, str]
     Error
         If the file cannot be opened, is not a valid FITS file, has no first
         extension, or has no extension of that EXTNAME.
+    """
+
+
+def column_names(
+    file: Path, *, extname: str = "", delimiter: str = " ", comment: str = "#"
+) -> list[str]:
+    """The names of the columns of a table, in column order: the names
+    ``read`` finds in the same file.
+
+    FITS (a name ending in .fits, .fit or .fits.gz): the TTYPEn of the table
+    in the first extension or, with ``extname``, of the extension of that
+    EXTNAME, compared ignoring case, as written. ``read`` looks a name up
+    ignoring case.
+
+    ASCII: the fields of the last line starting with ``###`` before the first
+    data row, separated by ``delimiter``, blanks or tabs, which is where
+    ``read`` looks names up with the same ``delimiter`` and ``comment``;
+    ``extname`` is ignored. A part written to a twin file is read by giving
+    that file, ``twin_file(file, twin)``.
+
+    Raises
+    ------
+    Error
+        If the file cannot be opened or is not a valid FITS file, if the first
+        extension or the extension of that EXTNAME is missing or is not a
+        table, or if an ASCII file has no ``###`` line before its first data
+        row; the message names the file.
     """
 
 
@@ -342,6 +369,7 @@ def write_displacement_mean(
     result: Result,
     *,
     groups: Optional[Sequence[DisplacementGroup]] = None,
+    lightcone_tables: bool = True,
 ) -> None:
     """Write the mean displacement field of a result, one row per tracer.
 
@@ -369,6 +397,9 @@ def write_displacement_mean(
         lightcone tracer_sky, lagrangian_sky, tracer, lagrangian,
         displacement, valid_realizations, selection; id first when IDs were
         set.
+    lightcone_tables : bool, optional
+        False to leave out the profile and the table of a lightcone result;
+        no effect on a box result, which has neither.
 
     Raises
     ------
@@ -378,14 +409,30 @@ def write_displacement_mean(
         if a field a group reads does not have the size of its layout;
         whatever the groups, if ``ids`` is neither empty nor one per object
         or holds a value twice, if the result's realization count differs
-        from its configuration's, or if a box result's box differs from the
-        limits recorded in its selection; or as ``write``.
+        from its configuration's, if its count of realizations averaged is 0,
+        or above 1 while it holds several realizations, if a box result's box
+        differs from the limits recorded in its selection, or if the profile
+        written does not have one mps and one count per redshift; or as
+        ``write``.
 
     Notes
     -----
-    Floating values are written with 9 significant digits in ASCII. Keywords:
-    those of the reconstruction, listed with ``write_displacement_complete``.
+    Floating values are written with 9 significant digits in ASCII, so a
+    position or displacement read back from ASCII equals the one written
+    within that rounding; FITS stores the values themselves. Keywords: those
+    of the reconstruction, listed with ``write_displacement_complete``, and
+    MPSPART = 1 and DISTPART = 1 when the profile and the table are written.
     In FITS the table is named DISPLACEMENTS.
+
+    A lightcone file also holds the mps(z) profile and the distance table of
+    the result, as ``write_displacement_complete`` writes them (the same
+    columns and keywords, 17 digits in ASCII, the HDUs MPSPROF and DISTANCE in
+    FITS, the twin files .mps and .distances in ASCII), each with its own
+    PRODUCT, mean displacements mps profile and mean displacements distance
+    table. Each is written when ``lightcone_tables`` is true and the result is
+    a lightcone that holds it; a result made by ``Result.from_arrays`` holds a
+    table but no profile. The file then carries both, and
+    ``read_displacement_mean`` returns them.
     """
 
 
@@ -420,10 +467,11 @@ def write_displacement_complete(
         If a field read does not have the size of its layout
         (``tracers_sky`` included, for a lightcone), if ``ids`` is neither
         empty nor one per object or holds a value twice, if the result's
-        realization count differs from its configuration's, if a box
-        result's box differs from the limits recorded in its selection, if
-        the profile written does not have one mps and one count per redshift,
-        or as ``write``.
+        realization count differs from its configuration's, if its count of
+        realizations averaged is 0, or above 1 while it holds several
+        realizations, if a box result's box differs from the limits recorded
+        in its selection, if the profile written does not have one mps and one
+        count per redshift, or as ``write``.
 
     Notes
     -----
@@ -433,8 +481,9 @@ def write_displacement_complete(
     reconstruction's means bit for bit. ``read_displacement_complete`` reads
     the file back into a ``Result``.
 
-    Keywords, those of ``write_displacement_mean`` too: NREC, SEED (the seed
-    used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE (silent,
+    Keywords, those of ``write_displacement_mean`` too: NREC and, when
+    ``Result.n_realizations_mean`` is above 1, NRECMEAN, the realizations
+    averaged (NREC is then 1); SEED (the seed used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE (silent,
     normal or detailed): the configuration; MPS for a box; BOXXLO, BOXXHI,
     BOXYLO, BOXYHI, BOXZLO, BOXZHI, ``Result.box`` when it is set, and
     BOXLIM = 1 when it holds the limits given to ``reconstruct_box``; ZCUTMIN
@@ -444,8 +493,8 @@ def write_displacement_complete(
     ``reject_mask_crossings``: the longest run of unobserved pixels a
     displacement's arc may cross); NTRAC, NTRCUT, NTRMASK, NTRBOTH, NTRBOX,
     NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NDISPL and NDISPCR, the
-    selection counts, each when it is not 0. Then, in this file only, MPSPART = 1 and DISTPART = 1 when the
-    profile and the table are written.
+    selection counts, each when it is not 0. Then MPSPART = 1 and DISTPART = 1
+    when the profile and the table are written.
 
     The profile (redshift, MPS, nTracers, with the keywords ZMIN, ZMAX and
     MPSREPR of ``write_mps_profile``) and the table (redshift, distance and,
@@ -469,7 +518,8 @@ def read_displacement_complete(file: Path, *, angle_unit: AngleUnit) -> Result:
     """Read a file written by ``write_displacement_complete`` back into a
     ``Result``, its sky arrays in ``angle_unit``.
 
-    Read as written: the geometry, ``ids``, the configuration, ``tracers``,
+    Read as written: the geometry, ``ids``, ``n_realizations_mean``
+    (NRECMEAN, 1 when absent), the configuration, ``tracers``,
     ``tracers_sky``, ``displacement``, ``valid``, the three flags, the
     selection counts, the box, the mps(z) profile and the distance table.
     Recomputed, as ``recompute_means`` does: the valid
@@ -524,6 +574,72 @@ def read_displacement_complete(file: Path, *, angle_unit: AngleUnit) -> Result:
     read as the IDs. A box file of otswap 0.1 gets the bounding box of its
     tracers as its box, the box its reconstruction used. The columns
     lagrX..lagrZ of a file of otswap 0.1 are not read.
+    """
+
+
+def read_displacement_mean(file: Path, *, angle_unit: AngleUnit) -> Result:
+    """Read a file written by ``write_displacement_mean`` into a ``Result``
+    holding the mean as its only realization, its sky arrays in
+    ``angle_unit``.
+
+    The geometry is the file's, and its keywords are read as
+    ``read_displacement_complete`` reads them: the configuration (with
+    ``n_realizations`` 1), the selection counts, the box and the mps of a
+    box. The result has ``n_realizations`` 1; ``displacement`` and
+    ``mean_displacement`` both hold the mean displacement; ``valid`` is true
+    where the tracer has at least one valid realization;
+    ``valid_realizations`` is the file's count; ``n_realizations_mean`` is
+    the number of realizations averaged, NRECMEAN when the file holds it,
+    NREC otherwise.
+
+    Required columns: tracX..tracZ, displX..displZ and nValidRec, and in a
+    lightcone tracRA, tracDec and tracRed. The others are read when the file
+    holds them: id (``ids``, as having no IDs when they are
+    0..n_objects-1), lagrX..lagrZ (``lagrangian``), lagrRA..lagrRed
+    (``lagrangian_sky``, in a lightcone), outsideRedshiftCut and outsideMask
+    (lightcone), outsideBox (box). Without them a flag is all false,
+    ``lagrangian`` is ``tracers`` + ``mean_displacement``, and
+    ``lagrangian_sky`` is computed from them with the distance table, as
+    ``recompute_means`` does, or is None without the table. The mps(z)
+    profile and the distance table are read when the file declares them
+    (MPSPART, DISTPART), from the extensions or twin files of
+    ``write_displacement_mean``; a file of otswap 0.2 has neither.
+
+    Parameters
+    ----------
+    file : str or os.PathLike
+        A mean displacement file; its extension sets the format.
+    angle_unit : {"deg", "rad"}
+        The unit of the sky arrays of the result; required, and without
+        effect for a box file.
+
+    Returns
+    -------
+    Result
+        The mean as a result of one realization.
+
+    Raises
+    ------
+    Error
+        If the file cannot be read; if its PRODUCT is not that of
+        ``write_displacement_mean``; if a keyword is malformed or a required
+        column is missing; if it does not hold NOBJECTS rows; if a flag is
+        neither 0 nor 1, a count of valid realizations lies outside [0,
+        ``n_realizations_mean``], or an ID is repeated; if the file records
+        the tracer counts of the selection (NTRAC) and one disagrees with the
+        flags read; if a box file declares a profile or a table; if a
+        declared profile or table is missing, is not the part written, by its
+        PRODUCT, or is malformed. Every message names the file, and a row by
+        its ASCII line or FITS row, counted from 1.
+
+    Notes
+    -----
+    FITS reads back every value as written. ASCII reads back what was written
+    with 9 significant digits: the positions, the displacements and the sky
+    coordinates, the right ascension in [0, 360) degrees as the writer folds
+    it; the profile and the table, with 17 digits, read back identical.
+    ``recompute_means`` on the result read sets ``valid_realizations`` to 0
+    or 1, the count of its one realization.
     """
 
 

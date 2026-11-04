@@ -230,7 +230,7 @@ namespace {
 
     while (next_line(input, line)) {
       ++lineNumber;
-      if (line.empty() || is_comment(line, delimiter, comment)) continue;
+      if (line.empty() || line.compare(0, 3, "###") == 0 || is_comment(line, delimiter, comment)) continue;
 
       split_fields(line, 0, delimiter, fields);
       if (fields.empty()) continue;
@@ -281,6 +281,26 @@ namespace {
     return table;
   }
 
+  std::string select_table (fitsfile* fptr, const std::string& file, const std::string& extname)
+  {
+    int status = 0, hdutype = 0;
+    if (extname.empty()) {
+      if (fits_movabs_hdu(fptr, 2, &hdutype, &status))
+        return "the first extension cannot be accessed in: " + file;
+      if (hdutype != BINARY_TBL && hdutype != ASCII_TBL)
+        return "the first extension of " + file + " is not a table";
+      return "";
+    }
+    std::vector<char> name(extname.begin(), extname.end());
+    name.push_back('\0');
+    if (fits_movnam_hdu(fptr, ANY_HDU, name.data(), 0, &status))
+      return "no extension of EXTNAME " + extname + " in: " + file;
+    fits_get_hdu_type(fptr, &hdutype, &status);
+    if (hdutype != BINARY_TBL && hdutype != ASCII_TBL)
+      return "the extension " + extname + " of " + file + " is not a table";
+    return "";
+  }
+
   /// The table of HDU 2 or, with an extname, of the HDU of that EXTNAME.
   otswap::io::Table read_fits (const std::string& file,
                                const std::vector<std::string>& columns,
@@ -299,22 +319,8 @@ namespace {
     if (fits_open_file(&fptr, file.c_str(), READONLY, &status))
       fail("cannot open the input file, or it is not a valid FITS file: " + file);
 
-    int hdutype = 0;
-    if (extname.empty()) {
-      if (fits_movabs_hdu(fptr, 2, &hdutype, &status))
-        fail("the first extension cannot be accessed in: " + file);
-      if (hdutype != BINARY_TBL && hdutype != ASCII_TBL)
-        fail("the first extension of " + file + " is not a table");
-    }
-    else {
-      std::vector<char> name(extname.begin(), extname.end());
-      name.push_back('\0');
-      if (fits_movnam_hdu(fptr, ANY_HDU, name.data(), 0, &status))
-        fail("no extension of EXTNAME " + extname + " in: " + file);
-      fits_get_hdu_type(fptr, &hdutype, &status);
-      if (hdutype != BINARY_TBL && hdutype != ASCII_TBL)
-        fail("the extension " + extname + " of " + file + " is not a table");
-    }
+    const std::string selected = select_table(fptr, file, extname);
+    if (!selected.empty()) fail(selected);
 
     long nrows = 0;
     if (fits_get_num_rows(fptr, &nrows, &status))
@@ -781,6 +787,54 @@ std::vector<otswap::io::Keyword> otswap::io::readKeywords (const std::string& fi
 // ============================================================================
 
 
+std::vector<std::string> otswap::io::columnNames (const std::string& file, const std::string& extname,
+                                                  const char delimiter, const char comment)
+{
+  if (!is_fits(file)) {
+    bool found = false;
+    std::vector<std::string> names = ascii_names(file, delimiter, comment, found);
+    if (!found)
+      throw Error("the ASCII file " + file + " has no line starting with ### before its first data row; "
+                  "that line names the columns");
+    return names;
+  }
+
+  fitsfile* fptr = nullptr;
+  int status = 0;
+  auto fail = [&] (const std::string& message) {
+    int closeStatus = 0;
+    if (fptr != nullptr) { fits_close_file(fptr, &closeStatus); fptr = nullptr; }
+    throw Error(message);
+  };
+
+  if (fits_open_file(&fptr, file.c_str(), READONLY, &status))
+    fail("cannot open the input file, or it is not a valid FITS file: " + file);
+  const std::string selected = select_table(fptr, file, extname);
+  if (!selected.empty()) fail(selected);
+
+  int nColumns = 0;
+  if (fits_get_num_cols(fptr, &nColumns, &status))
+    fail("cannot read the number of columns of: " + file);
+  std::vector<std::string> names;
+  for (int c = 1; c <= nColumns; ++c) {
+    const std::string key = "TTYPE" + std::to_string(c);
+    char value[FLEN_VALUE] = "";
+    if (fits_read_key(fptr, TSTRING, key.c_str(), value, nullptr, &status))
+      fail("cannot read the name of column " + std::to_string(c) + " (from 1) of: " + file);
+    std::string name = value;
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    names.push_back(name);
+  }
+
+  int closeStatus = 0;
+  fits_close_file(fptr, &closeStatus);
+  return names;
+}
+
+
+// ============================================================================
+
+
 void otswap::io::writeParts (const std::string& file, const std::vector<TablePart>& parts)
 {
   if (parts.empty())
@@ -1142,19 +1196,7 @@ otswap::internal::PartLocation otswap::internal::locate_part (const std::string&
 // ============================================================================
 
 
-std::vector<std::string> otswap::internal::column_names (const std::string& file, const std::string& extname)
+bool otswap::internal::fits_name (const std::string& file)
 {
-  if (!is_fits(file)) {
-    bool found = false;
-    return ascii_names(file, ' ', '#', found);
-  }
-  const std::vector<io::Keyword> keywords = read_keywords(file, extname);
-  std::vector<std::string> names;
-  for (bool more = true; more; ) {
-    more = false;
-    const std::string key = "TTYPE" + std::to_string(names.size() + 1);
-    for (const io::Keyword& k : keywords)
-      if (k.name == key) { names.push_back(k.value); more = true; break; }
-  }
-  return names;
+  return is_fits(file);
 }

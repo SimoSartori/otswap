@@ -178,7 +178,7 @@ best value depends on the sample and should be checked in each analysis.
 | `output_format` | string | `dat` | B, L | `dat` (ASCII) or `fits` |
 | `printDisplMean` | bool | false | B, L | write the mean displacements |
 | `printDisplComplete` | bool | false | B, L | write the complete displacements |
-| `printMps` | bool | false | L | write the mean particle separation profile |
+| `printMps` | bool | false | L | write the mean particle separation profile, in a file of its own when no displacement file is written, the displacement files holding it |
 | `printRecCat` | bool | false | B, L with `perform_recons` | write the corrected catalogue; it must be true with `perform_recons` |
 
 A run must write something: without `perform_recons`, one of the `print`
@@ -195,14 +195,16 @@ as `output_format` says. `zspace_` is in the names exactly when
 |---|---|---|
 | `printDisplMean` | `<dir>/displacement_mean_[zspace_]<name>.<ext>` | {cpp:func}`otswap::io::writeDisplacementMean` |
 | `printDisplComplete` | `<dir>/displacement_complete_[zspace_]<name>.<ext>` | {cpp:func}`otswap::io::writeDisplacementComplete` |
-| `printMps` | `<dir>/MPS_[zspace_]<name>.<ext>` | {cpp:func}`otswap::io::writeMpsProfile` |
+| `printMps` | `<dir>/MPS_[zspace_]<name>.<ext>`, only when neither displacement file is written | {cpp:func}`otswap::io::writeMpsProfile` |
 | `printRecCat` | `<dir>/reconstructed_catalogue_<name>.<ext>` | {cpp:func}`otswap::io::writeRealSpaceCatalog` |
 
-In ASCII, the complete displacement file of a lightcone comes with two more
-files, the profile and the distance table a reader needs:
-`displacement_complete_[zspace_]<name>.mps.dat` and
-`displacement_complete_[zspace_]<name>.distances.dat`. In FITS they are
-extensions of the same file.
+In ASCII, each displacement file of a lightcone comes with two more files,
+the profile and the distance table a reader needs:
+`displacement_mean_[zspace_]<name>.mps.dat` and
+`displacement_mean_[zspace_]<name>.distances.dat`, and likewise for
+`displacement_complete_`. In FITS they are extensions of the same file.
+With either displacement file the profile is written there, and `printMps`
+writes no `MPS_` file of its own.
 
 The [file formats](formats.md) page gives the two layouts, ASCII (`dat`)
 and FITS (`fits`), and the columns and keywords of each file. The reconstruction's files are written as soon as it

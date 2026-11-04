@@ -98,11 +98,13 @@ passed as `config=` or `correction=`; a flat
 | `io::write`, `WriteOptions`, `Keyword` | `io.write`, keywords `precision`, `keywords` | keywords as `(name, value, comment)` tuples |
 | `io::write` with a row function | — | |
 | `io::readKeywords` | `io.read_keywords`, keyword `extname` | `(name, value, comment)` tuples; comment empty |
+| `io::columnNames` | `io.column_names`, keywords `extname`, `delimiter`, `comment` | a list of str |
 | `io::TablePart` | `io.TablePart` | columns from their data; no row function |
 | `io::writeParts`, `readPart`, `hasPart`, `twinFile` | `io.write_parts`, `read_part`, `has_part`, `twin_file` | `extname`, `twin` keyword-only |
 | `io::readBiasTable` | `io.read_bias_table` | |
 | `io::writeDisplacementMean`, `writeDisplacementComplete`, `writeRealSpaceCatalog`, `writeMpsProfile` | `io.write_displacement_mean`, `write_displacement_complete`, `write_real_space_catalog`, `write_mps_profile` | |
-| `io::readDisplacementComplete` | `io.read_displacement_complete` | `angle_unit=` required |
+| `io::readDisplacementMean`, `readDisplacementComplete` | `io.read_displacement_mean`, `read_displacement_complete` | `angle_unit=` required |
+| `lightconeTables` of `writeDisplacementMean`, `writeDisplacementComplete` | `lightcone_tables` | keyword-only |
 | `io::DisplacementGroup`, `io::CatalogGroup` | strings | `TracerSky` is `"tracer_sky"` |
 
 ## Random draws

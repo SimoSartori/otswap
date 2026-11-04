@@ -886,5 +886,84 @@ int main ()
     std::remove(fits.c_str());
   }
 
+  group("columnNames: the names io::read finds, in column order, in both formats");
+  {
+    auto agrees = [] (const std::string& file, const std::vector<std::string>& names, const char delimiter,
+                      const char comment) {
+      for (const std::string& name : names)
+        if (!message_of([&] { io::read(file, {name}, delimiter, comment); }).empty()) return false;
+      return !message_of([&] { io::read(file, {"absent"}, delimiter, comment); }).empty();
+    };
+    using Names = std::vector<std::string>;
+
+    const std::string fits = temporary("names.fits");
+    std::vector<io::Column> mixed = sample();
+    mixed[1].name = "MixedCase";
+    io::writeParts(fits, {{"MAIN", "", mixed, 0, {}, {}},
+                          {"Second", "second", {{"z", 'D', "", "", {1., 2.}, {}}, {"n", 'J', "", "", {3., 4.}, {}}},
+                           0, {}, {}}});
+    check(io::columnNames(fits) == Names{"alpha", "MixedCase", "gamma"} && agrees(fits, io::columnNames(fits), ' ', '#'),
+          "FITS: HDU 2 by default, the TTYPEn as written, each read by io::read");
+    check(io::columnNames(fits, "MAIN") == io::columnNames(fits) && io::columnNames(fits, "second") == Names{"z", "n"},
+          "FITS: a table by its EXTNAME, compared ignoring case");
+    check(message_of([&] { io::columnNames(fits, "THIRD"); }) == "no extension of EXTNAME THIRD in: " + fits,
+          "FITS: an unknown EXTNAME is refused as io::readPart refuses it");
+
+    const std::string image = temporary("names_image.fits");
+    std::remove(image.c_str());
+    {
+      fitsfile* f = nullptr;
+      int status = 0;
+      long axes[1] = {4};
+      fits_create_file(&f, image.c_str(), &status);
+      fits_create_img(f, BYTE_IMG, 0, nullptr, &status);
+      fits_create_img(f, BYTE_IMG, 1, axes, &status);
+      fits_close_file(f, &status);
+    }
+    check(message_of([&] { io::columnNames(image); }) == "the first extension of " + image + " is not a table" &&
+          message_of([&] { io::columnNames(image); }) == message_of([&] { io::read(image, {"x"}); }),
+          "FITS: HDU 2 not a table is refused with io::read's message");
+    check(message_of([&] { io::columnNames(temporary("names_missing.fits")); })
+            .find("cannot open the input file") == 0 &&
+          message_of([&] { io::columnNames(temporary("names_missing.dat")); }) ==
+            "cannot open the input file: " + temporary("names_missing.dat"),
+          "a missing file is refused, in both formats");
+
+    const std::string ascii = temporary("names.dat");
+    write_text(ascii, "# a header\n###  old names\n\n### a  b\tc\n#   ### not a names line\n1 2 3\n### x y z\n4 5 6\n");
+    check(io::columnNames(ascii) == Names{"a", "b", "c"} && agrees(ascii, Names{"a", "b", "c"}, ' ', '#'),
+          "ASCII: the last ### line before the first data row, split on blanks and tabs; a later one ignored");
+    check(message_of([&] { io::read(ascii, {"x"}); }).find("not found") != std::string::npos,
+          "ASCII: a name of the ### line after the data is not one io::read finds");
+    write_text(ascii, "# comment\n###a,b, c\n1,2,3\n");
+    check(io::columnNames(ascii, "", ',') == Names{"a", "b", "c"} && agrees(ascii, Names{"a", "b", "c"}, ',', '#'),
+          "ASCII: another delimiter, as io::read takes it");
+    write_text(ascii, "% comment\n  % 1 2 3\n###a b c\n%###x y z\n1 2 3\n");
+    check(io::columnNames(ascii, "", ' ', '%') == Names{"a", "b", "c"} && agrees(ascii, Names{"a", "b", "c"}, ' ', '%'),
+          "ASCII: another comment character, its lines skipped, indented or not, before the ### line; the ### "
+          "line read as the names, not as data");
+    const io::Table byName = io::read(ascii, {"c", "a"}, ' ', '%');
+    check(byName.nRows == 1 && byName.values == std::vector<double>{3., 1.},
+          "ASCII: columns read by name with another comment character");
+    write_text(ascii, "###a b c\n1 2 3\n### late\n4 5 6\n");
+    check(io::read(ascii, {"b"}, ' ', '%').values == std::vector<double>{2., 5.},
+          "ASCII: a ### line after the data is skipped whatever the comment character");
+    check(io::columnNames(ascii, "IGNORED", ' ', '%') == Names{"a", "b", "c"}, "ASCII: the extname is ignored");
+    write_text(ascii, "# no names\n1 2 3\n### a b c\n");
+    check(message_of([&] { io::columnNames(ascii); }) ==
+            "the ASCII file " + ascii + " has no line starting with ### before its first data row; that line "
+            "names the columns",
+          "ASCII: no ### line before the data is refused, naming the file");
+
+    const std::string parts = temporary("names_parts.dat");
+    io::writeParts(parts, {{"", "", sample(), 0, {}, {}},
+                           {"EXTRA", "extra", {{"z", 'D', "", "", {1., 2.}, {}}}, 0, {}, {}}});
+    check(io::columnNames(parts) == Names{"alpha", "beta", "gamma"} &&
+          io::columnNames(io::twinFile(parts, "extra")) == Names{"z"} &&
+          agrees(io::twinFile(parts, "extra"), Names{"z"}, ' ', '#'),
+          "ASCII: a part by its twin file");
+    for (const std::string& f : {fits, image, ascii, parts, io::twinFile(parts, "extra")}) std::remove(f.c_str());
+  }
+
   return report("test_table");
 }

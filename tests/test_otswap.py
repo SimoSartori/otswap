@@ -2109,11 +2109,12 @@ def test_io_stub_lists_the_module():
     for line in ("class Column:", "class Table:", "class TablePart:", "def read(", "def write(",
                  "def read_keywords(", "def write_parts(", "def read_part(", "def has_part(", "def twin_file(",
                  "def read_bias_table(", "def write_displacement_mean(", "def write_displacement_complete(",
-                 "def read_displacement_complete(", "def write_real_space_catalog(",
-                 "def write_mps_profile("):
+                 "def read_displacement_complete(", "def read_displacement_mean(", "def column_names(",
+                 "def write_real_space_catalog(", "def write_mps_profile("):
         assert line in text, line
-    assert sorted(otswap.io.__all__) == ["Column", "Table", "TablePart", "has_part", "read", "read_bias_table",
-                                         "read_displacement_complete", "read_keywords", "read_part",
+    assert sorted(otswap.io.__all__) == ["Column", "Table", "TablePart", "column_names", "has_part", "read",
+                                         "read_bias_table", "read_displacement_complete",
+                                         "read_displacement_mean", "read_keywords", "read_part",
                                          "twin_file", "write", "write_displacement_complete",
                                          "write_displacement_mean", "write_mps_profile", "write_parts",
                                          "write_real_space_catalog"]
@@ -2678,6 +2679,126 @@ def test_read_displacement_complete_from_arrays(tmp_path, table, lightcone):
     assert same_bytes(back.mean_displacement, built.mean_displacement)
 
 
+# The mean file read back: one realization holding the mean, valid where a
+# tracer has a valid realization, the counts and the realizations averaged;
+# FITS exactly, ASCII within its 9 digits; the profile and the table of a
+# lightcone, as the complete file gives them.
+@pytest.mark.parametrize("name", ["mean.dat", "mean.fits"])
+def test_read_displacement_mean_round_trip(tmp_path, table, lightcone, name):
+    exact = name.endswith(".fits")
+    r = lightcone_result(table, lightcone, n_bins=2, redshift_cut=(0.35, 0.55),
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
+    r.ids = np.arange(r.n_objects) * 2 + 7
+    path = tmp_path / name
+    otswap.io.write_displacement_mean(path, r)
+    back = otswap.io.read_displacement_mean(path, angle_unit="deg")
+    assert back.n_realizations == 1 and back.config.n_realizations == 1 and back.n_realizations_mean == 2
+    assert r.n_realizations_mean == 1 and back.angle_unit == "deg" and back.geometry == "lightcone"
+    assert np.array_equal(back.ids, r.ids) and np.array_equal(back.valid_realizations, r.valid_realizations)
+    assert np.array_equal(back.valid[0], r.valid_realizations > 0)
+    for field in ("outside_redshift_cut", "outside_mask"):
+        assert np.array_equal(getattr(back, field), getattr(r, field)), field
+    for field in ("tracers", "mean_displacement", "lagrangian"):
+        if exact:
+            assert same_bytes(getattr(back, field), getattr(r, field)), field
+        else:
+            np.testing.assert_allclose(getattr(back, field), getattr(r, field), rtol=1e-8, atol=0)
+    if exact:
+        assert same_bytes(back.displacement[0], r.mean_displacement)
+    np.testing.assert_allclose(back.tracers_sky, r.tracers_sky, rtol=1e-8 if not exact else 4e-16, atol=0)
+    np.testing.assert_allclose(back.lagrangian_sky, r.lagrangian_sky, rtol=1e-8 if not exact else 4e-16, atol=0)
+    for field in SELECTION_FIELDS:
+        assert getattr(back.selection, field) == getattr(r.selection, field), field
+    p, q = back.mps_profile, r.mps_profile
+    assert same_bytes(p.redshift, q.redshift) and same_bytes(p.mps, q.mps) and same_bytes(p.count, q.count)
+    assert same_bytes(back.distances.distance, table.distance)
+
+    otswap.io.write_displacement_mean(path, r, lightcone_tables=False)
+    off = otswap.io.read_displacement_mean(path, angle_unit="rad")
+    assert off.mps_profile is None and off.distances is None and off.angle_unit == "rad"
+    with pytest.raises(otswap.Error, match="lightcone_tables"):
+        otswap.io.write_displacement_mean(path, r, lightcone_tables="yes")
+    with pytest.raises(TypeError):
+        otswap.io.read_displacement_mean(path)
+
+    otswap.io.write_displacement_mean(path, back)
+    keywords = dict((k, v) for k, v, _ in otswap.io.read_keywords(path))
+    assert keywords["NREC"] == "1" and keywords["NRECMEAN"] == "2"
+    assert otswap.io.read_displacement_mean(path, angle_unit="deg").n_realizations_mean == 2
+
+
+@pytest.mark.parametrize("ext", [".dat", ".fits"])
+def test_read_displacement_mean_box_and_v021(tmp_path, ext):
+    limited = otswap.reconstruct_box(box_catalogue(), box=LIMITS,
+                                     config=otswap.Config(n_realizations=2, seed=1, verbosity="silent"))
+    path = tmp_path / ("mean" + ext)
+    otswap.io.write_displacement_mean(path, limited)
+    back = otswap.io.read_displacement_mean(path, angle_unit="rad")
+    assert back.geometry == "box" and back.n_realizations_mean == 2 and back.angle_unit is None
+    assert np.array_equal(back.outside_box, limited.outside_box) and back.outside_box.any()
+    assert repr(back.box) == repr(limited.box) and back.mps == limited.mps
+    assert back.mps_profile is None and back.distances is None and back.tracers_sky is None
+
+    old = otswap.io.read_displacement_mean(os.path.join(DATA, "v0.2.1_mean_lightcone" + ext), angle_unit="deg")
+    assert old.n_objects == 500 and old.n_realizations_mean == 2 and old.mps_profile is None
+    assert old.ids[0] == 1000 and old.ids[-1] == 1000 + 3 * 499 and old.lagrangian_sky is not None
+    box = otswap.io.read_displacement_mean(os.path.join(DATA, "v0.2.1_mean_box" + ext), angle_unit="deg")
+    assert box.geometry == "box" and box.n_objects == 500 and box.config.seed == 2026
+
+
+def test_read_displacement_mean_errors(tmp_path, table, lightcone):
+    r = lightcone_result(table, lightcone, n_bins=2,
+                         config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
+    path = tmp_path / "run.dat"
+    otswap.io.write_displacement_mean(path, r, groups=["tracer", "displacement", "valid_realizations"])
+    with pytest.raises(otswap.Error, match=re.escape(
+            f"cannot read the mean displacement file {path}: it has no column tracRA, which a mean "
+            "displacement file holds")):
+        otswap.io.read_displacement_mean(path, angle_unit="deg")
+    otswap.io.write_displacement_complete(path, r)
+    with pytest.raises(otswap.Error, match="its PRODUCT is 'complete displacements', where a mean displacement "
+                                           "file holds 'displacements'"):
+        otswap.io.read_displacement_mean(path, angle_unit="deg")
+    otswap.io.write_displacement_mean(path, r)
+    (tmp_path / "run.distances.dat").unlink()
+    with pytest.raises(otswap.Error, match="DISTPART = 1, and .*run.distances.dat does not exist"):
+        otswap.io.read_displacement_mean(path, angle_unit="deg")
+
+
+# column_names gives the names read finds: each reads, another is refused.
+def test_column_names(tmp_path):
+    fits = tmp_path / "t.fits"
+    otswap.io.write_parts(fits, [
+        otswap.io.TablePart([otswap.io.Column("alpha", [1.0, 2.0]), otswap.io.Column("BetaCase", [3.0, 4.0])],
+                            extname="MAIN"),
+        otswap.io.TablePart([otswap.io.Column("z", [5.0])], extname="Second", twin="second")])
+    assert otswap.io.column_names(fits) == ["alpha", "BetaCase"]
+    assert otswap.io.column_names(fits, extname="second") == ["z"]
+    for name in otswap.io.column_names(fits):
+        otswap.io.read(fits, [name])
+    with pytest.raises(otswap.Error, match="not found"):
+        otswap.io.read(fits, ["gamma"])
+    with pytest.raises(otswap.Error, match=re.escape(f"no extension of EXTNAME THIRD in: {fits}")):
+        otswap.io.column_names(fits, extname="THIRD")
+
+    ascii_file = tmp_path / "t.dat"
+    ascii_file.write_text("### old\n# note\n###a,b\tc\n1,2,3\n### late\n")
+    assert otswap.io.column_names(ascii_file, delimiter=",") == ["a", "b", "c"]
+    assert otswap.io.read(ascii_file, ["c"], delimiter=",").values[0, 0] == 3.0
+    ascii_file.write_text("% note\n###a b c\n1 2 3\n")
+    assert otswap.io.column_names(ascii_file, comment="%") == ["a", "b", "c"]
+    assert otswap.io.read(ascii_file, ["c", "a"], comment="%").values.tolist() == [[3.0, 1.0]]
+    ascii_file.write_text("1 2 3\n")
+    with pytest.raises(otswap.Error, match=re.escape(
+            f"the ASCII file {ascii_file} has no line starting with ### before its first data row; that line "
+            "names the columns")):
+        otswap.io.column_names(ascii_file)
+    with pytest.raises(otswap.Error, match="cannot open the input file"):
+        otswap.io.column_names(tmp_path / "missing.dat")
+    with pytest.raises(otswap.Error, match="delimiter"):
+        otswap.io.column_names(ascii_file, delimiter=",,")
+
+
 def test_write_catalogue_and_profile(tmp_path, table, lightcone):
     r = lightcone_result(table, lightcone, n_bins=2,
                          config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
@@ -2843,6 +2964,6 @@ def test_writers_match_cpp(tmp_path, table, lightcone, sieve_mask):
     otswap.io.write_displacement_complete(tmp_path / "py.complete.fits", result)
     otswap.io.write_displacement_complete(tmp_path / "py.complete.dat", result)
     otswap.io.write_mps_profile(tmp_path / "py.mps.dat", result.mps_profile)
-    for suffix in ("displacements.dat", "complete.fits", "complete.dat", "complete.mps.dat",
-                   "complete.distances.dat", "mps.dat"):
+    for suffix in ("displacements.dat", "displacements.mps.dat", "displacements.distances.dat", "complete.fits",
+                   "complete.dat", "complete.mps.dat", "complete.distances.dat", "mps.dat"):
         assert (tmp_path / f"py.{suffix}").read_bytes() == open(f"{out}.{suffix}", "rb").read(), suffix

@@ -566,6 +566,10 @@ namespace {
     if (run.printMean) {
       otswap::io::writeDisplacementMean(path("displacement_mean_" + zspace), result);
       wrote(path("displacement_mean_" + zspace));
+      if (run.switches.lightcone && run.extension == "dat") {
+        wrote(path("displacement_mean_" + zspace, ".mps"));
+        wrote(path("displacement_mean_" + zspace, ".distances"));
+      }
     }
     if (run.printComplete) {
       otswap::io::writeDisplacementComplete(path("displacement_complete_" + zspace), result, true);
@@ -575,7 +579,7 @@ namespace {
         wrote(path("displacement_complete_" + zspace, ".distances"));
       }
     }
-    if (run.printMps) {
+    if (run.printMps && !run.printMean && !run.printComplete) {
       otswap::io::writeMpsProfile(path("MPS_" + zspace), result.mpsProfile);
       wrote(path("MPS_" + zspace));
     }

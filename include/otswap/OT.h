@@ -355,6 +355,16 @@ namespace otswap {
     std::size_t nObjects = 0;
     unsigned    nRealizations = 0;
 
+    /// The number of realizations averaged into each displacement, when
+    /// the result holds a mean as its only realization, as
+    /// io::readDisplacementMean returns it; 1, the default, when it does
+    /// not, as in every result of a reconstruction. A value above 1
+    /// requires nRealizations to be 1, and validRealizations then holds
+    /// counts up to nRealizationsMean. The displacement writers record a
+    /// value above 1 as the keyword NRECMEAN, with NREC = 1. No computation
+    /// reads it.
+    unsigned    nRealizationsMean = 1;
+
     /// The geometry of the reconstruction, which the writers and the
     /// redshift-space correction follow.
     Geometry geometry = Geometry::Box;
@@ -405,8 +415,10 @@ namespace otswap {
     std::vector<double> meanDisplacement;
 
     /// Valid realizations per object: the count of 1 entries of valid for
-    /// that object, and the number of terms in its meanDisplacement.
-    /// Size nObjects.
+    /// that object, and the number of terms in its meanDisplacement. In a
+    /// result holding a mean (nRealizationsMean above 1), the count of the
+    /// realizations averaged into it that were valid. Always at most
+    /// nRealizations x nRealizationsMean. Size nObjects.
     std::vector<unsigned> validRealizations;
 
     /// NSIDE of the mask this result was last filtered against, or 0 when
@@ -1147,7 +1159,9 @@ namespace otswap {
    *  and applying it twice with the same mask and threshold changes
    *  nothing. The fields that follow from valid are then recomputed, as
    *  recomputeMeans does: validRealizations, meanDisplacement, lagrangian
-   *  and lagrangianSky.
+   *  and lagrangianSky. On a result holding a mean (nRealizationsMean above
+   *  1, one realization), validRealizations keeps the counts of the objects
+   *  kept, and is 0 for those rejected.
    *
    *  Result::selection records the filter: maxUnobservedPixelsCrossed the
    *  threshold of this call, displacements the valid displacements before
@@ -1170,8 +1184,9 @@ namespace otswap {
    *  must be finite.
    *
    *  @exception Error if the result is a box result, which has no sky to
-   *  filter against; if the result is malformed (including a NaN outside
-   *  the flagged tracers' rows, a flagged tracer with a valid entry, a
+   *  filter against; if the result is malformed (including a NaN in a
+   *  tracer outside the flagged ones or in a valid displacement, a flagged
+   *  tracer with a valid entry, a
    *  tracers array without 3 * nObjects entries, or a flag, tracersSky,
    *  lagrangian or lagrangianSky array whose size is neither 0 nor the one
    *  of its layout), if an entry of valid is

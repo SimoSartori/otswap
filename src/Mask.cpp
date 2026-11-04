@@ -463,6 +463,7 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
                     "has a valid displacement at entry " + std::to_string(k));
       continue;
     }
+    if (result.valid[k] == 0) continue;
     for (std::size_t c = 0; c < 3; ++c)
       if (!std::isfinite(result.displacement[3*k+c]))
         throw Error("the result is malformed: displacement holds a non-finite coordinate at entry " +
@@ -527,6 +528,13 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
   counts.maxUnobservedPixelsCrossed = maxUnobservedPixelsCrossed;
   counts.displacementsCrossingMask += (std::size_t)(nValidBefore - nValidAfter);
 
+  const bool mean = result.nRealizationsMean > 1 && nRealizations == 1 &&
+                    result.validRealizations.size() == nObjects;
+  std::vector<unsigned> averaged;
+  if (mean) averaged = result.validRealizations;
   internal::summarize(result);
+  if (mean)
+    for (std::size_t i = 0; i < nObjects; ++i)
+      if (result.validRealizations[i] > 0) result.validRealizations[i] = averaged[i];
   result.filteredNside = mask.nside();
 }

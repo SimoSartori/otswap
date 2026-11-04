@@ -161,9 +161,10 @@ namespace otswap {
      *  any other string is a name, looked up in the last line starting with
      *  "###" before the first data row, which is where io::write puts the
      *  names. Lines that are empty, hold only blanks, tabs and @p delimiter,
-     *  or hold @p comment as their first other character are skipped; every
-     *  other line is a data row, so a line of text such as a header must
-     *  start with @p comment, after any blanks, tabs or @p delimiter. Fields
+     *  hold @p comment as their first other character, or start with "###"
+     *  (a names line, whatever @p comment is) are skipped; every other line
+     *  is a data row, so a line of text such as a header must start with
+     *  @p comment, after any blanks, tabs or @p delimiter. Fields
      *  are separated by @p delimiter, blanks or tabs. Each requested field,
      *  and the first field of every data row, must be a number as a whole:
      *  decimal, hexadecimal (0x10), nan, inf or infinity, in any case and
@@ -273,6 +274,29 @@ namespace otswap {
      *  the file).
      */
     std::vector<Keyword> readKeywords (const std::string& file, const std::string& extname = "");
+
+    /**
+     *  @brief The names of the columns of a table, in column order: the
+     *  names io::read finds in the same file.
+     *
+     *  FITS (a file name ending in .fits, .fit or .fits.gz): the TTYPEn of
+     *  the table in HDU 2 or, with @p extname, of the HDU of that EXTNAME,
+     *  compared ignoring case, as written. io::read looks a name up
+     *  ignoring case.
+     *
+     *  ASCII: the fields of the last line starting with "###" before the
+     *  first data row, separated by @p delimiter, blanks or tabs, which is
+     *  where io::read looks names up with the same @p delimiter and
+     *  @p comment; @p extname is ignored. A part written to a twin file is
+     *  read by giving that file, twinFile(file, twin).
+     *
+     *  @exception Error if the file cannot be opened or is not a valid FITS
+     *  file, if HDU 2 or the HDU of that EXTNAME is missing or is not a
+     *  table, or if an ASCII file has no "###" line before its first data
+     *  row; the message names the file.
+     */
+    std::vector<std::string> columnNames (const std::string& file, const std::string& extname = "",
+                                          char delimiter = ' ', char comment = '#');
 
     /**
      *  @brief One table of a file holding several, for writeParts.
@@ -413,25 +437,95 @@ namespace otswap {
      *    Displacement, ValidRealizations, Selection (18 columns);
      *  - Id first (one more column) when Result::ids is not empty.
      *
-     *  'D' values are written with 9 significant digits in ASCII. Keywords:
-     *  those of the reconstruction, listed with writeDisplacementComplete.
-     *  In FITS the table is named DISPLACEMENTS.
+     *  'D' values are written with 9 significant digits in ASCII, so a
+     *  position or displacement read back from ASCII equals the one written
+     *  within that rounding; FITS stores the doubles themselves. Keywords:
+     *  those of the reconstruction, listed with writeDisplacementComplete,
+     *  and MPSPART = 1 and DISTPART = 1 when the profile and the table are
+     *  written. In FITS the table is named DISPLACEMENTS.
+     *
+     *  A lightcone file also holds the mps(z) profile and the distance
+     *  table of the result, as writeDisplacementComplete writes them (the
+     *  same columns and keywords, 17 digits in ASCII, the HDUs MPSPROF and
+     *  DISTANCE in FITS, the twin files .mps and .distances in ASCII), each
+     *  with its own PRODUCT, mean displacements mps profile and mean
+     *  displacements distance table. Each is written when lightconeTables is
+     *  true, the result is a lightcone and holds it: the profile when
+     *  mpsProfile is not empty, the table when distances is not null. The
+     *  file then carries both, and readDisplacementMean returns them.
      *
      *  @param file the file to write; its extension sets the format.
      *  @param result a box or lightcone result.
      *  @param groups the groups to write, in this order; empty for the
      *  default of the result's geometry.
+     *  @param lightconeTables false to leave out the profile and the table
+     *  of a lightcone result; no effect on a box result, which has neither.
      *
      *  @exception Error if a group is repeated or does not apply to the
      *  geometry (OutsideBox to a lightcone, or a lightcone group to a box),
      *  if a field a group reads does not have the size of its
      *  layout, whatever the groups: if ids is neither empty nor one per
      *  object or holds a value twice, if result.nRealizations and
-     *  result.config.nRealizations differ, or if selection.boxLimits is set
-     *  and box is empty or differs from it; or as io::write.
+     *  result.config.nRealizations differ, if result.nRealizationsMean is 0,
+     *  or above 1 while result.nRealizations is not 1, if
+     *  selection.boxLimits is set and box is empty or differs from it, if
+     *  the profile written does not have one mps and one count per
+     *  redshift; or as io::write.
      */
     void writeDisplacementMean (const std::string& file, const Result& result,
-                                const std::vector<DisplacementGroup>& groups = {});
+                                const std::vector<DisplacementGroup>& groups = {},
+                                bool lightconeTables = true);
+
+    /**
+     *  @brief Read a file written by writeDisplacementMean into a Result
+     *  holding the mean as its only realization.
+     *
+     *  The geometry is the file's GEOMETRY, and its keywords are read as
+     *  readDisplacementComplete reads them: the config (but log, which is
+     *  &std::clog, and nRealizations, which is 1), filteredNside, selection,
+     *  mps and box. The Result has nRealizations = 1; displacement and
+     *  meanDisplacement both hold the mean displacement; valid is 1 where
+     *  the tracer has at least one valid realization; validRealizations is
+     *  the file's count; nRealizationsMean is NRECMEAN when the file holds
+     *  it, NREC otherwise, the number of realizations averaged.
+     *
+     *  Required columns: tracX..tracZ, displX..displZ and nValidRec, and in
+     *  a lightcone tracRA, tracDec and tracRed. The others are read when the
+     *  file holds them: id (ids, empty when the IDs are 0..nObjects-1),
+     *  lagrX..lagrZ (lagrangian), lagrRA..lagrRed (lagrangianSky, in a
+     *  lightcone), outsideRedshiftCut and outsideMask (lightcone),
+     *  outsideBox (box). Without them a flag is all 0, lagrangian is tracers
+     *  + meanDisplacement, and lagrangianSky is computed from tracers +
+     *  meanDisplacement with the distance table, as recomputeMeans does, or
+     *  is empty without the table. The profile and the table are read when the main table
+     *  declares them (MPSPART, DISTPART), from the HDUs or twin files of
+     *  writeDisplacementMean; a file of otswap 0.2 has neither.
+     *  elapsedSeconds is 0.
+     *
+     *  FITS reads back every double as written. ASCII reads back what was
+     *  written with 9 significant digits: the positions, the displacements
+     *  and the sky coordinates, the right ascension in [0, 360) as the
+     *  writer folds it; the profile and the table, with 17 digits, read back
+     *  identical. recomputeMeans on the Result read sets validRealizations
+     *  to 0 or 1, the count of its one realization.
+     *
+     *  @param file a mean displacement file; its extension sets the format.
+     *
+     *  @return the mean as a result of one realization.
+     *
+     *  @exception Error if the file cannot be read (as io::read); if its
+     *  PRODUCT is not that of writeDisplacementMean; if a keyword is
+     *  malformed or a required column is missing; if it does not hold
+     *  NOBJECTS rows; if a flag is neither 0 nor 1, a count of valid
+     *  realizations lies outside [0, nRealizationsMean], or an ID is
+     *  repeated; if the file records the tracer counts of the selection
+     *  (NTRAC) and one disagrees with the flags read; if a box file declares
+     *  a profile or a table; if a declared profile or table is missing, is
+     *  not the part written, by its PRODUCT, or is malformed. Every message
+     *  names the file, and a row by its ASCII line or FITS row, counted from
+     *  1.
+     */
+    Result readDisplacementMean (const std::string& file);
 
     /**
      *  @brief Write every realization of a result, losslessly, with what a
@@ -455,8 +549,9 @@ namespace otswap {
      *  given the distance table. readDisplacementComplete reads the file
      *  back into a Result.
      *
-     *  Keywords, those of writeDisplacementMean too: NREC, SEED (the seed
-     *  used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE
+     *  Keywords, those of writeDisplacementMean too: NREC and, when
+     *  Result::nRealizationsMean is above 1, NRECMEAN, the realizations
+     *  averaged (NREC is then 1); SEED (the seed used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE
      *  (silent, normal or detailed): the configuration; MPS for a box;
      *  BOXXLO, BOXXHI, BOXYLO, BOXYHI, BOXZLO, BOXZHI, Result::box when it
      *  is set, and BOXLIM = 1 when it holds the limits given to
@@ -468,8 +563,8 @@ namespace otswap {
      *  NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NDISPL and
      *  NDISPCR, the counts of Result::selection, each when it is not 0.
      *  Doubles are written as the shortest decimal that reads back as the
-     *  same value. Then, in this file only, MPSPART = 1 and DISTPART = 1
-     *  when the profile and the table are written.
+     *  same value. Then MPSPART = 1 and DISTPART = 1 when the profile and
+     *  the table are written.
      *
      *  The profile, columns redshift, MPS and nTracers (J), with the
      *  keywords ZMIN, ZMAX and MPSREPR of writeMpsProfile, and the table,
@@ -497,9 +592,11 @@ namespace otswap {
      *  @exception Error if a field read does not have the size of its
      *  layout (tracersSky included, for a lightcone), if ids is neither empty
      *  nor one per object or holds a value twice, if result.nRealizations
-     *  and result.config.nRealizations differ, if selection.boxLimits is set
-     *  and box is empty or differs from it, if the profile written does not
-     *  have one mps and one count per redshift, or as io::write.
+     *  and result.config.nRealizations differ, if result.nRealizationsMean
+     *  is 0, or above 1 while result.nRealizations is not 1, if
+     *  selection.boxLimits is set and box is empty or differs from it, if
+     *  the profile written does not have one mps and one count per
+     *  redshift, or as io::write.
      */
     void writeDisplacementComplete (const std::string& file, const Result& result,
                                     bool lightconeTables = true);
@@ -508,8 +605,8 @@ namespace otswap {
      *  @brief Read a file written by writeDisplacementComplete back into a
      *  Result.
      *
-     *  Read as written: the geometry, ids, config (but log, which is
-     *  &std::clog), tracers, tracersSky (degrees to radians), displacement,
+     *  Read as written: the geometry, ids, nRealizationsMean (NRECMEAN, 1
+     *  when absent), config (but log, which is &std::clog), tracers, tracersSky (degrees to radians), displacement,
      *  valid, the three flags, filteredNside, selection, mps,
      *  box, mpsProfile, and the distance table, as a new table equal to the
      *  one written. Recomputed with recomputeMeans: validRealizations,

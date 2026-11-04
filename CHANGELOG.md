@@ -8,8 +8,36 @@
   `shuffle`, random draws over `std::mt19937` that give the same values on
   every supported platform and compiler. Their algorithms are fixed: later
   versions do not change them.
+- `io::readDisplacementMean` (Python `io.read_displacement_mean`) reads a mean
+  displacement file, of this version or of otswap 0.2, into a `Result` of one
+  realization holding the mean, with the counts of valid realizations and
+  the number of realizations averaged.
+- `Result::nRealizationsMean` (Python `Result.n_realizations_mean`), the
+  number of realizations averaged into a mean read from file; 1 otherwise.
+  The displacement writers record a value above 1 as the new keyword
+  NRECMEAN, with NREC = 1, and refuse 0, or a value above 1 with several
+  realizations. `validRealizations` is then the count of the realizations
+  averaged that were valid, always at most nRealizations x
+  nRealizationsMean; `rejectMaskCrossings` on such a result sets it to 0 for
+  the objects it rejects and keeps it for the others.
+- `io::columnNames` (Python `io.column_names`): the names of the columns of
+  a table, those `io::read` finds.
+- The mean displacement file of a lightcone holds the mps(z) profile and the
+  distance table, as the complete file does: FITS extensions MPSPROF and
+  DISTANCE, or ASCII twin files `.mps` and `.distances`, each with its own
+  PRODUCT, and the keywords MPSPART and DISTPART. `writeDisplacementMean`
+  (Python `write_displacement_mean`) takes `lightconeTables`
+  (`lightcone_tables`), true by default, to leave them out.
 
 ### Changed
+
+- `rejectMaskCrossings` (Python `reject_mask_crossings`) requires finite
+  values only in the valid displacements, which it reads, so it accepts a
+  NaN in a cleared entry, as a mean read from file holds for a tracer
+  without valid realizations.
+- The executable writes the `MPS_` file of `printMps` only when neither
+  displacement file is written, those files holding the profile; in ASCII it
+  reports the twin files of the mean file too.
 
 - `reconstructBox` and `reconstructLightcone` refuse more than 2^32 − 1
   tracers.
@@ -33,7 +61,10 @@
   not start with the comment character, now an error where it was skipped.
   The message names the file, the line and the field. A comment may follow
   blanks, tabs or the delimiter: such a line, read as data before when it
-  held a number, is now skipped. A carriage return ending a line is ignored.
+  held a number, is now skipped. A line starting with `###` is the names
+  line, skipped as data whatever the comment character, so columns are read
+  by name with any comment character. A carriage return ending a line is
+  ignored.
 - Messages count as the file shows it, and say so: an ASCII line or FITS row
   from 1 ("line 7 (from 1)"), a field from 1, a row `io::write` is given in
   memory from 0. `readBiasTable` names an ASCII entry by its file line, no

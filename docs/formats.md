@@ -18,8 +18,9 @@ columns of a table, as double, and others exactly as 64-bit integers.
 - **ASCII:** a column given by digits alone is a 0-based index; any other
   name is looked up in the last line starting with `###` before the first data
   row, where otswap writes the names. Lines that are empty, hold only
-  separators, or start with the comment character (`#` by default) after any
-  separators are skipped; every other line is a data row, so a header line
+  separators, start with the comment character (`#` by default) after any
+  separators, or start with `###` (a names line, whatever the comment
+  character) are skipped; every other line is a data row, so a header line
   must start with the comment character. Fields are separated by the delimiter, blanks or
   tabs. Each requested field, and the first field of every data row, must be
   a number as a whole: decimal, hexadecimal (`0x10`), `nan`, `inf` or
@@ -34,7 +35,10 @@ columns of a table, as double, and others exactly as 64-bit integers.
   written with NaN rows reads back with them.
 
 {cpp:func}`otswap::io::readKeywords` and {py:func}`otswap.io.read_keywords`
-read the keywords of a table.
+read the keywords of a table, and {cpp:func}`otswap::io::columnNames` and
+{py:func}`otswap.io.column_names` the names of its columns, those `read`
+finds: in FITS the `TTYPEn` of the table, in ASCII the fields of the last
+`###` line before the first data row.
 
 A file can hold several tables, written by {cpp:func}`otswap::io::writeParts`
 or {py:func}`otswap.io.write_parts`: in FITS one extension per table, each
@@ -78,11 +82,18 @@ columns and the keywords are listed with each.
 | `io::writeRealSpaceCatalog` | `io.write_real_space_catalog` | a catalogue moved to real space |
 | `io::writeMpsProfile` | `io.write_mps_profile` | a mean particle separation profile |
 
-The complete displacement file has its reader, which rebuilds the `Result`:
+The two displacement files have their readers, which rebuild a `Result`:
 
 | C++ | Python | Reads |
 |---|---|---|
+| `io::readDisplacementMean` | `io.read_displacement_mean` | a mean displacement file, of this version or of otswap 0.2, as a `Result` of one realization holding the mean |
 | `io::readDisplacementComplete` | `io.read_displacement_complete` | a complete displacement file, of this version or of otswap 0.1 |
+
+The mean file is written with 9 significant digits in ASCII, so the
+positions, displacements and sky coordinates read back from it are those
+written within that rounding; FITS stores the doubles themselves, and the
+profile and distance table of a lightcone are written with 17 digits in
+both. The complete file is lossless in both formats.
 
 In Python the groups are strings, the C++ names in snake case
 (`DisplacementGroup::TracerSky` is `"tracer_sky"`).
@@ -93,6 +104,9 @@ In Python the groups are strings, the C++ names in snake case
 ```
 
 ```{doxygenenum} otswap::io::DisplacementGroup
+```
+
+```{doxygenfunction} otswap::io::readDisplacementMean
 ```
 
 ### Complete displacements

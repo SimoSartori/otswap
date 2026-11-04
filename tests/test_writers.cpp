@@ -203,7 +203,8 @@ namespace {
     const MpsProfile& p = read.mpsProfile;
     const MpsProfile& q = expected.mpsProfile;
     if (read.nObjects != expected.nObjects || read.nRealizations != expected.nRealizations ||
-        read.geometry != expected.geometry) return "nObjects, nRealizations or geometry";
+        read.nRealizationsMean != expected.nRealizationsMean || read.geometry != expected.geometry)
+      return "nObjects, nRealizations, nRealizationsMean or geometry";
     if (read.ids != expected.ids) return "ids";
     if (a.nRealizations != b.nRealizations || !same_bits({a.convergence, a.cellSize}, {b.convergence, b.cellSize}) ||
         a.seed != b.seed || a.rejectCrossings != b.rejectCrossings ||
@@ -347,7 +348,7 @@ int main ()
           "the first keywords: " + text.substr(0, 400));
     check(text.find("## ZCUTMIN = 0.3 /") != std::string::npos && text.find("## ZCUTMAX = 0.6 /") != std::string::npos &&
           text.find("## MASK = 1 /") != std::string::npos && text.find("## FILTNSID = 64 /") != std::string::npos &&
-          text.find("## MAXPIXCR = 0 /") != std::string::npos && text.find("## MPS") == std::string::npos,
+          text.find("## MAXPIXCR = 0 /") != std::string::npos && text.find("## MPS =") == std::string::npos,
           "the selection keywords, and no MPS in a lightcone");
     check(text.find("# tracRA               observed right ascension, declination and redshift of the tracer [deg]\n") !=
             std::string::npos, "descriptions with units");
@@ -409,7 +410,7 @@ int main ()
           "a box without limits: OutsideBox written on request, all 0");
     check(throws_naming([&] { io::writeDisplacementMean(file, lc, {io::DisplacementGroup::OutsideBox}); },
                         "OutsideBox describes a box"), "OutsideBox on a lightcone is refused");
-    std::remove(file.c_str());
+    remove_with_twins(file);
     std::remove(boxFile.c_str());
   }
 
@@ -507,7 +508,7 @@ int main ()
 
   group("Both displacement writers: the reconstruction's keywords, in their order, each read back as written");
   {
-    const char* const order[] = {"PRODUCT", "OTSWAPV", "GEOMETRY", "NOBJECTS", "NREC", "SEED", "CONVERG",
+    const char* const order[] = {"PRODUCT", "OTSWAPV", "GEOMETRY", "NOBJECTS", "NREC", "NRECMEAN", "SEED", "CONVERG",
                                  "CELLSIZE", "REJCROSS", "CFMAXPIX", "VERBOSE", "MPS", "BOXXLO", "BOXXHI",
                                  "BOXYLO", "BOXYHI", "BOXZLO", "BOXZHI", "BOXLIM", "ZCUTMIN", "ZCUTMAX",
                                  "MASK", "FILTNSID", "MAXPIXCR", "NTRAC", "NTRCUT", "NTRMASK", "NTRBOTH",
@@ -591,12 +592,8 @@ int main ()
         if (extension == ".fits")
           check(value_of(k, "EXTNAME") == "DISPLACEMENTS" && internal::has_part(file, "DISPLACEMENTS"),
                 label + "the table named DISPLACEMENTS");
-        if (complete)
-          check(value_of(k, "MPSPART") == "1" && value_of(k, "DISTPART") == "1",
-                label + "the parts declared");
-        else
-          check(value_of(k, "MPSPART") == "missing" && value_of(k, "DISTPART") == "missing",
-                label + "no part in the mean file");
+        check(value_of(k, "MPSPART") == "1" && value_of(k, "DISTPART") == "1" && value_of(k, "NRECMEAN") == "missing",
+              label + "the parts of the lightcone declared; no NRECMEAN for a reconstruction");
 
         const std::vector<io::Keyword> b = keywords_of(box);
         check(box_matches(b, box.box) && value_of(b, "BOXLIM") == "missing" && counts_match(b, box.selection) &&
@@ -612,7 +609,7 @@ int main ()
               value_of(h, "REJCROSS") == "0" && value_of(h, "CFMAXPIX") == "7" &&
               value_of(h, "VERBOSE") == "detailed" && value_of(h, "CONVERG") == "0.1",
               label + "every count and the configuration of a hand-built result");
-        std::remove(file.c_str());
+        remove_with_twins(file);
       }
   }
 
@@ -1066,6 +1063,348 @@ int main ()
     io::writeDisplacementComplete(file, badProfile, false);
     check(exists(file), "a malformed profile left out is not read");
     std::remove(file.c_str());
+  }
+
+  auto mean_of = [] (Result r, const bool tables = true) {
+    const std::size_t m = r.nObjects;
+    r.nRealizationsMean = r.nRealizations;
+    r.nRealizations = 1;
+    r.config.nRealizations = 1;
+    r.displacement = r.meanDisplacement;
+    r.valid.assign(m, 0);
+    for (std::size_t i = 0; i < m; ++i) r.valid[i] = r.validRealizations[i] > 0 ? 1 : 0;
+    for (std::vector<std::uint8_t>* flags : {&r.outsideRedshiftCut, &r.outsideMask, &r.outsideBox})
+      if (flags->empty()) flags->assign(m, 0);
+    if (!tables) {
+      r.mpsProfile = MpsProfile();
+      r.distances = nullptr;
+    }
+    r.elapsedSeconds = 0.;
+    return r;
+  };
+  auto close9 = [] (const std::vector<double>& a, const std::vector<double>& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t j = 0; j < a.size(); ++j) {
+      if (std::isnan(a[j]) || std::isnan(b[j])) {
+        if (std::isnan(a[j]) != std::isnan(b[j])) return false;
+        continue;
+      }
+      if (std::fabs(a[j] - b[j]) > 1.e-8 * std::fabs(b[j])) return false;
+    }
+    return true;
+  };
+  auto mean_difference = [&close9] (Result read, const Result& expected, const bool ascii) -> std::string {
+    const std::pair<const char*, std::vector<double> Result::*> fields[] = {
+      {"tracers", &Result::tracers}, {"displacement", &Result::displacement},
+      {"meanDisplacement", &Result::meanDisplacement}, {"lagrangian", &Result::lagrangian},
+      {"tracersSky", &Result::tracersSky}, {"lagrangianSky", &Result::lagrangianSky}};
+    for (const auto& f : fields) {
+      const bool sky = f.second == &Result::tracersSky || f.second == &Result::lagrangianSky;
+      const std::vector<double>& a = read.*(f.second);
+      const std::vector<double>& b = expected.*(f.second);
+      if (!(ascii ? close9(a, b) : sky ? close_sky(a, b) : same_bits(a, b))) return f.first;
+      read.*(f.second) = b;
+    }
+    return difference(read, expected);
+  };
+
+  group("writeDisplacementMean: a lightcone's profile and table as in the complete file, their own PRODUCT");
+  {
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string mean = temporary("mean_parts" + ext), complete = temporary("complete_parts" + ext);
+      remove_with_twins(mean);
+      io::writeDisplacementMean(mean, lc);
+      io::writeDisplacementComplete(complete, lc);
+      const std::vector<io::Keyword> k = internal::read_keywords(mean);
+      check(value_of(k, "MPSPART") == "1" && value_of(k, "DISTPART") == "1", ext + ": both parts declared");
+      if (ext == ".fits")
+        check(extname_of(mean, 3) == "MPSPROF" && extname_of(mean, 4) == "DISTANCE" && extname_of(mean, 5) == "missing",
+              ext + ": the HDUs MPSPROF and DISTANCE after DISPLACEMENTS");
+      struct Part { const char* extname; const char* twin; std::vector<std::string> doubles, integers; const char* product; };
+      for (const Part& p : {Part{"MPSPROF", "mps", {"redshift", "MPS"}, {"nTracers"}, "mps profile"},
+                            Part{"DISTANCE", "distances", {"redshift", "distance"}, {}, "distance table"}}) {
+        const io::Table a = io::readPart(mean, p.extname, p.twin, p.doubles, p.integers);
+        const io::Table b = io::readPart(complete, p.extname, p.twin, p.doubles, p.integers);
+        check(a.nRows > 0 && a.nRows == b.nRows && same_bits(a.values, b.values) && a.integers == b.integers,
+              ext + ": " + p.product + ": the complete file's rows, every double identical");
+        auto keywords_of = [&] (const std::string& file) {
+          return ext == ".fits" ? internal::read_keywords(file, p.extname)
+                                : internal::read_keywords(io::twinFile(file, p.twin));
+        };
+        std::vector<io::Keyword> ka = keywords_of(mean), kb = keywords_of(complete);
+        const bool product = value_of(ka, "PRODUCT") == std::string("mean displacements ") + p.product &&
+                             value_of(kb, "PRODUCT") == std::string("complete displacements ") + p.product;
+        bool same = ka.size() == kb.size();
+        for (std::size_t j = 0; same && j < ka.size(); ++j)
+          same = ka[j].name == kb[j].name && (ka[j].name == "PRODUCT" || ka[j].value == kb[j].value);
+        check(product && same, ext + ": " + p.product + ": its own PRODUCT, the complete file's other keywords");
+      }
+
+      remove_with_twins(mean);
+      io::writeDisplacementMean(mean, lc, {}, false);
+      const std::vector<io::Keyword> off = internal::read_keywords(mean);
+      check(value_of(off, "MPSPART") == "missing" && value_of(off, "DISTPART") == "missing" &&
+            (ext == ".fits" ? extname_of(mean, 3) == "missing"
+                            : !exists(io::twinFile(mean, "mps")) && !exists(io::twinFile(mean, "distances"))),
+            ext + ": switched off, neither part is declared or written");
+      const std::string boxFile = temporary("mean_parts_box" + ext);
+      remove_with_twins(boxFile);
+      io::writeDisplacementMean(boxFile, box);
+      check(value_of(internal::read_keywords(boxFile), "MPSPART") == "missing" &&
+            (ext == ".fits" ? extname_of(boxFile, 3) == "missing" : !exists(io::twinFile(boxFile, "mps"))),
+            ext + ": a box has neither");
+      remove_with_twins(mean);
+      remove_with_twins(complete);
+      remove_with_twins(boxFile);
+    }
+    Result badProfile = lc;
+    badProfile.mpsProfile.mps.pop_back();
+    const std::string file = temporary("mean_bad_profile.dat");
+    remove_with_twins(file);
+    check(throws_naming([&] { io::writeDisplacementMean(file, badProfile); }, "the mps of the profile") &&
+          !exists(file), "a malformed profile is refused before anything is written");
+    io::writeDisplacementMean(file, badProfile, {}, false);
+    check(exists(file), "a malformed profile left out is not read");
+    remove_with_twins(file);
+  }
+
+  group("readDisplacementMean: every field back, FITS exactly and ASCII within its 9 digits, box and lightcone");
+  {
+    Result withIds = lc;
+    withIds.ids.resize(n);
+    for (std::size_t i = 0; i < n; ++i) withIds.ids[i] = 5 * (std::int64_t)i - 70;
+    for (const std::string ext : {".dat", ".fits"})
+      for (const std::pair<const char*, const Result*>& r : {std::pair<const char*, const Result*>{"lightcone", &lc},
+                                                            {"lightcone with IDs", &withIds}, {"box", &box},
+                                                            {"box with limits", &limited}}) {
+        const std::string file = temporary(std::string("mean_back") + ext);
+        remove_with_twins(file);
+        io::writeDisplacementMean(file, *r.second);
+        const Result read = io::readDisplacementMean(file);
+        const std::string d = mean_difference(read, mean_of(*r.second), ext == ".dat");
+        check(d.empty(), ext + ", " + r.first + ": " + (d.empty() ? "back" : d + " differs"));
+        bool valid = read.valid.size() == n;
+        for (std::size_t i = 0; valid && i < n; ++i)
+          valid = read.valid[i] == (r.second->validRealizations[i] > 0 ? 1 : 0) &&
+                  read.validRealizations[i] == r.second->validRealizations[i];
+        check(valid && read.nRealizations == 1 && read.config.nRealizations == 1 && read.nRealizationsMean == 3,
+              ext + ", " + r.first + ": one realization, valid where nValidRec > 0, the counts, NREC as the "
+              "realizations averaged");
+        remove_with_twins(file);
+      }
+
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string mean = temporary("mean_vs_complete" + ext), complete = temporary("complete_vs_mean" + ext);
+      io::writeDisplacementMean(mean, lc);
+      io::writeDisplacementComplete(complete, lc);
+      const Result a = io::readDisplacementMean(mean), b = io::readDisplacementComplete(complete);
+      check(!a.mpsProfile.redshift.empty() && a.distances != nullptr &&
+            same_bits(a.mpsProfile.mps, b.mpsProfile.mps) && a.mpsProfile.count == b.mpsProfile.count &&
+            same_bits(a.mpsProfile.redshift, b.mpsProfile.redshift) &&
+            same_bits({a.mpsProfile.redshiftMin, a.mpsProfile.redshiftMax, a.mpsProfile.representative},
+                      {b.mpsProfile.redshiftMin, b.mpsProfile.redshiftMax, b.mpsProfile.representative}) &&
+            same_bits(a.distances->redshift(), b.distances->redshift()) &&
+            same_bits(a.distances->distance(), b.distances->distance()) &&
+            same_bits(a.distances->growthRate(), b.distances->growthRate()),
+            ext + ": the profile and the table equal to those the complete file gives");
+      remove_with_twins(mean);
+      remove_with_twins(complete);
+    }
+  }
+
+  group("readDisplacementMean: a file without parts, a subset of the groups, the files of otswap 0.2.1");
+  {
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string file = temporary("mean_subset" + ext);
+      remove_with_twins(file);
+      io::writeDisplacementMean(file, lc, {}, false);
+      const Result off = io::readDisplacementMean(file);
+      const std::string d = mean_difference(off, mean_of(lc, false), ext == ".dat");
+      check(d.empty() && off.mpsProfile.redshift.empty() && off.distances == nullptr && !off.lagrangianSky.empty(),
+            ext + ": without its parts, no profile or table; lagrangianSky from its columns: " + (d.empty() ? "back" : d));
+      remove_with_twins(file);
+    }
+
+    using G = io::DisplacementGroup;
+    const std::string fits = temporary("mean_subset.fits");
+    io::writeDisplacementMean(fits, box, {G::Tracer, G::Displacement, G::ValidRealizations});
+    const std::string db = mean_difference(io::readDisplacementMean(fits), mean_of(box), false);
+    check(db.empty(), "a box of the required groups only: lagrangian as tracers + the mean, IDs and flags as none: " +
+                      (db.empty() ? "back" : db + " differs"));
+    Result lcExpected = mean_of(lc);
+    lcExpected.outsideRedshiftCut.assign(n, 0);
+    lcExpected.outsideMask.assign(n, 0);
+    io::writeDisplacementMean(fits, lc, {G::TracerSky, G::Tracer, G::Displacement, G::ValidRealizations});
+    const Result subset = io::readDisplacementMean(fits);
+    const std::string dl = mean_difference(subset, lcExpected, false);
+    check(dl.empty() && same_bits(subset.lagrangianSky, lc.lagrangianSky),
+          "a lightcone of the required groups: lagrangianSky computed with the table, bit for bit; flags as none "
+          "(the counts are not checked against flags not read): " + (dl.empty() ? "back" : dl + " differs"));
+    io::writeDisplacementMean(fits, lc, {G::TracerSky, G::Tracer, G::Displacement, G::ValidRealizations}, false);
+    check(io::readDisplacementMean(fits).lagrangianSky.empty(), "without the table and its columns, no lagrangianSky");
+    remove_with_twins(fits);
+
+    const Result box021 = reconstructBox(fixtures_v010::box_tracers(), {}, fixtures_v010::config());
+    Result lc021 = reconstructLightcone(fixtures_v010::lightcone_tracers(), fixtures_v010::lightcone_randoms(),
+                                        fixtures_v010::mask(), 1, fixtures_v010::table(), fixtures_v010::config(),
+                                        fixtures_v010::cut());
+    lc021.ids = fixtures_v010::lightcone_ids();
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string dir = std::string(OTSWAP_TEST_DATA) + "/v0.2.1_mean_";
+      for (const std::pair<const char*, const Result*>& r : {std::pair<const char*, const Result*>{"box", &box021},
+                                                            {"lightcone", &lc021}}) {
+        const std::string fixture = dir + r.first + ext;
+        const std::string fresh = temporary(std::string("mean_fresh_") + r.first + ext);
+        remove_with_twins(fresh);
+        io::writeDisplacementMean(fresh, *r.second, {}, false);
+        const Result old = io::readDisplacementMean(fixture);
+        const std::string d = difference(old, io::readDisplacementMean(fresh));
+        const std::string e = mean_difference(old, mean_of(*r.second, false), ext == ".dat");
+        check(value_of(internal::read_keywords(fixture), "OTSWAPV") == "0.2.1" && old.mpsProfile.redshift.empty() &&
+              old.distances == nullptr && old.nRealizationsMean == 2 && d.empty() && e.empty(),
+              ext + ", " + r.first + ": read as a file of this version without parts: " +
+              (d.empty() ? "" : d + " differs from this version's file; ") + (e.empty() ? "back" : e + " differs"));
+        remove_with_twins(fresh);
+      }
+    }
+  }
+
+  group("nRealizationsMean: NRECMEAN with NREC = 1, read back by both readers; the writers' consistency checks");
+  {
+    const std::string fits = temporary("mean_of_mean.fits");
+    io::writeDisplacementMean(fits, lc);
+    const Result mean = io::readDisplacementMean(fits);
+    for (const bool complete : {false, true})
+      for (const std::string ext : {".dat", ".fits"}) {
+        const std::string file = temporary(std::string(complete ? "complete" : "mean") + "_nrecmean" + ext);
+        if (complete) io::writeDisplacementComplete(file, mean);
+        else io::writeDisplacementMean(file, mean);
+        const std::vector<io::Keyword> k = internal::read_keywords(file);
+        const Result back = complete ? io::readDisplacementComplete(file) : io::readDisplacementMean(file);
+        check(value_of(k, "NREC") == "1" && value_of(k, "NRECMEAN") == "3" && back.nRealizationsMean == 3 &&
+              back.nRealizations == 1, std::string(complete ? "complete" : "mean") + ext +
+              ": NREC = 1 and NRECMEAN = 3 written, and read back as nRealizationsMean");
+        remove_with_twins(file);
+      }
+    std::vector<double> holes(12 * 64 * 64, 1.);
+    for (std::size_t p = 0; p < holes.size(); p += 3) holes[p] = 0.;
+    Result filtered = mean;
+    rejectMaskCrossings(filtered, Mask(holes, PixelOrdering::Ring), 0);
+    std::size_t rejected = 0, kept = 0, averaged = 0;
+    bool counts = filtered.nRealizationsMean == 3 && filtered.validRealizations.size() == n;
+    for (std::size_t i = 0; counts && i < n; ++i) {
+      counts = filtered.validRealizations[i] <= filtered.nRealizations * filtered.nRealizationsMean;
+      if (mean.valid[i] == 1 && filtered.valid[i] == 0) {
+        ++rejected;
+        counts = counts && filtered.validRealizations[i] == 0;
+      }
+      else if (filtered.valid[i] == 1) {
+        ++kept;
+        averaged += mean.validRealizations[i] > 1;
+        counts = counts && filtered.validRealizations[i] == mean.validRealizations[i];
+      }
+      else counts = counts && filtered.validRealizations[i] == 0;
+    }
+    check(counts && rejected > 0 && kept > 0 && averaged > 0,
+          "rejectMaskCrossings on a mean: the count cleared for the objects rejected (" + std::to_string(rejected) +
+          "), kept for the others (" + std::to_string(kept) + "), each at most nRealizations x nRealizationsMean");
+    const std::string complete = temporary("complete_nrecmean.dat");
+    io::writeDisplacementComplete(complete, lc);
+    check(io::readDisplacementComplete(complete).nRealizationsMean == 1,
+          "a complete file without NRECMEAN: nRealizationsMean 1");
+    remove_with_twins(complete);
+    remove_with_twins(fits);
+
+    const std::string file = temporary("nrecmean_refused.dat");
+    remove_with_twins(file);
+    Result zero = box;
+    zero.nRealizationsMean = 0;
+    Result several = box;
+    several.nRealizationsMean = 5;
+    for (const bool complete : {false, true}) {
+      auto write = [&] (const Result& r) {
+        if (complete) io::writeDisplacementComplete(file, r);
+        else io::writeDisplacementMean(file, r, {io::DisplacementGroup::Id});
+      };
+      check(throws_naming([&] { write(zero); }, "the result holds nRealizationsMean = 0; it must be at least 1") &&
+            throws_naming([&] { write(several); }, "the result holds nRealizationsMean = 5 and nRealizations = 3; "
+                          "a mean over several realizations is held as one, so nRealizations must be 1") &&
+            !exists(file), std::string(complete ? "complete" : "mean") +
+            ": nRealizationsMean 0, or above 1 with several realizations, refused before writing, whatever the groups");
+    }
+  }
+
+  group("readDisplacementMean: refusals, each naming the file and what is wrong");
+  {
+    const std::string file = temporary("mean_refused.dat");
+    remove_with_twins(file);
+    io::writeDisplacementMean(file, limited);
+    const std::string good = text_of(file);
+    const std::string prefix = "cannot read the mean displacement file " + file + ": ";
+    auto refused = [&] (const std::string& text, const std::string& message) {
+      write_text(file, text);
+      return throws_naming([&] { io::readDisplacementMean(file); }, prefix + message);
+    };
+    check(refused(replaced(good, "## PRODUCT = displacements", "## PRODUCT = complete displacements"),
+                  "its PRODUCT is 'complete displacements', where a mean displacement file holds 'displacements'"),
+          "a file of another product");
+    check(refused(replaced(good, "## NOBJECTS = 900", "## NOBJECTS = 901"), "it holds 900 rows, where NOBJECTS = 901 "
+                  "are expected"), "rows not NOBJECTS");
+    check(refused(replaced(good, "## NREC = 3 / realizations\n", "## NREC = 3 / realizations\n## NRECMEAN = 0 / averaged\n"),
+                  "NRECMEAN is 0; a mean is taken over at least one realization"), "NRECMEAN 0");
+    check(refused(replaced(good, "## NREC = 3 / realizations\n", "## NREC = 3 / realizations\n## NRECMEAN = 30 / averaged\n"),
+                  "it holds NRECMEAN = 30 and NREC = 3; a mean over several realizations is written with NREC = 1"),
+          "NRECMEAN with NREC above 1");
+    const std::size_t header = (std::size_t)std::count(good.begin(), good.begin() + good.find('\n', good.find("###")) + 1, '\n');
+    auto line = [&] (const std::size_t r) { return "line " + std::to_string(header + r + 1) + " (from 1)"; };
+    check(refused(with_field(good, 3, 9, "4"), "the column nValidRec holds 4 at " + line(3) +
+                  "; it must lie in [0, 3], the number of realizations averaged"), "a count above the realizations");
+    check(refused(with_field(good, 3, 9, "-1"), "the column nValidRec holds -1 at " + line(3)), "a negative count");
+    check(refused(with_field(good, 2, 10, "2"), "the column outsideBox holds 2 at " + line(2) + "; it must be 0 or 1"),
+          "a flag neither 0 nor 1");
+    const std::string boxCount = std::to_string(limited.selection.tracersOutsideBox);
+    check(refused(replaced(good, "## NTRBOX = " + boxCount, "## NTRBOX = 1"),
+                  "NTRBOX records 1 tracers, where outsideBox flags " + boxCount), "a count that disagrees with the flags");
+
+    using G = io::DisplacementGroup;
+    for (const std::pair<std::vector<G>, const char*>& c : {
+           std::pair<std::vector<G>, const char*>{{G::Displacement, G::ValidRealizations}, "tracX"},
+           {{G::Tracer, G::ValidRealizations}, "displX"}, {{G::Tracer, G::Displacement}, "nValidRec"}}) {
+      io::writeDisplacementMean(file, box, c.first);
+      check(throws_naming([&] { io::readDisplacementMean(file); },
+                          prefix + "it has no column " + c.second + ", which a mean displacement file holds"),
+            std::string("a required column missing: ") + c.second);
+    }
+    io::writeDisplacementMean(file, lc, {G::Tracer, G::Displacement, G::ValidRealizations});
+    check(throws_naming([&] { io::readDisplacementMean(file); },
+                        prefix + "it has no column tracRA, which a mean displacement file holds"),
+          "a lightcone without its sky positions");
+    io::writeDisplacementComplete(file, lc);
+    check(throws_naming([&] { io::readDisplacementMean(file); }, prefix + "its PRODUCT is 'complete displacements'"),
+          "a complete file is not a mean file");
+    remove_with_twins(file);
+
+    const std::string fits = temporary("mean_refused.fits");
+    io::writeDisplacementMean(fits, lc);
+    set_cell(fits, "", "outsideMask", 4, 3);
+    check(throws_naming([&] { io::readDisplacementMean(fits); },
+                        "cannot read the mean displacement file " + fits +
+                        ": the column outsideMask holds 3 at row 4 (from 1); it must be 0 or 1"),
+          "FITS: a flag neither 0 nor 1, its row from 1");
+    io::writeDisplacementMean(fits, lc);
+    delete_hdu(fits, "MPSPROF");
+    check(throws_naming([&] { io::readDisplacementMean(fits); },
+                        "it declares MPSPART = 1, and the HDU MPSPROF of " + fits + " does not exist"),
+          "FITS: a declared profile missing");
+    const std::string mixed = temporary("mean_mixed.fits");
+    io::writeDisplacementMean(mixed, lc);
+    set_keyword(mixed, "DISTANCE", "PRODUCT", "complete displacements distance table");
+    check(throws_naming([&] { io::readDisplacementMean(mixed); },
+                        "its PRODUCT is 'complete displacements distance table', where 'mean displacements "
+                        "distance table' is expected"),
+          "FITS: a part of a complete file in a mean file");
+    std::remove(fits.c_str());
+    std::remove(mixed.c_str());
   }
 
   group("writeRealSpaceCatalog: the default columns, the status, the keywords");

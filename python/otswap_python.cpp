@@ -1168,6 +1168,8 @@ NB_MODULE(_otswap, m)
         "Build a result from its arrays, as read back from a file; the means are recomputed.")
     .def_prop_ro("n_objects", [] (ResultHandle self) { return result_of(self).nObjects; })
     .def_prop_ro("n_realizations", [] (ResultHandle self) { return result_of(self).nRealizations; })
+    .def_prop_ro("n_realizations_mean", [] (ResultHandle self) { return result_of(self).nRealizationsMean; },
+                 "The realizations averaged into the one realization of a mean read from file; 1 otherwise.")
     .def_prop_ro("geometry", [] (ResultHandle self) {
         return nb::str(result_of(self).geometry == otswap::Geometry::Box ? "box" : "lightcone");
       }, "\"box\" or \"lightcone\".")
@@ -1878,6 +1880,24 @@ NB_MODULE(_otswap, m)
       "file"_a.none(), nb::kw_only(), "extname"_a.none() = "",
       "Read the keywords of a table, in file order, as (name, value, comment) tuples.");
 
+  io.def("column_names",
+      [] (nb::handle file, nb::handle extname, nb::handle delimiter, nb::handle comment) {
+        const std::string path = to_path(file, "file");
+        const std::string name = to_string(extname, "extname");
+        const char d = to_char(delimiter, "delimiter"), k = to_char(comment, "comment");
+        std::vector<std::string> names;
+        {
+          nb::gil_scoped_release released;
+          names = otswap::io::columnNames(path, name, d, k);
+        }
+        nb::list out;
+        for (const std::string& n : names) out.append(nb::str(n.data(), n.size()));
+        return out;
+      },
+      "file"_a.none(), nb::kw_only(), "extname"_a.none() = "", "delimiter"_a.none() = " ",
+      "comment"_a.none() = "#",
+      "The names of the columns of a table, in column order: those read finds.");
+
   io.def("_write_parts",
       [] (nb::handle file, nb::handle parts) {
         const std::string path = to_path(file, "file");
@@ -1934,7 +1954,7 @@ NB_MODULE(_otswap, m)
       "The ASCII twin file of a part.");
 
   io.def("write_displacement_mean",
-      [] (nb::handle file, nb::handle result, nb::handle groups) {
+      [] (nb::handle file, nb::handle result, nb::handle groups, nb::handle lightconeTables) {
         const std::string path = to_path(file, "file");
         const otswap::Result& r = instance<otswap::Result>(result, "result", "Result");
         static const std::vector<std::pair<std::string, otswap::io::DisplacementGroup>> names {
@@ -1948,11 +1968,14 @@ NB_MODULE(_otswap, m)
           {"selection", otswap::io::DisplacementGroup::Selection},
           {"outside_box", otswap::io::DisplacementGroup::OutsideBox}};
         const std::vector<otswap::io::DisplacementGroup> chosen = group_list(groups, names);
+        const bool tables = to_bool(lightconeTables, "lightcone_tables");
         nb::gil_scoped_release released;
-        otswap::io::writeDisplacementMean(path, r, chosen);
+        otswap::io::writeDisplacementMean(path, r, chosen, tables);
       },
       "file"_a.none(), "result"_a.none(), nb::kw_only(), "groups"_a = nb::none(),
-      "Write the mean displacement field of a result, one row per tracer.");
+      "lightcone_tables"_a.none() = true,
+      "Write the mean displacement field of a result, one row per tracer, with the mps(z) profile "
+      "and the distance table of a lightcone.");
 
   io.def("write_displacement_complete",
       [] (nb::handle file, nb::handle result, nb::handle lightconeTables) {
@@ -1979,6 +2002,21 @@ NB_MODULE(_otswap, m)
       },
       "file"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
       "Read a file written by write_displacement_complete back into a Result.");
+
+  io.def("read_displacement_mean",
+      [] (nb::handle file, nb::handle angleUnit) {
+        const std::string path = to_path(file, "file");
+        const bool degrees = in_degrees(angleUnit);
+        otswap::Result result;
+        {
+          nb::gil_scoped_release released;
+          result = otswap::io::readDisplacementMean(path);
+        }
+        return result_object(std::move(result), degrees);
+      },
+      "file"_a.none(), nb::kw_only(), "angle_unit"_a.none(),
+      "Read a file written by write_displacement_mean into a Result holding the mean as its one "
+      "realization.");
 
   io.def("write_real_space_catalog",
       [] (nb::handle file, nb::handle catalog, nb::handle groups) {

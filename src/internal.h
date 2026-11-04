@@ -377,10 +377,9 @@ namespace otswap {
     PartLocation locate_part (const std::string& file, const std::string& extname,
                               const std::string& twin);
 
-    /// The column names of a table, in order: FITS, of HDU 2 or, with an
-    /// extname, of the HDU of that EXTNAME; ASCII, the names of the "###"
-    /// line, extname ignored.
-    std::vector<std::string> column_names (const std::string& file, const std::string& extname = "");
+    /// Whether a file is FITS by its name, as io::read decides: .fits,
+    /// .fit or .fits.gz, ignoring case.
+    bool fits_name (const std::string& file);
 
   }
 
