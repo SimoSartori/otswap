@@ -72,7 +72,8 @@ class Column:
         columns to int64 exactly, from integer or boolean values, or from
         floating ones when each is an integer in range. The values are copied
         once, 8 bytes each. ``description`` is the ASCII header comment and
-        the FITS TCOMMn, ``unit`` the ASCII ``[unit]`` and the FITS TUNITn.
+        the FITS TCOMMn, at most 68 characters with an apostrophe counting
+        twice; ``unit`` the ASCII ``[unit]`` and the FITS TUNITn.
         A ``"J"`` value that is not an integer in [-2**31, 2**31) raises when
         the table is written."""
 
@@ -175,7 +176,11 @@ def write(
         to 8 characters of A-Z, 0-9, ``-`` and ``_``, a value at most 68
         characters, and neither value nor comment holds a line break. In FITS
         a value that reads entirely as an integer or a finite number is
-        written as one, anything else as a string.
+        written as one, anything else as a string. A comment fits what a FITS
+        card leaves after the value: 47 characters after a value within 20
+        columns, fewer after a longer one (a string takes its length plus its
+        two quotes, an apostrophe counting twice; a number its length), the
+        card holding 80 columns of which the name takes 10 and " / " 3.
 
     Raises
     ------
@@ -183,7 +188,9 @@ def write(
         If no column is given, the columns differ in length, or a ``"J"``
         value is not an integer in [-2**31, 2**31) (the message names the
         column and the row); if a keyword name is invalid, a keyword value
-        exceeds 68 characters, or a keyword holds a line break; if the
+        exceeds 68 characters, a keyword comment exceeds the room its card
+        leaves, a column description exceeds 68 characters (an apostrophe
+        counting twice), or a keyword holds a line break; if the
         precision is outside [1, 17]; or if the file cannot be written.
     """
 

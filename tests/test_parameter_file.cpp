@@ -275,7 +275,7 @@ int main ()
     check_refused("e6c", "k = a\"b\"\n", ":1: key 'k'" + glued, "a quote inside an element");
     check_refused("e6d", "k = a\"\n", ":1: key 'k'" + glued, "a quote ending an element");
     check_refused("e7", "seed = 1\nx = 2\nseed = 3\nseed = 4\n",
-                  ":3: key 'seed': repeated; first set at line 1", "a key set twice");
+                  ":3: key 'seed': repeated; first set at line 1 (from 1)", "a key set twice");
     check_refused("e7syntax", "seed = 1\nseed = \"x\n", ":2: key 'seed': unterminated quote",
                   "a repeated key with a broken value reports the value");
     check_refused("first", "a = 1\nb = 2\nc = \"x\"y\nd = 4\ne 5\n", ":3: key 'c'" + glued,
@@ -386,15 +386,15 @@ int main ()
     check_read_refused<std::string>("a b c", "expected one value, found 3; quote a value that holds spaces",
                                     "a std::string read of three elements");
 
-    check_read_refused<std::vector<int>>("{0, 1, 2}", "element 1, '{0,', is not an integer",
+    check_read_refused<std::vector<int>>("{0, 1, 2}", "element 1 (from 1), '{0,', is not an integer",
                                          "an int list in braces");
-    check_read_refused<std::vector<unsigned>>("1 -1", "element 2, '-1'," + unsignedRange,
+    check_read_refused<std::vector<unsigned>>("1 -1", "element 2 (from 1), '-1'," + unsignedRange,
                                               "the second element of an unsigned list");
-    check_read_refused<std::vector<bool>>("true 1", "element 2, '1', is not true or false",
+    check_read_refused<std::vector<bool>>("true 1", "element 2 (from 1), '1', is not true or false",
                                           "the second element of a bool list");
-    check_read_refused<std::vector<double>>("1 nan", "element 2, 'nan', is not a finite number",
+    check_read_refused<std::vector<double>>("1 nan", "element 2 (from 1), 'nan', is not a finite number",
                                             "the second element of a double list");
-    check_read_refused<std::vector<char>>("a bc", "element 2, 'bc'," + notChar,
+    check_read_refused<std::vector<char>>("a bc", "element 2 (from 1), 'bc'," + notChar,
                                           "the second element of a char list");
 
     const std::string path = file_with("missing_key", "a = 1\n");

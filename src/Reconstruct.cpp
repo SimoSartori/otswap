@@ -493,7 +493,7 @@ void otswap::recomputeMeans (Result& result)
   for (std::size_t k = 0; k < nDisplacements; ++k)
     if (result.valid[k] > 1)
       throw Error("the result is malformed: valid holds " + std::to_string(result.valid[k]) +
-                  " at entry " + std::to_string(k) + "; every entry must be 0 or 1");
+                  " at entry " + std::to_string(k) + " (from 0); every entry must be 0 or 1");
 
   internal::check_flags(result);
   internal::summarize(result);

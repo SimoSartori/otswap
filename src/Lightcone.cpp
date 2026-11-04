@@ -172,7 +172,7 @@ otswap::internal::mps_profile (const std::vector<double>& tracersSky,
 
   for (unsigned i = 0; i < nBins; ++i)
     if (profile.count[i] < kMinTracersPerBin)
-      throw Error("redshift bin " + std::to_string(i) + " of " + std::to_string(nBins) +
+      throw Error("redshift bin " + std::to_string(i) + " (from 0) of " + std::to_string(nBins) +
                   ", covering [" + std::to_string(zMin + i*step) + ", " +
                   std::to_string(zMin + (i+1)*step) + "], holds " +
                   std::to_string(profile.count[i]) + " tracers, below the " +
@@ -194,7 +194,7 @@ otswap::internal::mps_profile (const std::vector<double>& tracersSky,
     const double volume = skyFraction * (4. * kPi / 3.) * (dHi*dHi*dHi - dLo*dLo*dLo);
 
     if (!(volume > 0.))
-      throw Error("redshift bin " + std::to_string(i) + " has a non-positive shell volume");
+      throw Error("redshift bin " + std::to_string(i) + " (from 0) has a non-positive shell volume");
 
     profile.mps[i] = det_pow((double)profile.count[i] / volume, -1./3.);
   }
@@ -269,7 +269,7 @@ std::vector<double> otswap::toCartesian (const std::vector<double>& sky,
       distance = distances.distanceAt(sky[3*i+2]);
     }
     catch (const Error& e) {
-      throw Error("object " + std::to_string(i) + " of the sky array: " + e.what());
+      throw Error("object " + std::to_string(i) + " (from 0) of the sky array: " + e.what());
     }
     internal::to_cartesian(sky[3*i], sky[3*i+1], distance,
                            cartesian[3*i], cartesian[3*i+1], cartesian[3*i+2]);
@@ -296,8 +296,8 @@ std::vector<double> otswap::toSky (const std::vector<double>& cartesian,
     const double* p = &cartesian[3*i];
     for (std::size_t c = 0; c < 3; ++c)
       if (std::isinf(p[c]))
-        throw Error("object " + std::to_string(i) + " of the Cartesian array: component " +
-                    std::to_string(c) + " is infinite");
+        throw Error("object " + std::to_string(i) + " (from 0) of the Cartesian array: component " +
+                    std::to_string(c) + " (from 0) is infinite");
     if (std::isnan(p[0]) || std::isnan(p[1]) || std::isnan(p[2])) continue;
 
     double distance = 0.;
@@ -306,7 +306,7 @@ std::vector<double> otswap::toSky (const std::vector<double>& cartesian,
       sky[3*i+2] = distances.redshiftAt(distance);
     }
     catch (const Error& e) {
-      throw Error("object " + std::to_string(i) + " of the Cartesian array: " + e.what() +
+      throw Error("object " + std::to_string(i) + " (from 0) of the Cartesian array: " + e.what() +
                   "; use a distance table covering a wider redshift range than [" +
                   std::to_string(distances.minRedshift()) + ", " +
                   std::to_string(distances.maxRedshift()) + "]");
@@ -352,7 +352,7 @@ std::vector<double> otswap::skyToRadians (std::vector<double> skyDegrees)
   for (std::size_t i = 0; i < skyDegrees.size(); i += 3)
     if (std::isfinite(skyDegrees[i+1]) && std::fabs(skyDegrees[i+1]) > 90.)
       throw Error("the sky array holds a declination of " + std::to_string(skyDegrees[i+1]) +
-                  " degrees at object " + std::to_string(i / 3) + ", outside [-90, 90]");
+                  " degrees at object " + std::to_string(i / 3) + " (from 0), outside [-90, 90]");
 
   for (std::size_t i = 0; i < skyDegrees.size(); i += 3) {
     skyDegrees[i]   *= kDegToRad;

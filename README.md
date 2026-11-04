@@ -35,8 +35,8 @@ C++17, with a Python package on the same code.
 
 It is the middle of three packages: it depends on
 [meshsearch](https://github.com/SimoSartori/meshsearch) for its neighbour
-searches, and the Back-in-time Void Finder will be built on it. Extracted from
-CosmoBolognaLib, it depends on nothing from it.
+searches, and the Back-in-time Void Finder will be built on it. A version of
+it is included in CosmoBolognaLib; otswap depends on nothing from it.
 
 Documentation, for both APIs: **<https://simosartori.github.io/otswap/>**
 
@@ -149,9 +149,8 @@ GIL while they run. Tables are read and written by `otswap.io`.
 ## Citing
 
 Please cite Sartori et al. 2026,
-[arXiv:2601.15378](https://arxiv.org/abs/2601.15378), and CosmoBolognaLib,
-Marulli, Veropalumbo & Moresco 2016, Astronomy and Computing, 14, 35.
-`CITATION.cff` has the details.
+[arXiv:2601.15378](https://arxiv.org/abs/2601.15378). `CITATION.cff` has the
+details.
 
 ## Licence
 

@@ -88,6 +88,27 @@
   arrays and of a distance table built from arrays say "(from 0)". The
   executable names a repeated ID by its file line or FITS row, from 1, no
   longer its data row.
+- The other messages that number something say from what too: an object,
+  an entry or a redshift bin of an array, from 0 ("object 3 (from 0)"), in
+  the coordinate conversions, the correction of redshift-space distortions,
+  the checks of a `Result` and the Python arguments; a line or an element of
+  a parameter file, from 1.
+- `io::write` and `io::writeParts` (Python `io.write`, `io.write_parts`)
+  refuse a column description longer than 68 characters, an apostrophe
+  counting twice, and a keyword comment longer than the room its FITS card
+  leaves: 47 characters after a value within 20 columns, fewer after a
+  longer one. FITS cut both silently before; ASCII files are held to the
+  same limits. The comment of MPSREPR and the descriptions of lagrRA,
+  lagrDec and lagrRed, of displX, displY and displZ in the complete file,
+  and of nNeighbours, which FITS cut, are now shorter and written whole.
+- The executable takes `key =`, with no value, as leaving the key out, for
+  the keys whose default is none: `id_column`, `random_file` (box), `z_min`,
+  `z_max`, `box_min`, `box_max` and `mps`. Every other key still needs a
+  value. The parameter files in `examples/executable/` set every key that
+  applies to their run, defaults included, and the keys without a default as
+  `key =`, instead of leaving them commented out.
+- The README and the citation files say that a version of otswap is
+  included in CosmoBolognaLib, and no longer ask to cite CosmoBolognaLib.
 
 ## 0.2.1 — 2026-10-28
 

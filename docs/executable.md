@@ -20,7 +20,10 @@ more than one, it prints the usage line to stderr and exits with 1.
 The parameter file has the syntax of {cpp:class}`otswap::io::ParameterFile`,
 described on the [file formats](formats.md#parameter-files) page: one
 `key = value` per line, `#` for comments, double quotes around a value that
-holds spaces. Two commented files, one per geometry, are in
+holds spaces. `key =`, with no value, means "none" for the keys whose default
+is none (`id_column`, `random_file` in a box, `z_min`, `z_max`, `box_min`,
+`box_max`, `mps`), the same as leaving the key out; any other key needs a
+value. Two commented files, one per geometry, are in
 {repo-tree}`examples/executable`, at the end of this page.
 
 ## What it does
@@ -216,8 +219,9 @@ over; no other file in `<dir>` is touched.
 Both are run from the repository root, and write to
 `examples/executable/output/` the corrected catalogue of the corresponding
 example, `full_recons_box` or `full_recons_lightcone` (see
-[examples](examples.md)), byte for byte. Every key that applies is listed;
-those left at their default are commented out.
+[examples](examples.md)), byte for byte. Every key that applies to the run is
+set, those at their default included, and those without a default as
+`key =`.
 
 ::::{tab-set}
 

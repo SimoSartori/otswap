@@ -25,6 +25,7 @@
  *  the header says are loud.
  */
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -963,6 +964,98 @@ int main ()
           agrees(io::twinFile(parts, "extra"), Names{"z"}, ' ', '#'),
           "ASCII: a part by its twin file");
     for (const std::string& f : {fits, image, ascii, parts, io::twinFile(parts, "extra")}) std::remove(f.c_str());
+  }
+
+  group("keyword comments within the room a FITS card leaves, descriptions within 68 characters, else refused");
+  {
+    const std::string fits = temporary("limits.fits"), ascii = temporary("limits.dat");
+    auto fits_comment = [] (const std::string& file, const std::string& name) {
+      fitsfile* f = nullptr;
+      int status = 0, hdutype = 0;
+      char value[FLEN_VALUE] = "", comment[FLEN_COMMENT] = "";
+      fits_open_file(&f, file.c_str(), READONLY, &status);
+      fits_movabs_hdu(f, 2, &hdutype, &status);
+      fits_read_keyword(f, name.c_str(), value, comment, &status);
+      int closing = 0;
+      fits_close_file(f, &closing);
+      return status == 0 ? std::string(comment) : std::string("missing");
+    };
+    auto with = [&] (const std::string& value, const std::string& comment) {
+      io::WriteOptions options;
+      options.keywords = {{"KEY", value, comment}};
+      return options;
+    };
+    struct Case {
+      std::string value;
+      std::size_t width, room;
+      std::string what;
+    };
+    const std::string tableName = "mean displacements distance table";
+    const std::string quoted = "it's the reader's own words, kept";
+    const std::string longest(68, 'v');
+    const std::vector<Case> cases {
+      {"abc", 10, 47, "a short string"},
+      {"12345", 5, 47, "an integer"},
+      {std::string(18, 's'), 20, 47, "a string of 18 characters, 20 columns with its quotes"},
+      {std::string(19, 's'), 21, 46, "a string of 19 characters, one column past the field"},
+      {tableName, 35, 32, "a long string, as a lightcone's PRODUCT"},
+      {quoted, 2 + quoted.size() + 2, 67 - (2 + quoted.size() + 2), "a string whose apostrophes count twice"},
+      {"-1.2345678901234567e-300", 24, 43, "a number wider than the field"},
+      {longest, 70, 0, "a string of 68 characters, no room left"}};
+    for (const Case& c : cases) {
+      if (c.room > 0) {
+        const std::string comment(c.room, 'c');
+        for (const std::string& file : {fits, ascii})
+          check(message_of([&] { io::write(file, columns, with(c.value, comment)); }).empty(),
+                c.what + ": a comment of " + std::to_string(c.room) + " characters is written to " + file);
+        check(fits_comment(fits, "KEY") == comment, c.what + ": FITS holds the comment whole");
+        check(text_of(ascii).find("## KEY = " + c.value + " / " + comment + "\n") != std::string::npos,
+              c.what + ": ASCII holds the comment whole");
+      }
+      const std::string over(c.room + 1, 'c');
+      for (const std::string& file : {fits, ascii})
+        throws_with([&] { io::write(file, columns, with(c.value, over)); },
+                    "the comment of the keyword KEY holds " + std::to_string(c.room + 1) + " characters; after "
+                    "a value " + std::to_string(c.width) + " columns wide a FITS card leaves room for " +
+                    std::to_string(c.room),
+                    c.what + ": a comment one character longer is refused for " + file);
+    }
+    check(message_of([&] { io::write(fits, columns, with(longest, "")); }).empty(),
+          "a value of 68 characters without a comment is written");
+    throws_with([&] { io::writeParts(fits, {{"", "", columns, 0, {}, with("abc", std::string(48, 'c'))}}); },
+                "the comment of the keyword KEY holds 48 characters; after a value 10 columns wide a FITS card "
+                "leaves room for 47",
+                "writeParts refuses it too");
+
+    auto described = [&] (const std::string& description) {
+      std::vector<io::Column> c = columns;
+      c[0].description = description;
+      return c;
+    };
+    const std::string plain(68, 'd');
+    const std::string apostrophes = std::string(32, 'd') + "'" + std::string(32, 'd') + "'";
+    for (const std::string& description : {plain, apostrophes}) {
+      check(message_of([&] { io::write(fits, described(description)); }).empty() &&
+            message_of([&] { io::write(ascii, described(description)); }).empty(),
+            "a description of " + std::to_string(description.size()) + " characters, 68 with its apostrophes "
+            "counted twice, is written");
+      char type = ' ';
+      check(fits_keyword(fits, "TCOMM1", type) == description, "FITS holds the description whole");
+    }
+    for (const std::string& description : {plain + "d", apostrophes + "d", "'" + apostrophes})
+      for (const std::string& file : {fits, ascii})
+        throws_with([&] { io::write(file, described(description)); },
+                    "the description of the column 'alpha' takes " +
+                      std::to_string(description.size() + (std::size_t)std::count(description.begin(),
+                                                                                  description.end(), '\'')) +
+                      " characters, an apostrophe counting twice; at most 68 fit a FITS card",
+                    "a description over 68 characters, apostrophes counted twice, is refused for " + file);
+    throws_with([&] { io::writeParts(fits, {{"", "", described(plain + "d"), 0, {}, {}}}); },
+                "the description of the column 'alpha' takes 69 characters, an apostrophe counting twice; at "
+                "most 68 fit a FITS card",
+                "writeParts refuses it too");
+    std::remove(fits.c_str());
+    std::remove(ascii.c_str());
   }
 
   return report("test_table");

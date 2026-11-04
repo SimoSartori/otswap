@@ -57,6 +57,10 @@ namespace {
   /// leaves.
   constexpr std::size_t kMaxKeywordValue = 68;
 
+  constexpr std::size_t kCardColumns = 80;
+  constexpr std::size_t kCardNameColumns = 10;
+  constexpr std::size_t kCardValueColumns = 20;
+
   bool has_extension (const std::string& file, const std::string& ext)
   {
     if (file.size() < ext.size()) return false;
@@ -430,6 +434,20 @@ namespace {
   // Writing
   // ==========================================================================
 
+  bool numeric (const std::string& value)
+  {
+    if (value.empty() ||
+        value.find_first_not_of("0123456789+-.eE") != std::string::npos) return false;
+    char* end = nullptr;
+    const double v = std::strtod(value.c_str(), &end);
+    return end == value.c_str() + value.size() && std::isfinite(v);
+  }
+
+  std::size_t string_columns (const std::string& text)
+  {
+    return text.size() + (std::size_t)std::count(text.begin(), text.end(), '\'');
+  }
+
   void check_options (const std::vector<otswap::io::Column>& columns,
                       const otswap::io::WriteOptions& options, const std::string& file)
   {
@@ -460,7 +478,25 @@ namespace {
       for (const std::string* text : {&k.value, &k.comment})
         if (text->find_first_of("\n\r") != std::string::npos)
           throw otswap::Error("the keyword " + k.name + " holds a line break");
+      if (!k.comment.empty()) {
+        const std::size_t width = numeric(k.value) ? k.value.size()
+                                                   : std::max<std::size_t>(10, 2 + string_columns(k.value));
+        const std::size_t used = kCardNameColumns + std::max(kCardValueColumns, width) + 3;
+        const std::size_t room = used < kCardColumns ? kCardColumns - used : 0;
+        if (k.comment.size() > room)
+          throw otswap::Error("the comment of the keyword " + k.name + " holds " +
+                              std::to_string(k.comment.size()) + " characters; after a value " +
+                              std::to_string(width) + " columns wide a FITS card leaves room for " +
+                              std::to_string(room));
+      }
     }
+
+    for (const auto& c : columns)
+      if (string_columns(c.description) > kMaxKeywordValue)
+        throw otswap::Error("the description of the column '" + c.name + "' takes " +
+                            std::to_string(string_columns(c.description)) +
+                            " characters, an apostrophe counting twice; at most " +
+                            std::to_string(kMaxKeywordValue) + " fit a FITS card");
   }
 
   void check_integer_value (const otswap::io::Column& column, const double value,
@@ -539,15 +575,6 @@ namespace {
 
   /// A keyword value written in FITS as a number: signs, digits, a point
   /// and an exponent only, read entirely by strtod as a finite value.
-  bool numeric (const std::string& value)
-  {
-    if (value.empty() ||
-        value.find_first_not_of("0123456789+-.eE") != std::string::npos) return false;
-    char* end = nullptr;
-    const double v = std::strtod(value.c_str(), &end);
-    return end == value.c_str() + value.size() && std::isfinite(v);
-  }
-
   /// Every part as a binary table of one new file, HDU 2 onwards.
   void write_fits (const std::string& file,
                    const std::vector<otswap::internal::TablePart>& parts)

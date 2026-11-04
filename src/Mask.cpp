@@ -442,7 +442,7 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
   for (std::size_t k = 0; k < nDisplacements; ++k)
     if (result.valid[k] > 1)
       throw Error("the result is malformed: valid holds " + std::to_string(result.valid[k]) +
-                  " at entry " + std::to_string(k) + "; every entry must be 0 or 1");
+                  " at entry " + std::to_string(k) + " (from 0); every entry must be 0 or 1");
 
   internal::check_flags(result);
 
@@ -451,23 +451,23 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
     for (std::size_t c = 0; c < 3; ++c)
       if (!std::isfinite(result.tracers[3*i+c]))
         throw Error("the result is malformed: tracers holds a non-finite coordinate at entry " +
-                    std::to_string(3*i+c));
+                    std::to_string(3*i+c) + " (from 0)");
   }
 
   for (std::size_t k = 0; k < nDisplacements; ++k) {
     const std::size_t i = k % nObjects;
     if (internal::excluded(result, i)) {
       if (result.valid[k] != 0)
-        throw Error("the result is malformed: object " + std::to_string(i) + " took no part in the "
+        throw Error("the result is malformed: object " + std::to_string(i) + " (from 0) took no part in the "
                     "reconstruction (outside the redshift cut, the mask or the box limits) but "
-                    "has a valid displacement at entry " + std::to_string(k));
+                    "has a valid displacement at entry " + std::to_string(k) + " (from 0)");
       continue;
     }
     if (result.valid[k] == 0) continue;
     for (std::size_t c = 0; c < 3; ++c)
       if (!std::isfinite(result.displacement[3*k+c]))
         throw Error("the result is malformed: displacement holds a non-finite coordinate at entry " +
-                    std::to_string(3*k+c));
+                    std::to_string(3*k+c) + " (from 0)");
   }
 
   if (result.filteredNside != 0 && result.filteredNside != mask.nside())

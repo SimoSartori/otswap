@@ -193,7 +193,15 @@ namespace {
       return m_file + ":" + std::to_string(m_parameters.line(key)) + ": key '" + key + "': ";
     }
 
-    std::string line (const std::string& key) const { return std::to_string(m_parameters.line(key)); }
+    std::string line (const std::string& key) const
+    {
+      return std::to_string(m_parameters.line(key)) + " (from 1)";
+    }
+
+    bool given (const std::string& key) const
+    {
+      return m_parameters.has(key) && !m_parameters.get<std::vector<std::string>>(key).empty();
+    }
 
     [[noreturn]] void fail (const std::string& key, const std::string& message) const
     {
@@ -341,7 +349,7 @@ namespace {
 
     run.tracerFile = f.get<std::string>("tracer_file");
     run.tracerColumns = p.three<std::string>("column_tracer");
-    if (f.has("id_column")) {
+    if (p.given("id_column")) {
       run.idColumn = f.get<std::string>("id_column");
       for (const std::string& c : run.tracerColumns)
         if (same_column(*run.idColumn, c, is_fits(run.tracerFile)))
@@ -359,9 +367,9 @@ namespace {
 
     if (lightcone) {
       run.maskFile = f.get<std::string>("veto_mask_filename");
-      run.cut.min = f.get<double>("z_min", run.cut.min);
-      run.cut.max = f.get<double>("z_max", run.cut.max);
-      if (f.has("z_min") && f.has("z_max") && run.cut.max < run.cut.min)
+      if (p.given("z_min")) run.cut.min = f.get<double>("z_min");
+      if (p.given("z_max")) run.cut.max = f.get<double>("z_max");
+      if (p.given("z_min") && p.given("z_max") && run.cut.max < run.cut.min)
         p.fail("z_max", p.written("z_max") + " is below z_min, " + p.written("z_min") + ", at line " +
                p.line("z_min"));
     }
@@ -393,18 +401,19 @@ namespace {
     }
     else {
       std::vector<double> lower, upper;
-      if (f.has("box_min")) lower = p.three<double>("box_min");
-      if (f.has("box_max")) upper = p.three<double>("box_max");
-      if (f.has("box_min") != f.has("box_max")) {
-        const bool min = f.has("box_min");
+      const bool hasMin = p.given("box_min"), hasMax = p.given("box_max");
+      if (hasMin) lower = p.three<double>("box_min");
+      if (hasMax) upper = p.three<double>("box_max");
+      if (hasMin != hasMax) {
+        const bool min = hasMin;
         p.fail(min ? "box_min" : "box_max", std::string(min ? "box_max" : "box_min") +
                " is missing; give both or neither");
       }
-      if (f.has("box_min")) {
+      if (hasMin) {
         otswap::BoxLimits limits;
         for (std::size_t k = 0; k < 3; ++k) {
           if (!(upper[k] > lower[k]))
-            p.fail("box_max", "element " + std::to_string(k+1) + ", " + p.written("box_max", k) +
+            p.fail("box_max", "element " + std::to_string(k+1) + " (from 1), " + p.written("box_max", k) +
                    ", is not above element " + std::to_string(k+1) + " of box_min, " +
                    p.written("box_min", k) + ", at line " + p.line("box_min"));
           limits.lower[k] = lower[k];
@@ -412,7 +421,7 @@ namespace {
         }
         run.limits = limits;
       }
-      if (f.has("mps")) {
+      if (p.given("mps")) {
         run.mps = f.get<double>("mps");
         p.require("mps", *run.mps > 0., "positive");
       }
@@ -489,7 +498,7 @@ namespace {
     Switches switches;
     switches.lightcone = p.word("geometry", {"box", "lightcone"}) == "lightcone";
     switches.performRecons = parameters.get<bool>("perform_recons", false);
-    switches.randomFile = parameters.has("random_file");
+    switches.randomFile = p.given("random_file");
     if (switches.lightcone)
       switches.rejectCrossings = parameters.get<bool>("reject_mask_crossings",
                                                       otswap::Config{}.rejectCrossings);

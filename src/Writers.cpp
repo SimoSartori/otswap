@@ -306,7 +306,7 @@ namespace {
                                {"ZMIN", number(profile.redshiftMin), "lowest redshift binned"},
                                {"ZMAX", number(profile.redshiftMax), "highest redshift binned"},
                                {"MPSREPR", number(profile.representative),
-                                "representative mps, the count-weighted median, in coordinate units"}};
+                                "count-weighted median mps, coordinate units"}};
       const otswap::MpsProfile* p = &profile;
       part.fillRow = [p] (const std::size_t row, std::vector<double>& values, std::vector<std::int64_t>&) {
         values[0] = p->redshift[row];
@@ -667,8 +667,8 @@ void otswap::io::writeDisplacementMean (const std::string& file, const Result& r
     case G::LagrangianSky:
       check_size(result.lagrangianSky.size(), 3 * n, "lagrangianSky");
       out.push_back(triple(result.lagrangianSky, "lagr", kSky,
-                           "sky coordinates of the mean Lagrangian position; redshift NaN beyond "
-                           "the distance table", kDeg, true));
+                           "mean Lagrangian position on the sky; redshift NaN beyond the table",
+                           kDeg, true));
       break;
     case G::Tracer:
       check_size(result.tracers.size(), 3 * n, "tracers");
@@ -751,8 +751,8 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
   for (const char* c : kXyz) columns.push_back(column(std::string("trac") + c, 'D',
                                                       "comoving position of the tracer"));
   for (const char* c : kXyz)
-    columns.push_back(column(std::string("displ") + c, 'D', "displacement in this realization: the random "
-                             "matched to the tracer, minus the tracer"));
+    columns.push_back(column(std::string("displ") + c, 'D', "displacement in this realization: matched random "
+                             "minus tracer"));
   columns.push_back(column("valid", 'J', "1 valid, 0 rejected by a filter or left out"));
   columns.push_back(column("outsideRedshiftCut", 'J', "1 if left out of the reconstruction by the redshift cut"));
   columns.push_back(column("outsideMask", 'J', "1 if left out of the reconstruction by the mask"));
@@ -1050,8 +1050,8 @@ void otswap::io::writeRealSpaceCatalog (const std::string& file, const RealSpace
     case G::Neighbours:
       check_size(catalog.nNeighbours.size(), n, "nNeighbours");
       check_size(catalog.nRealizationsAveraged.size(), n, "nRealizationsAveraged");
-      out.push_back({{column("nNeighbours", 'J', "tracers with a valid realization averaged within 3 "
-                                                 "sigma, the tracer included if valid"),
+      out.push_back({{column("nNeighbours", 'J', "valid tracers averaged within 3 sigma, the tracer "
+                                                 "included if valid"),
                       column("nRealizationsAveraged", 'J', "sum of their nValidRec")},
                      [c] (const std::size_t row, double* values, std::int64_t*) {
                        values[0] = (double)c->nNeighbours[row];
@@ -1120,6 +1120,6 @@ void otswap::io::writeMpsProfile (const std::string& file, const MpsProfile& pro
                       {"ZMIN", number(profile.redshiftMin), "lowest redshift binned"},
                       {"ZMAX", number(profile.redshiftMax), "highest redshift binned"},
                       {"MPSREPR", number(profile.representative),
-                       "representative mps, the count-weighted median, in coordinate units"}};
+                       "count-weighted median mps, coordinate units"}};
   write(file, columns, options);
 }

@@ -63,7 +63,7 @@ namespace {
     for (std::size_t i = 0; i < a.size(); ++i)
       if (std::isinf(a[i]))
         throw otswap::Error(name + " holds an infinite value at entry " + std::to_string(i) +
-                            " (object " + std::to_string(i/3) + ")");
+                            " (from 0), in object " + std::to_string(i/3) + " (from 0)");
     return a.size() / 3;
   }
 
@@ -76,7 +76,7 @@ namespace {
       const double x = positions[3*i], y = positions[3*i+1], z = positions[3*i+2];
       const double r = std::sqrt(x*x + y*y + z*z);
       if (!(std::isfinite(r) && r > 0.))
-        throw otswap::Error("object " + std::to_string(i) + " is at the origin, or too far from "
+        throw otswap::Error("object " + std::to_string(i) + " (from 0) is at the origin, or too far from "
                             "it for its distance to be finite; its line of sight is undefined");
     }
     return n;
@@ -96,7 +96,7 @@ namespace {
                           " entries for " + std::to_string(n) + " objects");
     for (std::size_t i = 0; i < n; ++i)
       if (std::isinf(shift[i]))
-        throw otswap::Error("the shift of object " + std::to_string(i) + " is infinite");
+        throw otswap::Error("the shift of object " + std::to_string(i) + " (from 0) is infinite");
   }
 
   /// The fields of a Result the correction reads: its geometry, its
@@ -128,14 +128,14 @@ namespace {
     otswap::internal::check_ids(result.ids, n);
     for (std::size_t i = 0; i < n; ++i) {
       if (otswap::internal::excluded(result, i) && result.validRealizations[i] != 0)
-        throw otswap::Error("the result is malformed: object " + std::to_string(i) + " took no part "
+        throw otswap::Error("the result is malformed: object " + std::to_string(i) + " (from 0) took no part "
                             "in the reconstruction (outside the redshift cut, the mask or the box "
                             "limits) but has valid realizations");
       if (result.validRealizations[i] > 0)
         for (std::size_t c = 0; c < 3; ++c)
           if (!std::isfinite(result.meanDisplacement[3*i+c]))
             throw otswap::Error("the result is malformed: object " + std::to_string(i) +
-                                " has valid realizations but a non-finite mean displacement");
+                                " (from 0) has valid realizations but a non-finite mean displacement");
     }
   }
 
@@ -350,7 +350,7 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
 
   for (std::size_t i = 0; i < n; ++i)
     if (validRealizations[i] > 0 && !std::isfinite(values[i]))
-      throw Error("the value of object " + std::to_string(i) + " is not finite, and it has " +
+      throw Error("the value of object " + std::to_string(i) + " (from 0) is not finite, and it has " +
                   std::to_string(validRealizations[i]) + " valid realizations");
 
   nNeighbours.assign(n, 0u);
@@ -497,7 +497,7 @@ std::vector<double> otswap::rsdFactor (const std::vector<double>& redshift,
 
   for (std::size_t i = 0; i < redshift.size(); ++i)
     factor[i] = factor_at(bias.redshift, bias.bias, redshift[i], distances,
-                          "object " + std::to_string(i), extrapolated);
+                          "object " + std::to_string(i) + " (from 0)", extrapolated);
 
   if (nExtrapolated != nullptr) *nExtrapolated = extrapolated;
   return factor;
@@ -600,7 +600,7 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
   std::vector<double> distance(m), factor(m);
   for (std::size_t k = 0; k < m; ++k) {
     const std::size_t i = keep[k];
-    const std::string who = "object " + std::to_string(i);
+    const std::string who = "object " + std::to_string(i) + " (from 0)";
     try {
       distance[k] = distances.distanceAt(sky[3*i+2]);
     }
@@ -653,7 +653,7 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
       }
     }
     if (!inside)
-      throw Error("object " + std::to_string(i) + ": its corrected comoving distance, " +
+      throw Error("object " + std::to_string(i) + " (from 0): its corrected comoving distance, " +
                   std::to_string(corrected) + " in coordinate units, " +
                   (corrected > 0. ? "lies outside" : "is not positive, and so outside") +
                   " the distance table's range [" + std::to_string(dMin) + ", " +

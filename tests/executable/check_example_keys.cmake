@@ -1,0 +1,92 @@
+# Checks that a parameter file sets every key that applies to its run,
+# and none that does not.
+#
+#   cmake -DAPP=<app/otswap.cpp> -DPARAMETERS=<file .ini> -P check_example_keys.cmake
+#
+# The keys, and the runs each applies to, are those of kKeys in APP, the
+# table the executable checks a file against. The switches are read from
+# the file as the executable reads them: geometry, perform_recons (default
+# false), random_file set to a value, reject_mask_crossings (default true).
+# A key set with no value, "key =", counts as set.
+
+cmake_minimum_required(VERSION 3.16)
+
+foreach (variable APP PARAMETERS)
+  if (NOT DEFINED ${variable})
+    message(FATAL_ERROR "check_example_keys.cmake: ${variable} is not set")
+  endif()
+endforeach()
+
+file(STRINGS ${APP} table REGEX "^ *\\{\"[A-Za-z_0-9]+\", *Applies::[A-Za-z]+, *Applies::[A-Za-z]+\\},")
+set(keys "")
+foreach (line ${table})
+  string(REGEX MATCH "\\{\"([A-Za-z_0-9]+)\", *Applies::([A-Za-z]+), *Applies::([A-Za-z]+)\\}" found "${line}")
+  list(APPEND keys ${CMAKE_MATCH_1})
+  set(box_${CMAKE_MATCH_1} ${CMAKE_MATCH_2})
+  set(lightcone_${CMAKE_MATCH_1} ${CMAKE_MATCH_3})
+endforeach()
+list(LENGTH keys nkeys)
+if (nkeys LESS 30)
+  message(FATAL_ERROR "found ${nkeys} keys in ${APP}; the table was not read")
+endif()
+
+file(STRINGS ${PARAMETERS} lines)
+set(present "")
+foreach (line ${lines})
+  if (line MATCHES "^[ \t]*([A-Za-z_][A-Za-z_0-9]*)[ \t]*=[ \t]*(.*)$")
+    set(key ${CMAKE_MATCH_1})
+    string(REGEX REPLACE "[ \t]*#.*$" "" value "${CMAKE_MATCH_2}")
+    string(REGEX REPLACE "^\"(.*)\"$" "\\1" value "${value}")
+    list(APPEND present ${key})
+    set(value_${key} "${value}")
+  endif()
+endforeach()
+
+set(geometry box)
+if ("${value_geometry}" STREQUAL "lightcone")
+  set(geometry lightcone)
+endif()
+set(performRecons OFF)
+if ("${value_perform_recons}" STREQUAL "true")
+  set(performRecons ON)
+endif()
+set(randomFile OFF)
+if (NOT "${value_random_file}" STREQUAL "")
+  set(randomFile ON)
+endif()
+set(rejectCrossings ON)
+if ("${value_reject_mask_crossings}" STREQUAL "false")
+  set(rejectCrossings OFF)
+endif()
+
+set(errors "")
+foreach (key ${keys})
+  set(applies ${${geometry}_${key}})
+  set(applied OFF)
+  if (applies STREQUAL "Always")
+    set(applied ON)
+  elseif (applies STREQUAL "PerformRecons")
+    set(applied ${performRecons})
+  elseif (applies STREQUAL "RandomFile")
+    set(applied ${randomFile})
+  elseif (applies STREQUAL "RejectCrossings")
+    set(applied ${rejectCrossings})
+  endif()
+  list(FIND present ${key} at)
+  if (applied AND at EQUAL -1)
+    string(APPEND errors "\n  the key ${key} applies to this run and is missing")
+  elseif (NOT applied AND NOT at EQUAL -1)
+    string(APPEND errors "\n  the key ${key} does not apply to this run and is set")
+  endif()
+endforeach()
+foreach (key ${present})
+  list(FIND keys ${key} at)
+  if (at EQUAL -1)
+    string(APPEND errors "\n  the key ${key} is not a key of the executable")
+  endif()
+endforeach()
+
+if (NOT errors STREQUAL "")
+  message(FATAL_ERROR "${PARAMETERS}:${errors}")
+endif()
+message(STATUS "${PARAMETERS}: every key that applies is set")

@@ -1637,7 +1637,7 @@ def test_measure_mps_profile_is_the_reconstruction_profile(table, lightcone, sel
 
 
 @pytest.mark.parametrize("selection, n_bins, text", [
-    (dict(sky_area_deg2="area"), 10, "redshift bin 0 of 10"),
+    (dict(sky_area_deg2="area"), 10, r"redshift bin 0 \(from 0\) of 10"),
     (dict(mask="mask", redshift_cut=MASK_CUT), 10, "holds"),
     (dict(sky_area_deg2="area", redshift_cut=(0.35, 0.351)), 1, "keeps"),
     (dict(sky_area_deg2="area", redshift_cut=(0.6, 0.3)), 1, "lower bound exceeds"),
@@ -1708,7 +1708,7 @@ def test_declinations_are_checked_in_the_unit_given(table, lightcone):
     bad[7, 1] = above
     options = dict(sky_area_deg2=patch_area_deg2(), n_bins=1, distances=table)
     with pytest.raises(otswap.Error, match=r"tracers_sky holds a declination of 90\.000000 degrees "
-                                           r"at object 7, outside \[-90, 90\]"):
+                                           r"at object 7 \(from 0\), outside \[-90, 90\]"):
         otswap.reconstruct_lightcone(bad, randoms_sky, angle_unit="deg", **options)
     bad_randoms = randoms_sky.copy()
     bad_randoms[3, 1] = -above
@@ -2101,6 +2101,27 @@ def test_io_column(tmp_path):
         otswap.io.Column(3, [1.0])
     with pytest.raises(TypeError):
         otswap.io.Column("x", [1.0], "K")
+
+
+@pytest.mark.parametrize("name", ["limits.dat", "limits.fits"])
+def test_io_write_comment_and_description_limits(tmp_path, name):
+    path = tmp_path / name
+    column = otswap.io.Column("a", [1.0, 2.0])
+    otswap.io.write(path, [column], keywords=[("KEY", "abc", "c" * 47)])
+    otswap.io.write(path, [column], keywords=[("KEY", "m" * 33, "c" * 32)])
+    with pytest.raises(otswap.Error) as caught:
+        otswap.io.write(path, [column], keywords=[("KEY", "abc", "c" * 48)])
+    assert str(caught.value) == ("the comment of the keyword KEY holds 48 characters; after a value 10 columns "
+                                 "wide a FITS card leaves room for 47")
+    with pytest.raises(otswap.Error) as caught:
+        otswap.io.write(path, [column], keywords=[("KEY", "m" * 33, "c" * 33)])
+    assert str(caught.value) == ("the comment of the keyword KEY holds 33 characters; after a value 35 columns "
+                                 "wide a FITS card leaves room for 32")
+    otswap.io.write(path, [otswap.io.Column("a", [1.0], description="d" * 64 + "''")])
+    with pytest.raises(otswap.Error) as caught:
+        otswap.io.write(path, [otswap.io.Column("a", [1.0], description="d" * 67 + "'")])
+    assert str(caught.value) == ("the description of the column 'a' takes 69 characters, an apostrophe counting "
+                                 "twice; at most 68 fit a FITS card")
 
 
 def test_io_errors(tmp_path):
@@ -2952,7 +2973,7 @@ def test_result_ids():
 
     r.ids = np.arange(n, dtype=float) + 10.0
     assert np.array_equal(r.ids, np.arange(n) + 10), "a float array of integers is accepted"
-    with pytest.raises(otswap.Error, match=r"ids holds 0\.500000 at entry 0; every entry must be a 64-bit integer"):
+    with pytest.raises(otswap.Error, match=r"ids holds 0\.500000 at entry 0 \(from 0\); every entry must be a 64-bit integer"):
         r.ids = np.arange(n) + 0.5
     with pytest.raises(otswap.Error, match="ids must hold integers"):
         r.ids = ["a"] * n

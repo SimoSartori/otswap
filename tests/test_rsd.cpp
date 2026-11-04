@@ -1335,7 +1335,7 @@ int main ()
           "the mask and the cut: the profile of the catalogue selected beforehand, with the mask's area");
 
     const std::string binError = message_of([&] { measureMpsProfile(sky, 800., 10, table, none, Verbosity::Silent); });
-    check(binError.find("redshift bin 0 of 10") != std::string::npos &&
+    check(binError.find("redshift bin 0 (from 0) of 10") != std::string::npos &&
           binError == message_of([&] { reconstructLightcone(sky, randomsSky, 800., 10, table, config); }),
           "a bin below the threshold, the area: the same Error and message: " + binError);
     const std::string maskBinError = message_of([&] { measureMpsProfile(sky, mask, 10, table, cut, Verbosity::Silent); });
@@ -1764,6 +1764,33 @@ int main ()
     check(below > 0 && below < 600, std::to_string(below) + " of 600 below the table");
     check(kept, "their redshift NaN, right ascension and declination as toSky's; the rest finite");
     check(raises, "toSky itself raises for them, suggesting a wider table");
+  }
+
+  group("messages number objects, entries and components from 0, and say so");
+  {
+    const DistanceTable table = linear_table(1.5, 0.8);
+    auto message = [] (auto&& f) {
+      try { f(); }
+      catch (const Error& e) { return std::string(e.what()); }
+      return std::string();
+    };
+    const double inf = std::numeric_limits<double>::infinity();
+    check(message([&] { axisProjection({0., 0., 0., 1., inf, 0.}, 0); }) ==
+            "the displacement array holds an infinite value at entry 4 (from 0), in object 1 (from 0)",
+          "an infinite displacement: the entry and the object");
+    check(message([&] { radialProjection({0., 0., 0., 1., 0., 0.}, {1., 0., 0., 0., 0., 0.}); }) ==
+            "object 1 (from 0) is at the origin, or too far from it for its distance to be finite; its line "
+            "of sight is undefined",
+          "a position at the origin: the object");
+    check(message([&] { toSky({1., 0., 0., 0., 0., inf}, table); }) ==
+            "object 1 (from 0) of the Cartesian array: component 2 (from 0) is infinite",
+          "toSky: the object and the component");
+    check(message([&] { toCartesian({0., 0., 0.5, 0., 0., 9.}, table); })
+            .rfind("object 1 (from 0) of the sky array: ", 0) == 0,
+          "toCartesian: the object whose redshift the table does not cover");
+    check(message([&] { skyToRadians({0., 10., 0.5, 0., 95., 0.5}); }) ==
+            "the sky array holds a declination of 95.000000 degrees at object 1 (from 0), outside [-90, 90]",
+          "skyToRadians: the object of the declination in degrees");
   }
 
   return report("test_rsd");

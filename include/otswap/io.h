@@ -116,7 +116,9 @@ namespace otswap {
     struct Column {
       std::string name;
       char        type = 'D';                ///< 'D', 'J' or 'K'
-      std::string description;               ///< ASCII header comment; FITS TCOMMn
+      /// ASCII header comment; FITS TCOMMn. At most 68 characters, an
+      /// apostrophe counting twice.
+      std::string description;
       std::string unit;                      ///< ASCII "[unit]" after the description; FITS TUNITn
       std::vector<double>       data;        ///< the values of a 'D' or 'J' column
       std::vector<std::int64_t> integers;    ///< the values of a 'K' column
@@ -136,7 +138,11 @@ namespace otswap {
     /// of A-Z, 0-9, '-' and '_'. The value is at most 68 characters, and
     /// neither value nor comment holds a line break. In FITS a value that
     /// reads entirely as an integer or a finite number is written as one,
-    /// anything else as a string.
+    /// anything else as a string. The comment fits what a FITS card leaves
+    /// after the value: 47 characters after a value within 20 columns, fewer
+    /// after a longer one (a string takes its length plus its two quotes, an
+    /// apostrophe counting twice; a number its length), the card holding
+    /// 80 columns of which the name takes 10 and " / " 3.
     struct Keyword {
       std::string name;
       std::string value;
@@ -214,7 +220,9 @@ namespace otswap {
      *  integers for 'K'), a 'J' value is NaN, not an integer, or outside
      *  [-2^31, 2^31) (the message names the column and the row), a keyword
      *  name is invalid, a keyword value exceeds 68 characters, a keyword
-     *  holds a line break, the precision is outside [1, 17], or the file
+     *  comment exceeds the room its card leaves (see Keyword), a column
+     *  description exceeds 68 characters (an apostrophe counting twice), a
+     *  keyword holds a line break, the precision is outside [1, 17], or the file
      *  cannot be written.
      */
     void write (const std::string& file, const std::vector<Column>& columns,

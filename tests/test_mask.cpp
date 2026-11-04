@@ -1292,7 +1292,7 @@ int main ()
 
     Result nanTracer = result_of(e, l);
     nanTracer.tracers[4] = std::numeric_limits<double>::quiet_NaN();
-    check(names(nanTracer, "the result is malformed: tracers holds a non-finite coordinate at entry 4"),
+    check(names(nanTracer, "the result is malformed: tracers holds a non-finite coordinate at entry 4 (from 0)"),
           "a non-finite tracer coordinate raises, naming the entry");
     nanTracer.outsideMask = {0, 1};
     nanTracer.valid[1] = 0;
@@ -1308,7 +1308,7 @@ int main ()
     Result nanDisplacement = result_of(e, l);
     nanDisplacement.displacement[5] = std::numeric_limits<double>::infinity();
     check(names(nanDisplacement, "the result is malformed: displacement holds a non-finite coordinate at "
-                                 "entry 5"), "a non-finite displacement raises, naming the entry");
+                                 "entry 5 (from 0)"), "a non-finite displacement raises, naming the entry");
     Result nanCleared = result_of(e, l);
     nanCleared.valid[1] = 0;
     nanCleared.displacement[5] = std::numeric_limits<double>::quiet_NaN();
@@ -1326,8 +1326,8 @@ int main ()
 
     Result notBinary = result_of(e, l);
     notBinary.valid[0] = 2;
-    check_throws([&] { rejectMaskCrossings(notBinary, mask); },
-                 "a valid entry other than 0 or 1 raises");
+    check(names(notBinary, "the result is malformed: valid holds 2 at entry 0 (from 0); every entry must be 0 or 1"),
+          "a valid entry other than 0 or 1 raises, naming the entry from 0");
 
     Result filtered = result_of(e, l);
     filtered.filteredNside = kNside * 2;

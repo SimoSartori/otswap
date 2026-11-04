@@ -265,7 +265,7 @@ otswap::io::ParameterFile::ParameterFile (const std::string& file)
     const auto found = m_index.find(key);
     if (found != m_index.end())
       throw otswap::Error(atKey + "repeated; first set at line " +
-                          std::to_string(m_values[found->second].line));
+                          std::to_string(m_values[found->second].line) + " (from 1)");
     m_index.emplace(key, m_keys.size());
     m_keys.push_back(key);
     m_values.push_back(Value{std::move(elements), number});
@@ -332,7 +332,7 @@ T otswap::io::ParameterFile::read (const std::string& key, const T* defaultValue
       Element element{};
       const std::string failure = type_element(value.elements[e], element);
       if (!failure.empty())
-        throw otswap::Error(at + "element " + std::to_string(e+1) + ", '" + value.elements[e] +
+        throw otswap::Error(at + "element " + std::to_string(e+1) + " (from 1), '" + value.elements[e] +
                             "', " + failure);
       result.push_back(element);
     }

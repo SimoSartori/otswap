@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use otswap, please cite the paper below and CosmoBolognaLib."
+message: "If you use otswap, please cite the paper below."
 title: otswap
 abstract: >-
   Optimal transport reconstruction of the displacement field of a tracer

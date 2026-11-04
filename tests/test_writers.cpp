@@ -35,6 +35,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -304,6 +305,89 @@ namespace {
   {
     for (const std::string& f : {file, internal::twin_file(file, "mps"), internal::twin_file(file, "distances")})
       std::remove(f.c_str());
+  }
+
+  std::vector<std::vector<std::string>> fits_texts (const std::string& file)
+  {
+    std::vector<std::vector<std::string>> out;
+    fitsfile* f = nullptr;
+    int status = 0, nhdu = 0, hdutype = 0;
+    fits_open_file(&f, file.c_str(), READONLY, &status);
+    fits_get_num_hdus(f, &nhdu, &status);
+    for (int h = 2; status == 0 && h <= nhdu; ++h) {
+      fits_movabs_hdu(f, h, &hdutype, &status);
+      int nkeys = 0;
+      fits_get_hdrspace(f, &nkeys, nullptr, &status);
+      std::vector<std::string> texts;
+      for (int k = 1; status == 0 && k <= nkeys; ++k) {
+        char name[FLEN_KEYWORD] = "", value[FLEN_VALUE] = "", comment[FLEN_COMMENT] = "";
+        fits_read_keyn(f, k, name, value, comment, &status);
+        const std::string key = name;
+        if (key.rfind("TCOMM", 0) == 0) {
+          char text[FLEN_VALUE] = "";
+          fits_read_key(f, TSTRING, name, text, nullptr, &status);
+          texts.push_back(key + " = " + text);
+        }
+        else if (comment[0] != '\0' && key.rfind("TTYPE", 0) != 0 && key.rfind("TFORM", 0) != 0 &&
+                 key.rfind("TUNIT", 0) != 0 && key != "XTENSION" && key != "BITPIX" && key != "NAXIS" &&
+                 key != "NAXIS1" && key != "NAXIS2" && key != "PCOUNT" && key != "GCOUNT" &&
+                 key != "TFIELDS" && key != "EXTNAME")
+          texts.push_back(key + " / " + comment);
+      }
+      out.push_back(texts);
+    }
+    int closing = 0;
+    fits_close_file(f, &closing);
+    if (status != 0) out.clear();
+    return out;
+  }
+
+  std::vector<std::vector<std::string>> ascii_texts (const std::string& file)
+  {
+    std::vector<std::vector<std::string>> out;
+    for (const std::string& f : {file, internal::twin_file(file, "mps"), internal::twin_file(file, "distances")}) {
+      if (f != file && !exists(f)) continue;
+      std::ifstream in(f);
+      std::string line, names;
+      std::vector<std::string> keywords, descriptions;
+      while (std::getline(in, line)) {
+        if (line.rfind("###", 0) == 0) names = line.substr(3);
+        else if (line.rfind("## ", 0) == 0) {
+          const std::size_t equals = line.find(" = "), slash = line.find(" / ");
+          if (slash != std::string::npos)
+            keywords.push_back(line.substr(3, equals - 3) + " / " + line.substr(slash + 3));
+        }
+        else if (line.rfind("# ", 0) == 0) descriptions.push_back(line.substr(2));
+      }
+      std::vector<std::string> columns;
+      for (std::size_t at = 0; at < names.size(); ) {
+        const std::size_t start = names.find_first_not_of(' ', at);
+        if (start == std::string::npos) break;
+        const std::size_t end = std::min(names.find(' ', start), names.size());
+        columns.push_back(names.substr(start, end - start));
+        at = end;
+      }
+      std::vector<std::string> texts;
+      for (std::size_t c = 0; c < columns.size(); ++c)
+        for (const std::string& d : descriptions)
+          if (d.rfind(columns[c] + " ", 0) == 0) {
+            std::string text = d.substr(columns[c].size());
+            text.erase(0, text.find_first_not_of(' '));
+            const std::size_t unit = text.rfind(" [");
+            if (unit != std::string::npos && text.back() == ']') text.erase(unit);
+            else if (!text.empty() && text.front() == '[' && text.back() == ']') text.clear();
+            if (!text.empty()) texts.push_back("TCOMM" + std::to_string(c + 1) + " = " + text);
+          }
+      texts.insert(texts.begin(), keywords.begin(), keywords.end());
+      out.push_back(texts);
+    }
+    return out;
+  }
+
+  std::vector<std::vector<std::string>> sorted (std::vector<std::vector<std::string>> texts)
+  {
+    for (auto& t : texts) std::sort(t.begin(), t.end());
+    return texts;
   }
 
 }
@@ -1566,6 +1650,62 @@ int main ()
           text.find("## ZMIN = ") != std::string::npos, "keywords: " + text.substr(0, 300));
     check(throws_naming([&] { io::writeMpsProfile(file, MpsProfile()); }, "empty"), "an empty profile is refused");
     std::remove(file.c_str());
+  }
+
+  group("Every writer, in each geometry with every optional keyword, writes its comments and descriptions whole");
+  {
+    Result mean = io::readDisplacementMean([&] {
+      const std::string f = temporary("whole_source.fits");
+      io::writeDisplacementMean(f, lc);
+      return f;
+    }());
+    check(mean.nRealizationsMean == 3 && mean.nRealizations == 1, "a mean read back holds NRECMEAN");
+    Result limitedIds = limited;
+    limitedIds.ids.resize(n);
+    for (std::size_t i = 0; i < n; ++i) limitedIds.ids[i] = (std::int64_t)(1000 + i);
+    check(lc.filteredNside != 0 && lc.selection.maxUnobservedPixelsCrossed && lc.selection.redshiftCut &&
+          lc.selection.maskApplied && limited.selection.boxLimits && !std::isnan(limited.mps),
+          "the results hold every optional keyword");
+    using G = io::DisplacementGroup;
+    using C = io::CatalogGroup;
+    const std::vector<G> lcGroups {G::Id, G::TracerSky, G::LagrangianSky, G::Tracer, G::Lagrangian,
+                                   G::Displacement, G::ValidRealizations, G::Selection};
+    const std::vector<G> boxGroups {G::Id, G::Tracer, G::Lagrangian, G::Displacement, G::ValidRealizations,
+                                    G::OutsideBox};
+    const std::vector<C> lcCatalogGroups {C::Id, C::Sky, C::Cartesian, C::ValidRealizations, C::Neighbours,
+                                          C::Shift, C::Status};
+    const std::vector<C> boxCatalogGroups {C::Id, C::Cartesian, C::ValidRealizations, C::Neighbours, C::Shift,
+                                           C::Status};
+    struct Writer {
+      std::string name;
+      std::function<void(const std::string&)> write;
+    };
+    const std::vector<Writer> writers {
+      {"lightcone mean", [&] (const std::string& f) { io::writeDisplacementMean(f, lc, lcGroups); }},
+      {"lightcone mean of a mean", [&] (const std::string& f) { io::writeDisplacementMean(f, mean, lcGroups); }},
+      {"box mean", [&] (const std::string& f) { io::writeDisplacementMean(f, limitedIds, boxGroups); }},
+      {"lightcone complete", [&] (const std::string& f) { io::writeDisplacementComplete(f, lc); }},
+      {"box complete", [&] (const std::string& f) { io::writeDisplacementComplete(f, limitedIds); }},
+      {"lightcone catalogue", [&] (const std::string& f) { io::writeRealSpaceCatalog(f, lcCatalog, lcCatalogGroups); }},
+      {"box catalogue", [&] (const std::string& f) { io::writeRealSpaceCatalog(f, boxCatalog, boxCatalogGroups); }},
+      {"mps profile", [&] (const std::string& f) { io::writeMpsProfile(f, lc.mpsProfile); }}};
+    for (const Writer& w : writers) {
+      const std::string fits = temporary("whole.fits"), ascii = temporary("whole.dat");
+      const std::string failure = [&] {
+        try { w.write(fits); w.write(ascii); }
+        catch (const Error& e) { return std::string(e.what()); }
+        return std::string();
+      }();
+      check(failure.empty(), w.name + ": written in both formats; " + failure);
+      const auto inFits = fits_texts(fits), inAscii = ascii_texts(ascii);
+      std::size_t count = 0;
+      for (const auto& t : inFits) count += t.size();
+      check(!inFits.empty() && count > 5 && sorted(inFits) == sorted(inAscii),
+            w.name + ": every comment and description in FITS is the ASCII one, whole");
+      remove_with_twins(fits);
+      remove_with_twins(ascii);
+    }
+    std::remove(temporary("whole_source.fits").c_str());
   }
 
   return report("test_writers");

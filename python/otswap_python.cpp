@@ -189,7 +189,8 @@ namespace {
     for (std::size_t i = 0; i < c.size(); ++i) {
       if (!(c[i] >= 0. && c[i] <= 4294967295.) || c[i] != std::floor(c[i]))
         throw otswap::Error(name + " holds " + std::to_string(c[i]) + " at entry " +
-                            std::to_string(i) + "; every entry must be an integer in [0, 4294967295]");
+                            std::to_string(i) + " (from 0); every entry must be an integer in "
+                            "[0, 4294967295]");
       out[i] = (unsigned)c[i];
     }
     return out;
@@ -231,7 +232,7 @@ namespace {
     for (std::size_t i = 0; i + 2 < sky.size(); i += 3)
       if (std::isfinite(sky[i+1]) && std::fabs(sky[i+1]) > 90.)
         throw otswap::Error(name + " holds a declination of " + std::to_string(sky[i+1]) +
-                            " degrees at object " + std::to_string(i / 3) + ", outside [-90, 90]");
+                            " degrees at object " + std::to_string(i / 3) + " (from 0), outside [-90, 90]");
     for (std::size_t i = 0; i + 2 < sky.size(); i += 3) {
       sky[i]   *= kDegToRad;
       sky[i+1] *= kDegToRad;
@@ -556,7 +557,7 @@ namespace {
       for (std::size_t i = 0; i < c.size(); ++i) {
         if (!(c[i] >= -9223372036854775808. && c[i] < 9223372036854775808.) || c[i] != std::floor(c[i]))
           throw otswap::Error(name + " holds " + std::to_string(c[i]) + " at entry " +
-                              std::to_string(i) + "; every entry must be a 64-bit integer");
+                              std::to_string(i) + " (from 0); every entry must be a 64-bit integer");
         out[i] = (std::int64_t)c[i];
       }
       return out;
@@ -865,7 +866,7 @@ namespace {
     for (std::size_t i = 0; i < v.size(); ++i) {
       if (v[i] != 0. && v[i] != 1.)
         throw otswap::Error(name + " holds " + std::to_string(v[i]) + " at entry " + std::to_string(i) +
-                            "; every entry must be 0 or 1");
+                            " (from 0); every entry must be 0 or 1");
       out[i] = (std::uint8_t)v[i];
     }
     return out;

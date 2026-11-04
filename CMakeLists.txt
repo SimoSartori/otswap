@@ -329,6 +329,17 @@ if (OTSWAP_BUILD_TESTS)
           -DPROJECT_VERSION=${PROJECT_VERSION}
           -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/executable/run_case.cmake)
     endforeach()
+
+    # The shipped parameter files set every key that applies to their run.
+    foreach (parameters examples/executable/box examples/executable/lightcone
+                        tests/executable/example_box tests/executable/example_lightcone)
+      string(REPLACE "/" "_" parameters_name ${parameters})
+      add_test(NAME executable_keys_${parameters_name}
+        COMMAND ${CMAKE_COMMAND}
+          -DAPP=${CMAKE_CURRENT_SOURCE_DIR}/app/otswap.cpp
+          -DPARAMETERS=${CMAKE_CURRENT_SOURCE_DIR}/${parameters}.ini
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/executable/check_example_keys.cmake)
+    endforeach()
   endif()
 endif()
 
