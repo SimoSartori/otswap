@@ -184,6 +184,36 @@ namespace {
     return n;
   }
 
+  class Flushes : public std::stringbuf {
+  public:
+
+    std::vector<std::string> chunks;
+
+    std::string text () const
+    {
+      std::string all;
+      for (const std::string& c : chunks) all += c;
+      return all + str();
+    }
+
+    bool one_line_each () const
+    {
+      if (!str().empty()) return false;
+      for (const std::string& c : chunks)
+        if (lines(c) != 1 || c.back() != '\n') return false;
+      return true;
+    }
+
+  protected:
+
+    int sync () override
+    {
+      chunks.push_back(str());
+      str("");
+      return 0;
+    }
+  };
+
   void write_text (const std::string& file, const std::string& text)
   {
     std::ofstream out(file);
@@ -1177,6 +1207,90 @@ int main ()
     const Result box = reconstructBox(toCartesian(sky, table), {}, 20., config);
     check(box.outsideMask == std::vector<std::uint8_t>(n, 0) && box.selection.tracers == 0 &&
           box.selection.message().empty(), "a box result: no flag, all counts 0");
+
+    group("each line of a report is written, and the log flushed, as its step finishes, in the "
+          "report's order; a call that throws keeps the lines of the steps it finished, without the "
+          "call line");
+    {
+      Config stepwise = config;
+      stepwise.verbosity = Verbosity::Detailed;
+      Flushes rejecting;
+      std::ostream rejectingLog(&rejecting);
+      stepwise.log = &rejectingLog;
+      const Result r = reconstructLightcone(sky, randomsSky, mask, 1, table, stepwise, cut);
+      std::ostringstream profileLine;
+      profileLine << "otswap: mps(z) from " << r.mpsProfile.mps[0] << " to " << r.mpsProfile.mps[0]
+                  << " in coordinate units, in 1 bin over [" << r.mpsProfile.redshiftMin << ", "
+                  << r.mpsProfile.redshiftMax << "]\n";
+      check(rejecting.one_line_each() && rejecting.chunks.size() == 5 &&
+            rejecting.text().find(r.selection.message() + profileLine.str()) == 0 &&
+            rejecting.chunks[2].find("otswap: rejected ") == 0 &&
+            rejecting.chunks[4].find("otswap: reconstructLightcone: ") == 0,
+            "a lightcone rejecting crossings: the selection, the crossings, mps(z), then the call: " +
+            rejecting.text());
+
+      Flushes unrejecting;
+      std::ostream unrejectingLog(&unrejecting);
+      Config noFilter = stepwise;
+      noFilter.rejectCrossings = false;
+      noFilter.log = &unrejectingLog;
+      const Result u = reconstructLightcone(sky, randomsSky, mask, 1, table, noFilter, cut);
+      check(unrejecting.one_line_each() && unrejecting.chunks.size() == 4 &&
+            unrejecting.text().find(u.selection.message() + profileLine.str()) == 0 &&
+            unrejecting.chunks[3].find("otswap: reconstructLightcone: ") == 0,
+            "without the filter: the selection, mps(z), then the call: " + unrejecting.text());
+
+      Flushes profiled;
+      std::ostream profiledLog(&profiled);
+      measureMpsProfile(sky, mask, 1, table, cut, Verbosity::Detailed, &profiledLog);
+      check(profiled.one_line_each() && profiled.chunks.size() == 3 &&
+            profiled.chunks[0].find("otswap: kept ") == 0 && profiled.chunks[1] == profileLine.str() &&
+            profiled.chunks[2].find("otswap: measureMpsProfile: ") == 0,
+            "measureMpsProfile: the tracer line, mps(z), then the call: " + profiled.text());
+
+      const std::vector<double> cartesian = toCartesian(sky, table);
+      BoxLimits around;
+      for (std::size_t k = 0; k < 3; ++k) {
+        around.lower[k] = around.upper[k] = cartesian[k];
+        for (std::size_t i = 0; i < n; ++i) {
+          around.lower[k] = std::min(around.lower[k], cartesian[3*i+k]);
+          around.upper[k] = std::max(around.upper[k], cartesian[3*i+k]);
+        }
+      }
+      Flushes boxed;
+      std::ostream boxedLog(&boxed);
+      stepwise.log = &boxedLog;
+      reconstructBox(cartesian, {}, 20., stepwise, around);
+      check(boxed.one_line_each() && boxed.chunks.size() == 3 &&
+            boxed.chunks[0].find("otswap: kept 900 of 900 tracers: 0 outside the box [") == 0 &&
+            boxed.chunks[1] == "otswap: mean particle separation 20 in coordinate units (given)\n" &&
+            boxed.chunks[2].find("otswap: reconstructBox: ") == 0,
+            "a box with limits: the box, the mps, then the call: " + boxed.text());
+
+      Flushes failed;
+      std::ostream failedLog(&failed);
+      stepwise.log = &failedLog;
+      bool refused = false;
+      try {
+        reconstructBox(cartesian, {}, -1., stepwise, around);
+      }
+      catch (const Error& e) {
+        refused = std::string(e.what()).find("the mean particle separation is -1.000000") != std::string::npos;
+      }
+      check(refused && failed.chunks.size() == 1 && failed.chunks[0] == boxed.chunks[0] && failed.str().empty(),
+            "a box refused after its selection: the box line alone: " + failed.text());
+
+      Flushes corrected;
+      std::ostream correctedLog(&corrected);
+      CorrectionConfig correction;
+      correction.verbosity = Verbosity::Detailed;
+      correction.log = &correctedLog;
+      realSpaceLightcone(masked, table, BiasTable{{0.35, 0.55}, {1.2, 1.6}}, 10., correction);
+      check(corrected.one_line_each() && corrected.chunks.size() == 4 &&
+            corrected.chunks[0].find("otswap: b(z) extrapolated at ") == 0 &&
+            corrected.chunks[3].find("otswap: realSpaceLightcone: ") == 0,
+            "the correction: b(z) extrapolated, the breakdown, then the call: " + corrected.text());
+    }
 
     group("too few objects left by the mask raise, naming the selections and the counts");
     std::vector<double> mostlyUnobserved(12 * 64 * 64, 0.);

@@ -47,6 +47,12 @@
 - The macOS wheels hold libomp in `otswap/openmp/lib/`, where the module
   finds it through its rpath, instead of the copy delocate made in
   `otswap/.dylibs/`.
+- Each line of a report is written as soon as its step finishes, the log
+  flushed after it, no longer all of them when the call ends; the text is
+  unchanged. A call that throws leaves the lines of the steps it finished.
+  Python prints each line to `sys.stdout` while the call runs, and Ctrl+C
+  stops a reconstruction, `measure_mps_profile` or a correction at its next
+  report line with `KeyboardInterrupt`.
 
 - `reconstructBox` and `reconstructLightcone` refuse more than 2^32 − 1
   tracers.

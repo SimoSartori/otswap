@@ -239,12 +239,11 @@ namespace {
     return catalog;
   }
 
-  /// Write the report of a correction to config.log: first, at Normal and
-  /// Detailed, the lines given (the extrapolation of b(z)); at Detailed
-  /// only, the breakdown of the corrected and of the uncorrected; then the
-  /// line of the call.
+  /// Write the end of the report of a correction to config.log: at
+  /// Detailed only, the breakdown of the corrected and of the uncorrected;
+  /// then the line of the call.
   void report (const std::string& name, const otswap::RealSpaceCatalog& catalog,
-               const std::string& first, const otswap::CorrectionConfig& config)
+               const otswap::CorrectionConfig& config)
   {
     using otswap::CorrectionStatus;
     using otswap::Verbosity;
@@ -258,7 +257,6 @@ namespace {
 
     std::ostringstream out;
     out.imbue(std::locale::classic());
-    out << first;
     if (config.verbosity == Verbosity::Detailed) {
       out << "otswap: corrected " << corrected << " tracers, "
           << count[(std::size_t)CorrectionStatus::MovedByNeighbours]
@@ -271,7 +269,7 @@ namespace {
     out << "otswap: " << name << ": corrected " << corrected << " of " << catalog.nObjects
         << " tracers in " << std::fixed << std::setprecision(2) << catalog.elapsedSeconds << " s; "
         << uncorrected << " left uncorrected\n";
-    *config.log << out.str() << std::flush;
+    otswap::internal::write_lines(*config.log, out.str());
   }
 
 }
@@ -591,7 +589,7 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
   if (m == 0) {
     catalog.elapsedSeconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-    report("realSpaceLightcone", catalog, "", config);
+    report("realSpaceLightcone", catalog, config);
     return catalog;
   }
 
@@ -612,6 +610,15 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
     if (!(distance[k] > 0.))
       throw Error(who + " is at zero distance; its line of sight is undefined");
     factor[k] = factor_at(bias.redshift, bias.bias, sky[3*i+2], distances, who, nExtrapolated);
+  }
+
+  if (nExtrapolated > 0 && config.log != nullptr && config.verbosity != Verbosity::Silent) {
+    std::ostringstream extrapolation;
+    extrapolation.imbue(std::locale::classic());
+    extrapolation << "otswap: b(z) extrapolated at " << nExtrapolated << " of " << m
+                  << " redshifts, outside the bias table's range [" << bias.redshift.front() << ", "
+                  << bias.redshift.back() << "]\n";
+    internal::write_lines(*config.log, extrapolation.str());
   }
 
   const std::vector<double> projection =
@@ -671,13 +678,7 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
   catalog.elapsedSeconds =
     std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 
-  std::ostringstream extrapolation;
-  extrapolation.imbue(std::locale::classic());
-  if (nExtrapolated > 0)
-    extrapolation << "otswap: b(z) extrapolated at " << nExtrapolated << " of " << m
-                  << " redshifts, outside the bias table's range [" << bias.redshift.front() << ", "
-                  << bias.redshift.back() << "]\n";
-  report("realSpaceLightcone", catalog, extrapolation.str(), config);
+  report("realSpaceLightcone", catalog, config);
 
   return catalog;
 }
@@ -735,6 +736,6 @@ otswap::RealSpaceCatalog otswap::realSpaceBox (const Result& result,
 
   catalog.elapsedSeconds =
     std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-  report("realSpaceBox", catalog, "", config);
+  report("realSpaceBox", catalog, config);
   return catalog;
 }

@@ -454,7 +454,18 @@ namespace {
 
     internal::check_random_supply(keepRandoms.size(), nKept, config.nRealizations);
 
+    const bool reporting = config.log != nullptr && config.verbosity != Verbosity::Silent;
+    const bool detailed = reporting && config.verbosity == Verbosity::Detailed;
+    const bool rejecting = mask != nullptr && config.rejectCrossings;
+    const std::string selected = reporting ? counts.message() : std::string();
+    if (reporting) internal::write_lines(*config.log, selected);
+
     MpsProfile profile = internal::mps_profile(ts, skyAreaDeg2, nBins, distances);
+
+    std::ostringstream profileLine;
+    profileLine.imbue(std::locale::classic());
+    if (detailed) profile_line(profileLine, profile);
+    if (!rejecting && detailed) internal::write_lines(*config.log, profileLine.str());
 
     std::vector<double> convertedTracers, convertedRandoms, keptTracers, keptRandoms;
     if (tracers == nullptr) {
@@ -504,20 +515,17 @@ namespace {
     result.selection = counts;
     internal::summarize(result);
 
-    if (mask != nullptr && config.rejectCrossings)
+    if (rejecting) {
       rejectMaskCrossings(result, *mask, config.maxUnobservedPixelsCrossed);
+      if (reporting) internal::write_lines(*config.log, result.selection.message().substr(selected.size()));
+      if (detailed) internal::write_lines(*config.log, profileLine.str());
+    }
 
     result.elapsedSeconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 
-    if (config.log != nullptr && config.verbosity != Verbosity::Silent) {
-      std::ostringstream out;
-      out.imbue(std::locale::classic());
-      out << result.selection.message();
-      if (config.verbosity == Verbosity::Detailed) profile_line(out, result.mpsProfile);
-      out << internal::reconstruction_line("reconstructLightcone", result);
-      *config.log << out.str() << std::flush;
-    }
+    if (reporting)
+      internal::write_lines(*config.log, internal::reconstruction_line("reconstructLightcone", result));
 
     return result;
   }
@@ -547,22 +555,28 @@ namespace {
     const bool selected = counts.redshiftCut || counts.maskApplied;
     if (selected) internal::check_kept_tracers(counts, keep.size());
 
+    const bool reporting = log != nullptr && verbosity != Verbosity::Silent;
+    if (reporting && selected) {
+      std::ostringstream out;
+      out.imbue(std::locale::classic());
+      selection_line(out, counts, "tracers", counts.tracers, counts.tracersOutsideRedshiftCut,
+                     counts.tracersOutsideMask, counts.tracersOutsideBoth);
+      internal::write_lines(*log, out.str());
+    }
+
     const bool dropTracers = keep.size() != nObjects;
     const std::vector<double> keptSky = dropTracers ? internal::rows(tracersSky, keep) : std::vector<double>();
     MpsProfile result = internal::mps_profile(dropTracers ? keptSky : tracersSky, skyAreaDeg2, nBins,
                                               distances);
 
-    if (log != nullptr && verbosity != Verbosity::Silent) {
+    if (reporting) {
       std::ostringstream out;
       out.imbue(std::locale::classic());
-      if (selected)
-        selection_line(out, counts, "tracers", counts.tracers, counts.tracersOutsideRedshiftCut,
-                       counts.tracersOutsideMask, counts.tracersOutsideBoth);
       if (verbosity == Verbosity::Detailed) profile_line(out, result);
       out << "otswap: measureMpsProfile: " << result.mps.size()
           << (result.mps.size() == 1 ? " bin" : " bins") << " over [" << result.redshiftMin << ", "
           << result.redshiftMax << "]\n";
-      *log << out.str() << std::flush;
+      internal::write_lines(*log, out.str());
     }
 
     return result;

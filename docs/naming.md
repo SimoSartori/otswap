@@ -13,6 +13,7 @@ passed as `config=` or `correction=`; a flat
 | `Error` | `Error` | C++ records the throw location: `file()`, `function()`, `line()` |
 | a line in the report, the count `nExtrapolated` | `ExtrapolationWarning` | b(z) extrapolated beyond its table |
 | `meshsearch::Error` | — | rethrown as `Error`, the message starting `meshsearch: `; in C++ the original is nested |
+| — | `KeyboardInterrupt` | Ctrl+C, at the next report line of a call |
 
 ## Configuration
 

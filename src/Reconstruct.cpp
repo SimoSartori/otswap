@@ -418,6 +418,16 @@ std::string otswap::internal::reconstruction_line (const std::string& name, cons
 // ============================================================================
 
 
+void otswap::internal::write_lines (std::ostream& log, const std::string& text)
+{
+  for (std::size_t start = 0, end; (end = text.find('\n', start)) != std::string::npos; start = end + 1)
+    log << text.substr(start, end + 1 - start) << std::flush;
+}
+
+
+// ============================================================================
+
+
 void otswap::internal::summarize (Result& result)
 {
   const std::size_t nObjects = result.nObjects;
@@ -514,6 +524,8 @@ namespace {
       throw Error("the catalog holds " + std::to_string(nObjects) + " objects; it must hold at most " +
                   std::to_string(std::numeric_limits<unsigned>::max()));
 
+    const bool reporting = config.log != nullptr && config.verbosity != Verbosity::Silent;
+
     SelectionCounts counts;
     internal::Selection tracerSelection, randomSelection;
     if (limits) {
@@ -529,6 +541,7 @@ namespace {
       else internal::check_kept(counts, tracerSelection.keep.size(), randomSelection.keep.size(),
                                 config.nRealizations);
     }
+    if (reporting) internal::write_lines(*config.log, counts.message());
 
     const bool dropTracers = limits && tracerSelection.keep.size() != nObjects;
     const bool dropRandoms = limits && randomSelection.keep.size() != nRandoms;
@@ -568,6 +581,17 @@ namespace {
     if (!limits && !randoms.empty())
       internal::check_random_supply(nRandoms, nObjects, config.nRealizations);
 
+    if (reporting && config.verbosity == Verbosity::Detailed) {
+      std::ostringstream out;
+      out.imbue(std::locale::classic());
+      out << "otswap: mean particle separation " << mps << " in coordinate units ("
+          << (givenMps != nullptr ? "given"
+              : limits ? "from the box limits"
+              : randoms.empty() ? "from the bounding box of the tracers"
+              : "from the bounding box of the tracers and the given randoms") << ")\n";
+      internal::write_lines(*config.log, out.str());
+    }
+
     const std::vector<double> perObject(nKept, mps);
 
     Result result = internal::reconstruct(t, r, perObject, mps, config, seed,
@@ -583,19 +607,7 @@ namespace {
     result.elapsedSeconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 
-    if (config.log != nullptr && config.verbosity != Verbosity::Silent) {
-      std::ostringstream out;
-      out.imbue(std::locale::classic());
-      out << result.selection.message();
-      if (config.verbosity == Verbosity::Detailed)
-        out << "otswap: mean particle separation " << mps << " in coordinate units ("
-            << (givenMps != nullptr ? "given"
-                : limits ? "from the box limits"
-                : randoms.empty() ? "from the bounding box of the tracers"
-                : "from the bounding box of the tracers and the given randoms") << ")\n";
-      out << internal::reconstruction_line("reconstructBox", result);
-      *config.log << out.str() << std::flush;
-    }
+    if (reporting) internal::write_lines(*config.log, internal::reconstruction_line("reconstructBox", result));
 
     return result;
   }

@@ -58,10 +58,13 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <initializer_list>
 #include <numeric>
 #include <optional>
+#include <ostream>
 #include <sstream>
+#include <streambuf>
 #include <string>
 #include <utility>
 #include <vector>
@@ -254,18 +257,116 @@ namespace {
     return nb::str("normal");
   }
 
-  /// Print each line of a report with builtins.print, leaving out those of
-  /// the extrapolation of b(z), which ExtrapolationWarning carries. Needs
-  /// the GIL.
-  void print_report (const std::string& text)
-  {
-    const nb::object print = nb::module_::import_("builtins").attr("print");
-    const std::string extrapolation = "otswap: b(z) extrapolated";
-    std::size_t start = 0;
-    for (std::size_t end; (end = text.find('\n', start)) != std::string::npos; start = end + 1)
-      if (text.compare(start, extrapolation.size(), extrapolation) != 0)
-        print(nb::str(text.data() + start, end - start));
-  }
+  struct Interrupted {};
+
+  class LineBuffer : public std::streambuf {
+  public:
+
+    nb::object error;
+
+    void finish ()
+    {
+      if (!error.is_valid() && !line.empty()) emit();
+      line.clear();
+    }
+
+  protected:
+
+    int_type overflow (const int_type c) override
+    {
+      if (!traits_type::eq_int_type(c, traits_type::eof())) put(traits_type::to_char_type(c));
+      return traits_type::not_eof(c);
+    }
+
+    std::streamsize xsputn (const char* s, const std::streamsize n) override
+    {
+      for (std::streamsize i = 0; i < n; ++i) put(s[i]);
+      return n;
+    }
+
+  private:
+
+    std::string line;
+
+    void put (const char c)
+    {
+      if (c != '\n') {
+        line += c;
+        return;
+      }
+      emit();
+      line.clear();
+    }
+
+    void emit ()
+    {
+      if (error.is_valid()) return;
+      static const std::string extrapolation = "otswap: b(z) extrapolated";
+      bool interrupted = false;
+      {
+        nb::gil_scoped_acquire held;
+        if (PyErr_CheckSignals() != 0) {
+          nb::python_error raised;
+          error = nb::borrow(raised.value());
+          interrupted = true;
+        }
+        else if (line.compare(0, extrapolation.size(), extrapolation) != 0) {
+          try {
+            nb::module_::import_("builtins").attr("print")(nb::str(line.data(), line.size()));
+          }
+          catch (nb::python_error& raised) {
+            error = nb::borrow(raised.value());
+            interrupted = raised.matches(PyExc_KeyboardInterrupt);
+          }
+        }
+      }
+      if (interrupted) throw Interrupted();
+    }
+  };
+
+  class LiveReport {
+  public:
+
+    LiveReport () : stream(&buffer)
+    {
+      stream.exceptions(std::ios::badbit);
+    }
+
+    LiveReport (const LiveReport&) = delete;
+    LiveReport& operator= (const LiveReport&) = delete;
+
+    std::ostream& log () { return stream; }
+
+    template <typename F>
+    auto run (F&& f) -> decltype(f())
+    {
+      std::optional<decltype(f())> value;
+      std::exception_ptr failure;
+      {
+        nb::gil_scoped_release released;
+        try {
+          value.emplace(f());
+        }
+        catch (const Interrupted&) {
+        }
+        catch (...) {
+          failure = std::current_exception();
+        }
+      }
+      buffer.finish();
+      if (buffer.error.is_valid()) {
+        PyErr_SetObject((PyObject*)Py_TYPE(buffer.error.ptr()), buffer.error.ptr());
+        throw nb::python_error();
+      }
+      if (failure) std::rethrow_exception(failure);
+      return std::move(*value);
+    }
+
+  private:
+
+    LineBuffer buffer;
+    std::ostream stream;
+  };
 
   /// The redshift cut from None, an otswap.RedshiftCut or a (min, max)
   /// pair.
@@ -1424,16 +1525,12 @@ NB_MODULE(_otswap, m)
         const bool computed = mps.is_none();
         const double separation = computed ? 0. : to_double(mps, "mps");
         const std::optional<otswap::BoxLimits> limits = to_box(box);
-        std::ostringstream report;
-        const otswap::Config config = config_of(configArg, report);
-        otswap::Result result;
-        {
-          nb::gil_scoped_release released;
-          result = computed ? otswap::reconstructBox(t, r, config, limits)
-                            : otswap::reconstructBox(t, r, separation, config, limits);
-        }
-        print_report(report.str());
-        return result_object(std::move(result), false);
+        LiveReport report;
+        const otswap::Config config = config_of(configArg, report.log());
+        return result_object(report.run([&] {
+          return computed ? otswap::reconstructBox(t, r, config, limits)
+                          : otswap::reconstructBox(t, r, separation, config, limits);
+        }), false);
       },
       "tracers"_a.none(), "randoms"_a = nb::none(), nb::kw_only(), "mps"_a = nb::none(),
       "box"_a = nb::none(), "config"_a.none() = otswap::Config(),
@@ -1460,8 +1557,8 @@ NB_MODULE(_otswap, m)
                                        : &instance<otswap::Mask>(mask, "mask", "Mask");
         const double area = footprint ? 0. : to_double(skyAreaDeg2, "sky_area_deg2");
         const unsigned bins = to_unsigned(nBins, "n_bins");
-        std::ostringstream report;
-        const otswap::Config config = config_of(configArg, report);
+        LiveReport report;
+        const otswap::Config config = config_of(configArg, report.log());
         const otswap::RedshiftCut cut = to_cut(redshiftCut);
         std::vector<double> t, r;
         if (!tracers.is_none()) {
@@ -1469,18 +1566,13 @@ NB_MODULE(_otswap, m)
           r = rows3(randoms, "randoms");
         }
 
-        otswap::Result result;
-        {
-          nb::gil_scoped_release released;
+        return result_object(report.run([&] {
           if (tracers.is_none())
-            result = footprint ? otswap::reconstructLightcone(ts, rs, *footprint, bins, table, config, cut)
-                               : otswap::reconstructLightcone(ts, rs, area, bins, table, config, cut);
-          else
-            result = footprint ? otswap::reconstructLightcone(t, r, ts, rs, *footprint, bins, table, config, cut)
-                               : otswap::reconstructLightcone(t, r, ts, rs, area, bins, table, config, cut);
-        }
-        print_report(report.str());
-        return result_object(std::move(result), degrees);
+            return footprint ? otswap::reconstructLightcone(ts, rs, *footprint, bins, table, config, cut)
+                             : otswap::reconstructLightcone(ts, rs, area, bins, table, config, cut);
+          return footprint ? otswap::reconstructLightcone(t, r, ts, rs, *footprint, bins, table, config, cut)
+                           : otswap::reconstructLightcone(t, r, ts, rs, area, bins, table, config, cut);
+        }), degrees);
       },
       "tracers_sky"_a.none(), "randoms_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(),
       "mask"_a = nb::none(), "n_bins"_a.none(), "distances"_a.none(), "angle_unit"_a.none(),
@@ -1505,17 +1597,12 @@ NB_MODULE(_otswap, m)
         const double area = footprint ? 0. : to_double(skyAreaDeg2, "sky_area_deg2");
         const unsigned bins = to_unsigned(nBins, "n_bins");
         const otswap::Verbosity level = to_verbosity(verbosity);
-        std::ostringstream report;
+        LiveReport report;
         const otswap::RedshiftCut cut = to_cut(redshiftCut);
-
-        otswap::MpsProfile profile;
-        {
-          nb::gil_scoped_release released;
-          profile = footprint ? otswap::measureMpsProfile(ts, *footprint, bins, table, cut, level, &report)
-                              : otswap::measureMpsProfile(ts, area, bins, table, cut, level, &report);
-        }
-        print_report(report.str());
-        return profile;
+        return report.run([&] {
+          return footprint ? otswap::measureMpsProfile(ts, *footprint, bins, table, cut, level, &report.log())
+                           : otswap::measureMpsProfile(ts, area, bins, table, cut, level, &report.log());
+        });
       },
       "tracers_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(), "mask"_a = nb::none(),
       "n_bins"_a.none(), "distances"_a.none(), "redshift_cut"_a = nb::none(), "angle_unit"_a.none(),
@@ -1749,14 +1836,10 @@ NB_MODULE(_otswap, m)
         const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
         const otswap::BiasTable& b = instance<otswap::BiasTable>(bias, "bias", "BiasTable");
         const double s = to_double(sigma, "sigma");
-        std::ostringstream report;
-        const otswap::CorrectionConfig config = correction_of(correction, report);
-        otswap::RealSpaceCatalog catalog;
-        {
-          nb::gil_scoped_release released;
-          catalog = otswap::realSpaceLightcone(r, table, b, s, config);
-        }
-        print_report(report.str());
+        LiveReport report;
+        const otswap::CorrectionConfig config = correction_of(correction, report.log());
+        otswap::RealSpaceCatalog catalog =
+          report.run([&] { return otswap::realSpaceLightcone(r, table, b, s, config); });
         std::size_t kept = 0;
         for (const otswap::CorrectionStatus status : catalog.status)
           kept += status != otswap::CorrectionStatus::LeftOut;
@@ -1776,15 +1859,10 @@ NB_MODULE(_otswap, m)
         const double z = to_double(redshift, "redshift");
         const double b = to_double(bias, "bias");
         const double s = to_double(sigma, "sigma");
-        std::ostringstream report;
-        const otswap::CorrectionConfig config = correction_of(correction, report);
-        otswap::RealSpaceCatalog catalog;
-        {
-          nb::gil_scoped_release released;
-          catalog = otswap::realSpaceBox(r, a, z, table, b, s, config);
-        }
-        print_report(report.str());
-        return catalog_object(std::move(catalog), false);
+        LiveReport report;
+        const otswap::CorrectionConfig config = correction_of(correction, report.log());
+        return catalog_object(report.run([&] { return otswap::realSpaceBox(r, a, z, table, b, s, config); }),
+                              false);
       },
       "result"_a.none(), nb::kw_only(), "axis"_a.none(), "redshift"_a.none(), "distances"_a.none(),
       "bias"_a.none(), "sigma"_a.none(), "correction"_a.none() = otswap::CorrectionConfig(),

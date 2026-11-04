@@ -13,11 +13,13 @@ same inputs by tests/cpp_reference.cpp. They need the path of that executable
 in the environment variable OTSWAP_CPP_REFERENCE, and are skipped without it.
 """
 
+import _thread
 import gc
 import math
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 
@@ -1077,6 +1079,83 @@ def test_box_limits_report(capfd):
     otswap.reconstruct_box(tracers, randoms, box=LIMITS,
                            config=otswap.Config(n_realizations=1, seed=2, verbosity="silent"))
     assert capfd.readouterr() == ("", "")
+
+
+class Stdout:
+    """A sys.stdout that records what it is given and runs action on the
+    write of the first newline."""
+
+    def __init__(self, action=None):
+        self.action = action
+        self.writes = []
+
+    def write(self, text):
+        self.writes.append(text)
+        if text == "\n" and len(self.writes) == 2 and self.action is not None:
+            self.action()
+        return len(text)
+
+    def flush(self):
+        pass
+
+
+def stepwise_box_search():
+    return otswap.reconstruct_box(box_catalogue(), box=LIMITS,
+                                  config=otswap.Config(n_realizations=1, seed=2, verbosity="detailed"))
+
+
+def test_report_lines_are_printed_one_by_one_in_step_order(monkeypatch):
+    out = Stdout()
+    monkeypatch.setattr(sys, "stdout", out)
+    try:
+        r = stepwise_box_search()
+    finally:
+        monkeypatch.undo()
+    assert out.writes[1::2] == ["\n"] * 3
+    box = "[0, 50] x [0, 80] x [0, 80]"
+    assert out.writes[0::2] == [f"otswap: kept 320 of 512 tracers: 192 outside the box {box}",
+                                f"otswap: mean particle separation {r.mps:g} in coordinate units (from the box "
+                                "limits)",
+                                call_line("reconstructBox", r).replace("1 realizations", "1 realization")]
+
+
+def test_a_failing_call_keeps_its_lines_and_has_no_call_line(capfd):
+    with pytest.raises(otswap.Error, match="the mean particle separation is -1.000000"):
+        otswap.reconstruct_box(box_catalogue(), box=LIMITS, mps=-1.0,
+                               config=otswap.Config(n_realizations=1, seed=2))
+    assert capfd.readouterr() == ("otswap: kept 320 of 512 tracers: 192 outside the box "
+                                  "[0, 50] x [0, 80] x [0, 80]\n", "")
+
+
+def test_an_exception_from_print_is_raised_after_the_call(monkeypatch):
+    def fail():
+        raise ValueError("stdout is closed")
+
+    out = Stdout(fail)
+    monkeypatch.setattr(sys, "stdout", out)
+    try:
+        with pytest.raises(ValueError, match="stdout is closed"):
+            stepwise_box_search()
+    finally:
+        monkeypatch.undo()
+    assert len(out.writes) == 2, "nothing is printed after the exception"
+
+
+@pytest.mark.parametrize("raised_by_print", (True, False))
+def test_an_interrupt_stops_the_call_at_its_next_line(monkeypatch, raised_by_print):
+    def interrupt():
+        if raised_by_print:
+            raise KeyboardInterrupt
+        _thread.interrupt_main()
+
+    out = Stdout(interrupt)
+    monkeypatch.setattr(sys, "stdout", out)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            stepwise_box_search()
+    finally:
+        monkeypatch.undo()
+    assert len(out.writes) == 2, "nothing is printed after the interrupt"
 
 
 def test_real_space_box_leaves_out_the_tracers_outside_the_limits(table):

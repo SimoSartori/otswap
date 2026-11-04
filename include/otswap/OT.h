@@ -141,6 +141,13 @@ namespace otswap {
    *  Each line starts with "otswap: " and ends in '\n'; the counts behind
    *  every line are in the object returned, so nothing printed is
    *  unavailable to a program.
+   *
+   *  Each line is written, and the log flushed, as soon as its step
+   *  finishes, by the calling thread, never inside a parallel region; the
+   *  lines keep the order given here, so the mps(z) line of a lightcone
+   *  that rejects mask crossings follows the line of the crossings. A call
+   *  that throws leaves the lines of the steps it finished, and never
+   *  writes its call line.
    */
   enum class Verbosity {
     /// Nothing.

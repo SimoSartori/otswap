@@ -180,6 +180,11 @@ namespace otswap {
     /// without a valid displacement".
     std::string reconstruction_line (const std::string& name, const Result& result);
 
+    /// Write the lines of text to log as their step finishes: one insertion
+    /// and one flush per line, '\n' included. Called by the calling thread,
+    /// between steps, never inside a parallel region.
+    void write_lines (std::ostream& log, const std::string& text);
+
     /// Sky coordinates of Cartesian positions, as toSky gives them, except
     /// that a distance outside the table gives a NaN redshift, the right
     /// ascension and declination kept, rather than an error. Written into

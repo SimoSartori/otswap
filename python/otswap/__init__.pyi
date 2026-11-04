@@ -11,6 +11,14 @@ converted to float64; the reconstruction works on its own copy of them.
 The number of threads follows ``OMP_NUM_THREADS``. The reconstruction
 functions release the GIL while they run.
 
+The reconstructions, ``measure_mps_profile`` and the corrections print their
+report to ``sys.stdout`` as they run, each line as its step finishes. Ctrl+C
+stops such a call at its next report line with ``KeyboardInterrupt``; a
+silent call, or a long step, runs on until its next line or its end, and a
+call made from a thread other than the main one is not interrupted. An
+exception raised by ``sys.stdout`` stops the printing, and the call raises it
+when it ends.
+
 Tables are read and written by the submodule ``otswap.io``.
 
 The redshift-space correction of tracer i is a shift along its line of
