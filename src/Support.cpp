@@ -37,6 +37,8 @@
 
 #include <meshsearch/MeshGrid.h>
 
+#include "otswap/Random.h"
+
 #include "detmath.h"
 #include "internal.h"
 
@@ -56,18 +58,18 @@ namespace {
 // ============================================================================
 
 
-unsigned otswap::internal::uniform_int (std::mt19937& rng, const unsigned bound)
+unsigned otswap::uniformInt (std::mt19937& engine, const unsigned bound)
 {
   if (bound == 0) return 0;
 
   const std::uint64_t range = bound;
-  std::uint64_t product = (std::uint64_t)rng() * range;
+  std::uint64_t product = (std::uint64_t)engine() * range;
   std::uint32_t low = (std::uint32_t)product;
 
   if (low < range) {
     const std::uint32_t threshold = (std::uint32_t)(0u - (std::uint32_t)range) % (std::uint32_t)range;
     while (low < threshold) {
-      product = (std::uint64_t)rng() * range;
+      product = (std::uint64_t)engine() * range;
       low = (std::uint32_t)product;
     }
   }
@@ -79,12 +81,27 @@ unsigned otswap::internal::uniform_int (std::mt19937& rng, const unsigned bound)
 // ============================================================================
 
 
-double otswap::internal::uniform_real (std::mt19937& rng, const double lo, const double hi)
+double otswap::uniformReal (std::mt19937& engine, const double lo, const double hi)
 {
-  const std::uint64_t high = (std::uint64_t)(rng() >> 5);
-  const std::uint64_t low = (std::uint64_t)(rng() >> 6);
+  for (const double bound : {lo, hi})
+    if (!std::isfinite(bound))
+      throw Error("the interval of a uniform draw has a bound of " + std::to_string(bound) +
+                  "; both bounds must be finite");
+
+  if (!(lo < hi))
+    throw Error("the interval of a uniform draw is [" + std::to_string(lo) + ", " + std::to_string(hi) +
+                "); the lower bound must be below the upper one");
+
+  const double width = hi - lo;
+  if (!std::isfinite(width))
+    throw Error("the interval of a uniform draw is [" + std::to_string(lo) + ", " + std::to_string(hi) +
+                "); its width, the upper bound minus the lower, must be finite");
+
+  const std::uint64_t high = (std::uint64_t)(engine() >> 5);
+  const std::uint64_t low = (std::uint64_t)(engine() >> 6);
   const double unit = (double)((high << 26) + low) / 9007199254740992.;
-  return lo + unit * (hi - lo);
+  const double value = lo + unit * width;
+  return value >= hi ? std::nextafter(hi, lo) : value;
 }
 
 

@@ -427,6 +427,10 @@ namespace {
                     " objects and the sky one " + std::to_string(nRandomsSky));
     }
 
+    if (nObjects > (std::size_t)std::numeric_limits<unsigned>::max())
+      throw Error("the catalog holds " + std::to_string(nObjects) + " objects; it must hold at most " +
+                  std::to_string(std::numeric_limits<unsigned>::max()));
+
     check_cut(cut);
     const internal::Selection tracerSelection = internal::select(tracersSky, cut, mask);
     const internal::Selection randomSelection = internal::select(randomsSky, cut, mask);

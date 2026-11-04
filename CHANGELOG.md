@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The header `otswap/Random.h`: `otswap::uniformInt`, `uniformReal` and
+  `shuffle`, random draws over `std::mt19937` that give the same values on
+  every supported platform and compiler. Their algorithms are fixed: later
+  versions do not change them.
+
+### Changed
+
+- `reconstructBox` and `reconstructLightcone` refuse more than 2^32 − 1
+  tracers.
+
 ## 0.2.1 — 2026-10-28
 
 ### Added

@@ -45,6 +45,8 @@
 
 #include <meshsearch/MeshGrid.h>
 
+#include "otswap/Random.h"
+
 #include "detmath.h"
 #include "internal.h"
 
@@ -197,10 +199,15 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
 
       if (generate) {
         std::mt19937 engine = stream(seed, rec, Stream::Randoms);
+        auto draw = [&engine] (const double lo, const double hi) {
+          if (lo < hi) return uniformReal(engine, lo, hi);
+          engine.discard(2);
+          return lo;
+        };
         for (std::size_t i = 0; i < nObjects; ++i) {
-          randomX[i] = uniform_real(engine, minX, maxX);
-          randomY[i] = uniform_real(engine, minY, maxY);
-          randomZ[i] = uniform_real(engine, minZ, maxZ);
+          randomX[i] = draw(minX, maxX);
+          randomY[i] = draw(minY, maxY);
+          randomZ[i] = draw(minZ, maxZ);
         }
       }
       else {
@@ -262,8 +269,8 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
         }
 
         while (toRemove > 0 && !close.empty() && !closeRandom.empty()) {
-          const unsigned it = uniform_int(seeding, (unsigned)close.size());
-          const unsigned ir = uniform_int(seeding, (unsigned)closeRandom.size());
+          const unsigned it = uniformInt(seeding, (unsigned)close.size());
+          const unsigned ir = uniformInt(seeding, (unsigned)closeRandom.size());
           const unsigned t = close[it];
           const unsigned r = closeRandom[ir];
 
@@ -307,11 +314,11 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
 
         for (const unsigned i : order) {
           H[0] = i;
-          unsigned r1 = uniform_int(engine, kNeighbours);
-          unsigned r2 = uniform_int(engine, kNeighbours);
-          unsigned r3 = uniform_int(engine, kNeighbours);
-          while (r1 == r2) r2 = uniform_int(engine, kNeighbours);
-          while (r3 == r1 || r3 == r2) r3 = uniform_int(engine, kNeighbours);
+          unsigned r1 = uniformInt(engine, kNeighbours);
+          unsigned r2 = uniformInt(engine, kNeighbours);
+          unsigned r3 = uniformInt(engine, kNeighbours);
+          while (r1 == r2) r2 = uniformInt(engine, kNeighbours);
+          while (r3 == r1 || r3 == r2) r3 = uniformInt(engine, kNeighbours);
 
           H[1] = neighbours[i][r1];
           H[2] = neighbours[i][r2];
@@ -503,6 +510,9 @@ namespace {
 
     const std::size_t nObjects = internal::check_coordinates(tracers, "the tracer array");
     const std::size_t nRandoms = internal::check_coordinates(randoms, "the random array", true);
+    if (nObjects > (std::size_t)std::numeric_limits<unsigned>::max())
+      throw Error("the catalog holds " + std::to_string(nObjects) + " objects; it must hold at most " +
+                  std::to_string(std::numeric_limits<unsigned>::max()));
 
     SelectionCounts counts;
     internal::Selection tracerSelection, randomSelection;

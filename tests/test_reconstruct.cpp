@@ -44,6 +44,8 @@
 
 #include <meshsearch/MeshGrid.h>
 
+#include "otswap/Random.h"
+
 #include "detmath.h"
 #include "internal.h"
 #include "check.h"
@@ -64,9 +66,9 @@ namespace {
     for (unsigned i = 0; i < nSide; ++i)
       for (unsigned j = 0; j < nSide; ++j)
         for (unsigned k = 0; k < nSide; ++k) {
-          out.push_back(i * spacing + internal::uniform_real(rng, -jitter, jitter));
-          out.push_back(j * spacing + internal::uniform_real(rng, -jitter, jitter));
-          out.push_back(k * spacing + internal::uniform_real(rng, -jitter, jitter));
+          out.push_back(i * spacing + uniformReal(rng, -jitter, jitter));
+          out.push_back(j * spacing + uniformReal(rng, -jitter, jitter));
+          out.push_back(k * spacing + uniformReal(rng, -jitter, jitter));
         }
 
     return out;
@@ -388,9 +390,9 @@ int main ()
     std::vector<double> sky(3 * 1200), randomSky(3 * 2400);
     for (std::vector<double>* s : {&sky, &randomSky})
       for (std::size_t i = 0; i < s->size(); i += 3) {
-        (*s)[i]   = internal::uniform_real(rng, 0.2, 0.6);
-        (*s)[i+1] = internal::uniform_real(rng, -0.2, 0.2);
-        (*s)[i+2] = internal::uniform_real(rng, 0.5, 0.9);
+        (*s)[i]   = uniformReal(rng, 0.2, 0.6);
+        (*s)[i+1] = uniformReal(rng, -0.2, 0.2);
+        (*s)[i+2] = uniformReal(rng, 0.5, 0.9);
       }
 
     c.cellSize = 4.;
@@ -423,7 +425,7 @@ int main ()
     std::mt19937 rng(17);
     const double lo = -1.5 * spacing, hi = (nSide + 0.5) * spacing;
     for (std::size_t i = 0; i < 2 * nObjects; ++i)
-      for (int k = 0; k < 3; ++k) wide.push_back(internal::uniform_real(rng, lo, hi));
+      for (int k = 0; k < 3; ++k) wide.push_back(uniformReal(rng, lo, hi));
 
     Result r;
     bool ran = true;
@@ -472,8 +474,8 @@ int main ()
 
       for (unsigned i = 0; i < count; ++i) {
         const double t = (i + 0.5) / (double)count;
-        sky.push_back(internal::uniform_real(rng, 0., 1.));
-        sky.push_back(internal::uniform_real(rng, -0.1, 0.1));
+        sky.push_back(uniformReal(rng, 0., 1.));
+        sky.push_back(uniformReal(rng, -0.1, 0.1));
         sky.push_back(lo + t * (hi - lo));
       }
     }
@@ -545,16 +547,16 @@ int main ()
 
     std::vector<double> sky(3 * nLc);
     for (std::size_t i = 0; i < nLc; ++i) {
-      sky[3*i]   = internal::uniform_real(rng, 0.2, 0.6);
-      sky[3*i+1] = internal::uniform_real(rng, -0.2, 0.2);
+      sky[3*i]   = uniformReal(rng, 0.2, 0.6);
+      sky[3*i+1] = uniformReal(rng, -0.2, 0.2);
       sky[3*i+2] = zLo + (zHi - zLo) * (double)i / (double)(nLc - 1);
     }
 
     std::vector<double> randomSky(3 * nLc);
     for (std::size_t i = 0; i < nLc; ++i) {
-      randomSky[3*i]   = internal::uniform_real(rng, 0.2, 0.6);
-      randomSky[3*i+1] = internal::uniform_real(rng, -0.2, 0.2);
-      randomSky[3*i+2] = internal::uniform_real(rng, zLo, zHi);
+      randomSky[3*i]   = uniformReal(rng, 0.2, 0.6);
+      randomSky[3*i+1] = uniformReal(rng, -0.2, 0.2);
+      randomSky[3*i+2] = uniformReal(rng, zLo, zHi);
     }
 
     Config c;
@@ -604,9 +606,9 @@ int main ()
     // tracers, so that many lie outside the bounding box of the tracers.
     std::vector<double> wideSky(3 * nLc);
     for (std::size_t i = 0; i < nLc; ++i) {
-      wideSky[3*i]   = internal::uniform_real(rng, 0.1, 0.7);
-      wideSky[3*i+1] = internal::uniform_real(rng, -0.3, 0.3);
-      wideSky[3*i+2] = internal::uniform_real(rng, zLo - 0.05, zHi + 0.05);
+      wideSky[3*i]   = uniformReal(rng, 0.1, 0.7);
+      wideSky[3*i+1] = uniformReal(rng, -0.3, 0.3);
+      wideSky[3*i+2] = uniformReal(rng, zLo - 0.05, zHi + 0.05);
     }
     bool wideRan = true;
     try {
@@ -724,9 +726,9 @@ int main ()
     std::vector<double> wide;
     std::mt19937 rng(43);
     for (std::size_t i = 0; i < 2 * nObjects; ++i) {
-      wide.push_back(internal::uniform_real(rng, -spacing, nSide * spacing));
-      wide.push_back(internal::uniform_real(rng, 0., nSide * spacing));
-      wide.push_back(internal::uniform_real(rng, 0., (nSide + 0.5) * spacing));
+      wide.push_back(uniformReal(rng, -spacing, nSide * spacing));
+      wide.push_back(uniformReal(rng, 0., nSide * spacing));
+      wide.push_back(uniformReal(rng, 0., (nSide + 0.5) * spacing));
     }
     BoxLimits both = internal::bounding_box(tracers);
     const BoxLimits randomBox = internal::bounding_box(wide);
@@ -851,7 +853,7 @@ int main ()
   {
     std::mt19937 rng(31);
     std::vector<double> randoms(3 * 3000);
-    for (double& v : randoms) v = internal::uniform_real(rng, -10., 80.);
+    for (double& v : randoms) v = uniformReal(rng, -10., 80.);
     std::size_t randomsInside = 0;
     std::vector<std::array<double, 3>> inside;
     for (std::size_t j = 0; j < 3000; ++j)
@@ -896,7 +898,7 @@ int main ()
     std::vector<double> randoms(3 * 1500);
     for (std::size_t j = 0; j < 1500; ++j)
       for (std::size_t k = 0; k < 3; ++k)
-        randoms[3*j+k] = internal::uniform_real(rng, bounds.lower[k], bounds.upper[k]);
+        randoms[3*j+k] = uniformReal(rng, bounds.lower[k], bounds.upper[k]);
     check(same(reconstructBox(tracers, randoms, c, bounds), reconstructBox(tracers, randoms, c)),
           "with given randoms, all inside the box");
   }
@@ -927,7 +929,7 @@ int main ()
                            "114 are required"), "too few tracers inside");
     std::vector<double> few(3 * 600);
     std::mt19937 rng(33);
-    for (double& v : few) v = internal::uniform_real(rng, 0., 50.);
+    for (double& v : few) v = uniformReal(rng, 0., 50.);
     Config two = c;
     two.nRealizations = 2;
     check(message_contains([&] { reconstructBox(boxed, few, two, limits); },
@@ -956,7 +958,7 @@ int main ()
 
     std::mt19937 rng(34);
     std::vector<double> randoms(3 * 900);
-    for (double& v : randoms) v = internal::uniform_real(rng, -2., 72.);
+    for (double& v : randoms) v = uniformReal(rng, -2., 72.);
     std::size_t randomsOutside = 0;
     for (std::size_t j = 0; j < 900; ++j) randomsOutside += in_limits(&randoms[3*j]) ? 0 : 1;
     c.verbosity = Verbosity::Detailed;

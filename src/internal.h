@@ -53,27 +53,6 @@ namespace otswap {
     /// of their values.
     constexpr double kMaskAllowedAbove = 0.;
 
-    /// Uniform integer in [0, bound), by Lemire's multiply-and-reject method
-    /// on the engine's 32-bit output. Unlike std::uniform_int_distribution,
-    /// whose algorithm the standard leaves open, it yields the same sequence
-    /// on every toolchain.
-    unsigned uniform_int (std::mt19937& rng, unsigned bound);
-
-    /// Uniform double in [lo, hi), from 53 random bits of two engine
-    /// outputs. The same sequence on every toolchain, which
-    /// std::uniform_real_distribution does not guarantee.
-    double uniform_real (std::mt19937& rng, double lo, double hi);
-
-    /// Fisher-Yates shuffle over uniform_int, from the last element down.
-    /// The same permutation on every toolchain, which std::shuffle does not
-    /// guarantee.
-    template <typename T>
-    void shuffle (std::vector<T>& v, std::mt19937& rng)
-    {
-      for (std::size_t i = v.size(); i > 1; --i)
-        std::swap(v[i-1], v[uniform_int(rng, (unsigned)i)]);
-    }
-
     /// The independent random streams of a run.
     enum class Stream : std::uint32_t {
       Supply  = 1,  ///< the shuffle that assigns given randoms to realizations

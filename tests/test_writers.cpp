@@ -46,6 +46,7 @@
 #include <fitsio.h>
 
 #include "otswap/OT.h"
+#include "otswap/Random.h"
 #include "internal.h"
 #include "check.h"
 #include "fixtures_v010.h"
@@ -112,9 +113,9 @@ namespace {
   {
     std::vector<double> sky(3 * n);
     for (std::size_t i = 0; i < n; ++i) {
-      sky[3*i]   = internal::uniform_real(rng, 0.2, 0.7);
-      sky[3*i+1] = internal::uniform_real(rng, -0.25, 0.25);
-      sky[3*i+2] = internal::uniform_real(rng, 0.2, 0.7);
+      sky[3*i]   = uniformReal(rng, 0.2, 0.7);
+      sky[3*i+1] = uniformReal(rng, -0.25, 0.25);
+      sky[3*i+2] = uniformReal(rng, 0.2, 0.7);
     }
     return sky;
   }

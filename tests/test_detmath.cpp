@@ -39,6 +39,7 @@
 #include <vec3.h>
 
 #include "otswap/Maths.h"
+#include "otswap/Random.h"
 #include "detmath.h"
 #include "internal.h"
 #include "pixel.h"
@@ -227,8 +228,8 @@ int main ()
 
     std::mt19937 rng(5);
     for (int i = 0; i < 100000; ++i) {
-      const double x = internal::uniform_real(rng, -10., 10.);
-      const double y = internal::uniform_real(rng, -10., 10.);
+      const double x = uniformReal(rng, -10., 10.);
+      const double y = uniformReal(rng, -10., 10.);
       unary(maths::sin, internal::det_sin, x);
       unary(maths::cos, internal::det_cos, x);
       unary(maths::exp, internal::det_exp, 70. * x);
@@ -325,11 +326,11 @@ int main ()
         ++total;
       };
       for (int i = 0; i < 20000; ++i) {
-        const double x = internal::uniform_real(rng, -1., 1.);
-        const double y = internal::uniform_real(rng, -1., 1.);
-        const double z = internal::uniform_real(rng, -1., 1.);
+        const double x = uniformReal(rng, -1., 1.);
+        const double y = uniformReal(rng, -1., 1.);
+        const double z = uniformReal(rng, -1., 1.);
         if (x*x + y*y + z*z >= 1.e-6) vec(x, y, z);
-        ang(internal::uniform_real(rng, 0., kPi), internal::uniform_real(rng, 0., 2. * kPi));
+        ang(uniformReal(rng, 0., kPi), uniformReal(rng, 0., 2. * kPi));
       }
       for (const detref::VecCase& c : detref::kVectors) vec(c.x, c.y, c.z);
       for (const detref::AngCase& c : detref::kAngles) ang(c.theta, c.phi);
@@ -354,14 +355,14 @@ int main ()
         const Healpix_Base base(nside, scheme, SET_NSIDE);
         const internal::HealpixBase ours = base_of(nside, scheme == NEST);
         for (int i = 0; i < 20000; ++i) {
-          const double x = internal::uniform_real(rng, -1., 1.);
-          const double y = internal::uniform_real(rng, -1., 1.);
-          const double z = internal::uniform_real(rng, -1., 1.);
+          const double x = uniformReal(rng, -1., 1.);
+          const double y = uniformReal(rng, -1., 1.);
+          const double z = uniformReal(rng, -1., 1.);
           if (x*x + y*y + z*z < 1.e-6) continue;
           if (internal::vec2pix(ours, internal::Vec3(x, y, z)) != base.vec2pix(vec3(x, y, z))) ++differ;
 
-          const double theta = internal::uniform_real(rng, 0., kPi);
-          const double phi = internal::uniform_real(rng, 0., 2. * kPi);
+          const double theta = uniformReal(rng, 0., kPi);
+          const double phi = uniformReal(rng, 0., 2. * kPi);
           if (internal::ang2pix(ours, theta, phi) != base.ang2pix(pointing(theta, phi))) ++differ;
           total += 2;
         }
@@ -372,14 +373,14 @@ int main ()
         const Healpix_Base2 base(nside, scheme, SET_NSIDE);
         const internal::HealpixBase ours = base_of(nside, scheme == NEST);
         for (int i = 0; i < 20000; ++i) {
-          const double x = internal::uniform_real(rng, -1., 1.);
-          const double y = internal::uniform_real(rng, -1., 1.);
-          const double z = internal::uniform_real(rng, -1., 1.);
+          const double x = uniformReal(rng, -1., 1.);
+          const double y = uniformReal(rng, -1., 1.);
+          const double z = uniformReal(rng, -1., 1.);
           if (x*x + y*y + z*z < 1.e-6) continue;
           if (internal::vec2pix(ours, internal::Vec3(x, y, z)) != base.vec2pix(vec3(x, y, z))) ++differ;
 
-          const double theta = internal::uniform_real(rng, 0., kPi);
-          const double phi = internal::uniform_real(rng, 0., 2. * kPi);
+          const double theta = uniformReal(rng, 0., kPi);
+          const double phi = uniformReal(rng, 0., 2. * kPi);
           if (internal::ang2pix(ours, theta, phi) != base.ang2pix(pointing(theta, phi))) ++differ;
           total += 2;
         }

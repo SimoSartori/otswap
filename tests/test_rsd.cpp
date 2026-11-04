@@ -49,6 +49,7 @@
 #include <meshsearch/MeshGrid.h>
 
 #include "otswap/OT.h"
+#include "otswap/Random.h"
 #include "internal.h"
 #include "check.h"
 
@@ -81,7 +82,7 @@ namespace {
   std::vector<double> uniform_points (const std::size_t n, const double size, std::mt19937& rng)
   {
     std::vector<double> p(3 * n);
-    for (double& v : p) v = internal::uniform_real(rng, 0., size);
+    for (double& v : p) v = uniformReal(rng, 0., size);
     return p;
   }
 
@@ -218,9 +219,9 @@ namespace {
   {
     std::vector<double> sky(3 * n);
     for (std::size_t i = 0; i < n; ++i) {
-      sky[3*i]   = internal::uniform_real(rng, 0.2, 0.7);
-      sky[3*i+1] = internal::uniform_real(rng, -0.25, 0.25);
-      sky[3*i+2] = internal::uniform_real(rng, z0, z1);
+      sky[3*i]   = uniformReal(rng, 0.2, 0.7);
+      sky[3*i+1] = uniformReal(rng, -0.25, 0.25);
+      sky[3*i+2] = uniformReal(rng, z0, z1);
     }
     return sky;
   }
@@ -275,8 +276,8 @@ int main ()
   std::vector<double> values(n);
   std::vector<unsigned> valid(n);
   for (std::size_t i = 0; i < n; ++i) {
-    valid[i] = internal::uniform_int(rng, 4);   // a quarter of the objects invalid
-    values[i] = valid[i] > 0 ? internal::uniform_real(rng, -5., 5.) : kNaN;
+    valid[i] = uniformInt(rng, 4);   // a quarter of the objects invalid
+    values[i] = valid[i] > 0 ? uniformReal(rng, -5., 5.) : kNaN;
   }
 
   group("average: equal to the sum over every pair, weighted or not, with the same diagnostics");
@@ -498,13 +499,13 @@ int main ()
     const std::size_t m = 600;
     std::vector<double> cart(3 * m), sky(3 * m), mean(3 * m);
     for (std::size_t i = 0; i < m; ++i) {
-      const double x = 2000. + internal::uniform_real(rng, 0., 40.);
-      const double y = internal::uniform_real(rng, -20., 20.), z = internal::uniform_real(rng, -20., 20.);
+      const double x = 2000. + uniformReal(rng, 0., 40.);
+      const double y = uniformReal(rng, -20., 20.), z = uniformReal(rng, -20., 20.);
       double ra, dec, d;
       internal::to_sky(x, y, z, ra, dec, d);
       sky[3*i] = ra; sky[3*i+1] = dec; sky[3*i+2] = d / 3000.;
       internal::to_cartesian(ra, dec, table.distanceAt(d / 3000.), cart[3*i], cart[3*i+1], cart[3*i+2]);
-      for (int k = 0; k < 3; ++k) mean[3*i+k] = internal::uniform_real(rng, -2., 2.);
+      for (int k = 0; k < 3; ++k) mean[3*i+k] = uniformReal(rng, -2., 2.);
     }
     const Result rl = lightcone_with(mean, std::vector<unsigned>(m, 1), sky, table);
     const Result rb = box_with(mean, std::vector<unsigned>(m, 1), cart);
@@ -529,7 +530,7 @@ int main ()
     std::mt19937 rng(515);
     const std::size_t m = 600;
     std::vector<double> cart(3 * m);
-    for (double& v : cart) v = internal::uniform_real(rng, 0., 100.);
+    for (double& v : cart) v = uniformReal(rng, 0., 100.);
     BoxLimits limits;
     limits.lower = {0., 0., 0.};
     limits.upper = {60., 100., 100.};
@@ -648,14 +649,14 @@ int main ()
     const DistanceTable table(0.3, 0.7, -1., 0., 0., 1.5, 4000);
     std::vector<double> sky(3 * 600), randomsSky(3 * 2400);
     for (std::size_t i = 0; i < sky.size(); i += 3) {
-      sky[i] = internal::uniform_real(rng, 0.2, 0.7);
-      sky[i+1] = internal::uniform_real(rng, -0.25, 0.25);
-      sky[i+2] = internal::uniform_real(rng, 0.3, 0.6);
+      sky[i] = uniformReal(rng, 0.2, 0.7);
+      sky[i+1] = uniformReal(rng, -0.25, 0.25);
+      sky[i+2] = uniformReal(rng, 0.3, 0.6);
     }
     for (std::size_t i = 0; i < randomsSky.size(); i += 3) {
-      randomsSky[i] = internal::uniform_real(rng, 0.2, 0.7);
-      randomsSky[i+1] = internal::uniform_real(rng, -0.25, 0.25);
-      randomsSky[i+2] = internal::uniform_real(rng, 0.3, 0.6);
+      randomsSky[i] = uniformReal(rng, 0.2, 0.7);
+      randomsSky[i+1] = uniformReal(rng, -0.25, 0.25);
+      randomsSky[i+2] = uniformReal(rng, 0.3, 0.6);
     }
     const Result light = reconstructLightcone(sky, randomsSky, 800., 1, table, config);
     const std::vector<double> cart = toCartesian(sky, table);
@@ -690,14 +691,14 @@ int main ()
     // Every tracer at declination 0 lies in the plane z = 0.
     std::vector<double> sky(3 * 600), randomsSky(3 * 600);
     for (std::size_t i = 0; i < sky.size(); i += 3) {
-      sky[i] = internal::uniform_real(own, 0.2, 0.7);
+      sky[i] = uniformReal(own, 0.2, 0.7);
       sky[i+1] = 0.;
-      sky[i+2] = internal::uniform_real(own, 0.3, 0.6);
+      sky[i+2] = uniformReal(own, 0.3, 0.6);
     }
     for (std::size_t i = 0; i < randomsSky.size(); i += 3) {
-      randomsSky[i] = internal::uniform_real(own, 0.2, 0.7);
-      randomsSky[i+1] = internal::uniform_real(own, -0.25, 0.25);
-      randomsSky[i+2] = internal::uniform_real(own, 0.3, 0.6);
+      randomsSky[i] = uniformReal(own, 0.2, 0.7);
+      randomsSky[i+1] = uniformReal(own, -0.25, 0.25);
+      randomsSky[i+2] = uniformReal(own, 0.3, 0.6);
     }
     const Result light = reconstructLightcone(sky, randomsSky, 800., 1, table, config);
     check_nested<meshsearch::Error>([&] {

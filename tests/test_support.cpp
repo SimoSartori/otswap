@@ -26,12 +26,16 @@
  */
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <numeric>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
+
+#include "otswap/Random.h"
 
 #include "internal.h"
 #include "check.h"
@@ -48,61 +52,151 @@ namespace {
 
 int main ()
 {
-  // The owned draws must be frozen: the whole point of not using the std::
-  // distributions is that a library or compiler change cannot alter a
-  // result silently. These expected values are the contract.
-  group("uniform_int and shuffle are frozen against a fixed seed");
+  group("uniformInt is frozen: literal values for several bounds from a fixed seed");
   {
     std::mt19937 rng(12345);
-    const unsigned expected[8] = {
-      internal::uniform_int(rng, 100), internal::uniform_int(rng, 100),
-      internal::uniform_int(rng, 100), internal::uniform_int(rng, 100),
-      internal::uniform_int(rng, 100), internal::uniform_int(rng, 100),
-      internal::uniform_int(rng, 100), internal::uniform_int(rng, 100)
-    };
+    const unsigned bounds[6] = {1u, 2u, 7u, 100u, 1000003u, 4294967295u};
+    const unsigned expected[6] = {0u, 1u, 2u, 13u, 183919u, 170765736u};
+    for (int i = 0; i < 6; ++i)
+      check(uniformInt(rng, bounds[i]) == expected[i],
+            "uniformInt(" + std::to_string(bounds[i]) + ") gives its recorded value");
 
-    std::mt19937 again(12345);
-    for (int i = 0; i < 8; ++i)
-      check(internal::uniform_int(again, 100) == expected[i],
-            "uniform_int repeats for a given seed");
-
-    std::vector<unsigned> a(10), b(10);
-    std::iota(a.begin(), a.end(), 0u);
-    std::iota(b.begin(), b.end(), 0u);
-    std::mt19937 r1(777), r2(777);
-    internal::shuffle(a, r1);
-    internal::shuffle(b, r2);
-    check(a == b, "shuffle repeats for a given seed");
-
-    std::vector<unsigned> sorted = a;
-    std::sort(sorted.begin(), sorted.end());
-    for (unsigned i = 0; i < 10; ++i)
-      check(sorted[i] == i, "shuffle returns a permutation");
+    std::mt19937 fresh(12345);
+    fresh.discard(6);
+    check(rng() == fresh(), "one engine output per accepted draw");
   }
 
-  group("uniform_int stays inside its bound and covers it");
+  group("uniformInt draws again when the low half of the product is below 2^32 mod bound");
+  {
+    const unsigned bound = 3000000000u;
+    const std::uint32_t threshold = (std::uint32_t)(0u - bound) % bound;
+
+    std::mt19937 probe(3);
+    const std::uint64_t first = (std::uint64_t)probe() * bound;
+    const std::uint64_t second = (std::uint64_t)probe() * bound;
+    check((std::uint32_t)first < threshold && (std::uint32_t)second >= threshold,
+          "seed 3 rejects its first output for this bound and keeps the second");
+
+    std::mt19937 rng(3);
+    check(uniformInt(rng, bound) == 212174640u, "the value comes from the second output");
+
+    std::mt19937 fresh(3);
+    fresh.discard(2);
+    check(rng() == fresh(), "exactly two outputs were drawn");
+  }
+
+  group("uniformInt with bound 0 returns 0 and leaves the engine untouched");
+  {
+    std::mt19937 rng(12345), fresh(12345);
+    check(uniformInt(rng, 0) == 0u, "uniformInt(0) is zero");
+    check(rng() == fresh(), "the next output is a fresh engine's first");
+  }
+
+  group("uniformInt stays inside its bound and covers it");
   {
     std::mt19937 rng(1);
     std::vector<int> seen(7, 0);
     for (int i = 0; i < 20000; ++i) {
-      const unsigned v = internal::uniform_int(rng, 7);
-      check(v < 7, "uniform_int(7) stays below 7");
+      const unsigned v = uniformInt(rng, 7);
+      check(v < 7, "uniformInt(7) stays below 7");
       ++seen[v];
     }
     for (int i = 0; i < 7; ++i)
-      check(seen[i] > 2000, "uniform_int(7) reaches every value");
+      check(seen[i] > 2000, "uniformInt(7) reaches every value");
 
-    check(internal::uniform_int(rng, 1) == 0, "uniform_int(1) is always zero");
-    check(internal::uniform_int(rng, 0) == 0, "uniform_int(0) is zero");
+    check(uniformInt(rng, 1) == 0, "uniformInt(1) is always zero");
   }
 
-  group("uniform_real stays inside its interval");
+  group("uniformReal is frozen: literal values from a fixed seed, two engine outputs per draw");
+  {
+    std::mt19937 rng(2026);
+    check(uniformReal(rng, 0., 1.) == 0x1.c13848c4407d8p-3, "a draw in [0, 1)");
+    check(uniformReal(rng, -3., 5.) == 0x1.376463d841cep-2, "a draw in [-3, 5)");
+    check(uniformReal(rng, 100., 100.5) == 0x1.91f40990bd9fap+6, "a draw in [100, 100.5)");
+    check(uniformReal(rng, -1.e-3, 0.) == -0x1.ddade73e35309p-11, "a draw in [-0.001, 0)");
+
+    std::mt19937 fresh(2026);
+    fresh.discard(8);
+    check(rng() == fresh(), "four draws use eight outputs");
+  }
+
+  group("uniformReal never returns hi: the largest draw on [1, 2) rounds to 2 and gives the double below 2");
+  {
+    std::ostringstream words;
+    for (int i = 0; i < 624; ++i) words << (i == 397 || i == 398 ? 316513203u : 0u) << ' ';
+    words << 624;
+    std::istringstream in(words.str());
+    std::mt19937 rng;
+    in >> rng;
+
+    std::mt19937 copy = rng;
+    check(copy() == 4294967295u && copy() == 4294967295u, "the engine's next two outputs are the largest");
+    check(1. + (double)(((std::uint64_t)1 << 53) - 1) / 9007199254740992. == 2.,
+          "the largest fraction added to 1 rounds to 2");
+    check(uniformReal(rng, 1., 2.) == std::nextafter(2., 1.), "the result is the double just below 2");
+  }
+
+  group("uniformReal stays inside its interval");
   {
     std::mt19937 rng(42);
     for (int i = 0; i < 20000; ++i) {
-      const double v = internal::uniform_real(rng, -3., 5.);
-      check(v >= -3. && v < 5., "uniform_real stays in [lo, hi)");
+      const double v = uniformReal(rng, -3., 5.);
+      check(v >= -3. && v < 5., "uniformReal stays in [lo, hi)");
     }
+  }
+
+  group("uniformReal refuses a non-finite bound, lo not below hi and a width that overflows, before drawing");
+  {
+    const double inf = std::numeric_limits<double>::infinity();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    std::mt19937 rng(5), fresh(5);
+
+    throws_with([&] { uniformReal(rng, nan, 1.); },
+                "the interval of a uniform draw has a bound of nan; both bounds must be finite", "a NaN lo");
+    throws_with([&] { uniformReal(rng, 0., nan); },
+                "the interval of a uniform draw has a bound of nan; both bounds must be finite", "a NaN hi");
+    throws_with([&] { uniformReal(rng, -inf, 1.); },
+                "the interval of a uniform draw has a bound of -inf; both bounds must be finite",
+                "an infinite lo");
+    throws_with([&] { uniformReal(rng, 0., inf); },
+                "the interval of a uniform draw has a bound of inf; both bounds must be finite",
+                "an infinite hi");
+    throws_with([&] { uniformReal(rng, 2., 1.); },
+                "the interval of a uniform draw is [2.000000, 1.000000); "
+                "the lower bound must be below the upper one", "lo above hi");
+    throws_with([&] { uniformReal(rng, 1., 1.); },
+                "the interval of a uniform draw is [1.000000, 1.000000); "
+                "the lower bound must be below the upper one", "lo equal to hi");
+    throws_with([&] { uniformReal(rng, -1.e308, 1.e308); },
+                "the interval of a uniform draw is [" + std::to_string(-1.e308) + ", " +
+                std::to_string(1.e308) + "); its width, the upper bound minus the lower, must be finite",
+                "a width that overflows");
+
+    check(rng() == fresh(), "no refused call advanced the engine");
+  }
+
+  group("shuffle is frozen: literal permutations for two sizes and two seeds");
+  {
+    auto shuffled = [] (const std::size_t n, const unsigned seed) {
+      std::vector<unsigned> v(n);
+      std::iota(v.begin(), v.end(), 0u);
+      std::mt19937 rng(seed);
+      shuffle(v, rng);
+      return v;
+    };
+    check(shuffled(5, 7) == std::vector<unsigned>{1, 3, 2, 4, 0}, "5 elements, seed 7");
+    check(shuffled(5, 99) == std::vector<unsigned>{0, 4, 1, 2, 3}, "5 elements, seed 99");
+    check(shuffled(12, 7) == std::vector<unsigned>{5, 1, 11, 9, 8, 4, 6, 3, 10, 7, 2, 0},
+          "12 elements, seed 7");
+    check(shuffled(12, 99) == std::vector<unsigned>{2, 1, 11, 9, 3, 0, 5, 6, 10, 4, 7, 8},
+          "12 elements, seed 99");
+
+    std::vector<double> one {3.5}, none;
+    std::mt19937 rng(7), fresh(7);
+    shuffle(one, rng);
+    shuffle(none, rng);
+    check(one == std::vector<double>{3.5} && rng() == fresh(),
+          "one or no element: unchanged, and nothing drawn");
   }
 
   group("the random streams are fixed by (seed, realization, stream) and are distinct");

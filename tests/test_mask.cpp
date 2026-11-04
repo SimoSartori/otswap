@@ -45,6 +45,8 @@
 #include <rangeset.h>
 #include <vec3.h>
 
+#include "otswap/Random.h"
+
 #include "arc.h"
 #include "internal.h"
 #include "check.h"
@@ -264,8 +266,8 @@ namespace {
   vec3 tangent (const vec3& u, std::mt19937& rng)
   {
     for (;;) {
-      const vec3 g(internal::uniform_real(rng, -1., 1.), internal::uniform_real(rng, -1., 1.),
-                   internal::uniform_real(rng, -1., 1.));
+      const vec3 g(uniformReal(rng, -1., 1.), uniformReal(rng, -1., 1.),
+                   uniformReal(rng, -1., 1.));
       const vec3 t = g - u * dotprod(g, u);
       if (t.SquaredLength() > 1.e-6) return t.Norm();
     }
@@ -274,8 +276,8 @@ namespace {
   vec3 random_direction (std::mt19937& rng)
   {
     for (;;) {
-      const vec3 g(internal::uniform_real(rng, -1., 1.), internal::uniform_real(rng, -1., 1.),
-                   internal::uniform_real(rng, -1., 1.));
+      const vec3 g(uniformReal(rng, -1., 1.), uniformReal(rng, -1., 1.),
+                   uniformReal(rng, -1., 1.));
       const double r2 = g.SquaredLength();
       if (r2 > 1.e-6 && r2 <= 1.) return g.Norm();
     }
@@ -288,11 +290,11 @@ namespace {
     std::vector<float> pixels((std::size_t)npix, 1.f);
     std::vector<int> order((std::size_t)npix);
     for (int p = 0; p < npix; ++p) order[(std::size_t)p] = p;
-    internal::shuffle(order, rng);
+    shuffle(order, rng);
 
     fix_arr<int, 8> nb;
     for (const int p : order) {
-      if (internal::uniform_real(rng, 0., 1.) > 0.15) continue;
+      if (uniformReal(rng, 0., 1.) > 0.15) continue;
       geometry.neighbors(p, nb);
       bool alone = true;
       for (int k = 0; k < 8; ++k)
@@ -313,7 +315,7 @@ namespace {
     for (int h = 0; h < 300; ++h) {
       const vec3 c = random_direction(rng);
       centres.push_back(c);
-      const double radius = internal::uniform_real(rng, 0.5, 5.) * pixelSize;
+      const double radius = uniformReal(rng, 0.5, 5.) * pixelSize;
       rangeset<int> disc;
       geometry.query_disc(pointing(c), radius, disc);
       for (std::size_t r = 0; r < disc.nranges(); ++r)
@@ -334,17 +336,17 @@ namespace {
     for (std::size_t i = 0; i < count; ++i) {
       vec3 a = random_direction(rng);
       if (!centres.empty()) {
-        const vec3& c = centres[internal::uniform_int(rng, (unsigned)centres.size())];
-        const double off = internal::uniform_real(rng, 0., 8.) * pixelSize;
+        const vec3& c = centres[uniformInt(rng, (unsigned)centres.size())];
+        const double off = uniformReal(rng, 0., 8.) * pixelSize;
         a = (c * std::cos(off) + tangent(c, rng) * std::sin(off)).Norm();
       }
-      const double length = (internal::uniform_int(rng, 10) == 0)
-        ? internal::uniform_real(rng, 12., 60.) : internal::uniform_real(rng, 0.05, 12.);
+      const double length = (uniformInt(rng, 10) == 0)
+        ? uniformReal(rng, 12., 60.) : uniformReal(rng, 0.05, 12.);
       const double angle = length * pixelSize;
       const vec3 b = (a * std::cos(angle) + tangent(a, rng) * std::sin(angle)).Norm();
 
-      const double r0 = internal::uniform_real(rng, 500., 1500.);
-      const double r1 = internal::uniform_real(rng, 500., 1500.);
+      const double r0 = uniformReal(rng, 500., 1500.);
+      const double r1 = uniformReal(rng, 500., 1500.);
       eulerian.insert(eulerian.end(), {r0 * a.x, r0 * a.y, r0 * a.z});
       lagrangian.insert(lagrangian.end(), {r1 * b.x, r1 * b.y, r1 * b.z});
     }
@@ -506,13 +508,13 @@ namespace {
     std::mt19937 rng(seed);
     std::vector<double> v(npix);
     for (double& x : v)
-      switch (internal::uniform_int(rng, 20)) {
+      switch (uniformInt(rng, 20)) {
         case 0: x = 0.; break;
-        case 1: x = -internal::uniform_real(rng, 0., 2.); break;
+        case 1: x = -uniformReal(rng, 0., 2.); break;
         case 2: x = std::numeric_limits<double>::quiet_NaN(); break;
         case 3: x = 1.e-300; break;
         case 4: case 5: case 6: case 7: case 8:
-          x = internal::uniform_real(rng, 0.25, 1.); break;
+          x = uniformReal(rng, 0.25, 1.); break;
         default: x = 1.;
       }
     return v;

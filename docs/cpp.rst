@@ -2,7 +2,8 @@ C++ reference
 =============
 
 Generated from the public headers ``otswap/OT.h``, ``otswap/RSD.h``,
-``otswap/io.h``, ``otswap/ParameterFile.h`` and ``otswap/Maths.h`` by Doxygen,
+``otswap/io.h``, ``otswap/ParameterFile.h``, ``otswap/Maths.h`` and
+``otswap/Random.h`` by Doxygen,
 with only what carries a comment included.
 
 otswap/OT.h
@@ -193,3 +194,18 @@ otswap/Maths.h
 --------------
 
 .. doxygenfile:: Maths.h
+
+otswap/Random.h
+---------------
+
+Not included by ``otswap/OT.h``. Random draws over ``std::mt19937`` that give
+the same values on every supported platform and compiler, unlike the standard
+distributions and ``std::shuffle``. Their algorithms are fixed: no later
+version changes them, so a program that draws with them keeps its values when
+otswap is updated.
+
+.. doxygenfunction:: otswap::uniformInt
+
+.. doxygenfunction:: otswap::uniformReal
+
+.. doxygenfunction:: otswap::shuffle

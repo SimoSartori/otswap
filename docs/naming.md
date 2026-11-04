@@ -105,6 +105,12 @@ passed as `config=` or `correction=`; a flat
 | `io::readDisplacementComplete` | `io.read_displacement_complete` | `angle_unit=` required |
 | `io::DisplacementGroup`, `io::CatalogGroup` | strings | `TracerSky` is `"tracer_sky"` |
 
+## Random draws
+
+| C++ | Python | Notes |
+|---|---|---|
+| `uniformInt`, `uniformReal`, `shuffle` | — | C++ only, in `otswap/Random.h`; the same values on every platform and compiler |
+
 ## Use from another nanobind module
 
 The Python types are the C++ structs themselves, so another nanobind module
