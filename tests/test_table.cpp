@@ -58,6 +58,12 @@ namespace {
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   }
 
+  void write_text (const std::string& file, const std::string& text)
+  {
+    std::ofstream out(file, std::ios::binary);
+    out << text;
+  }
+
   // The message of the Error f throws, or "" when it throws none.
   template <typename F>
   std::string message_of (F&& f)
@@ -332,8 +338,8 @@ int main ()
         const std::string m = message_of([&] {
           io::write(file, {{"count", 'J', "", "", {1., bad, 3.}, {}}});
         });
-        check(m.find("'J' column 'count'") != std::string::npos && m.find("at row 1") != std::string::npos,
-              name + ": refused: " + m);
+        check(m.find("'J' column 'count'") != std::string::npos && m.find("at row 1 (from 0);") != std::string::npos,
+              name + ": refused, the row in memory from 0: " + m);
       }
       io::write(file, {{"count", 'J', "", "", {-2147483648., 2147483647., 0.}, {}}});
       const io::Table back = io::read(file, {}, {name == "j.dat" ? "0" : "count"});
@@ -352,7 +358,9 @@ int main ()
         out << "# a comment\n1 2\n3 " << bad << "\n";
       }
       const std::string m = message_of([&] { io::read(file, {"0"}, {"1"}); });
-      check(m.find("holds " + bad + " at line 3") != std::string::npos, "refused: " + m);
+      check(m == "the integer column '1' of " + file + " holds " + bad + " at line 3 (from 1), " +
+                 (bad == "9223372036854775808" ? "outside the 64-bit integer range" : "which is not an integer"),
+            "refused: " + m);
     }
     {
       std::ofstream out(file);
@@ -361,6 +369,78 @@ int main ()
     check(io::read(file, {"0"}, {"1"}).integers ==
           std::vector<std::int64_t>{std::numeric_limits<std::int64_t>::min(), 0},
           "the most negative integer and -0 are read");
+    std::remove(file.c_str());
+  }
+
+  group("ASCII: every requested field must be a number as a whole, else the file, line and field are named");
+  {
+    const std::string file = temporary("strict.dat");
+    const std::string hint = "; a line that is not data must start with the comment character '#'";
+    const std::pair<std::string, std::string> cases[] = {
+      {"4 NA 6 7", "line 2 (from 1) of " + file + ": field 2 (from 1) is 'NA', which is not a number"},
+      {"x12 5 6", "line 2 (from 1) of " + file + ": field 1 (from 1) is 'x12', which is not a number" + hint},
+      {"1,5 2 3", "line 2 (from 1) of " + file + ": field 1 (from 1) is '1,5', which is not a number" + hint},
+      {"4.5abc 6 7", "line 2 (from 1) of " + file + ": field 1 (from 1) is '4.5abc', which is not a number" + hint},
+      {"1e 2 3", "line 2 (from 1) of " + file + ": field 1 (from 1) is '1e', which is not a number" + hint},
+      {"4 5 6e+", "line 2 (from 1) of " + file + ": field 3 (from 1) is '6e+', which is not a number"},
+      {"foo", "line 2 (from 1) of " + file + ": field 1 (from 1) is 'foo', which is not a number" + hint},
+      {"RA DEC Z", "line 2 (from 1) of " + file + ": field 1 (from 1) is 'RA', which is not a number" + hint},
+      {"4 5", "line 2 (from 1) of " + file + " holds 2 field(s), but column index 2 (from 0) was requested"},
+    };
+    for (const auto& c : cases) {
+      write_text(file, "1 2 3\n" + c.first + "\n");
+      const std::string m = message_of([&] { io::read(file, {"0", "1", "2"}); });
+      check(m == c.second, "\"" + c.first + "\" is refused: " + m);
+    }
+
+    write_text(file, "1 2 3\n4 NA 6 junk\n");
+    const io::Table skipped = io::read(file, {"0", "2"});
+    check(skipped.nRows == 2 && skipped.values == std::vector<double>({1., 3., 4., 6.}),
+          "a field not requested, and fields beyond the last requested one, are not parsed");
+    check(message_of([&] { io::read(file, {"2"}, {"1"}); }) ==
+          "the integer column '1' of " + file + " holds NA at line 2 (from 1), which is not an integer",
+          "a requested integer field that is not one");
+
+    write_text(file, "0x10 2 3\nnan inf -infinity\nNaN -INF Infinity\n-0x1.8p1 +2 .5\n");
+    const io::Table special = io::read(file, {"0", "1", "2"});
+    const double inf = std::numeric_limits<double>::infinity();
+    check(special.nRows == 4 && special.values[0] == 16. && special.values[1] == 2. && special.values[2] == 3.,
+          "a hex float is accepted");
+    check(std::isnan(special.values[3]) && special.values[4] == inf && special.values[5] == -inf &&
+          std::isnan(special.values[6]) && special.values[7] == -inf && special.values[8] == inf,
+          "nan, inf and infinity are accepted, in any case and with a sign");
+    check(special.values[9] == -3. && special.values[10] == 2. && special.values[11] == .5,
+          "a signed hex float, a leading '+' and a leading '.'");
+
+    write_text(file, "# a comment\n\n1 2 3\n   \t \n  # indented\n\t# after a tab 1 2\n\t4\t5  6 \n7 8 x\n");
+    check(message_of([&] { io::read(file, {"0", "1", "2"}); }) ==
+          "line 8 (from 1) of " + file + ": field 3 (from 1) is 'x', which is not a number",
+          "line numbers count comments, blank lines and lines of blanks");
+    check(io::read(file, {"0", "1"}).values == std::vector<double>({1., 2., 4., 5., 7., 8.}),
+          "comments, indented ones included, blank lines and lines of blanks and tabs are skipped");
+    write_text(file, ",,% c 1 2\n1,2\n");
+    check(io::read(file, {"0", "1"}, ',', '%').values == std::vector<double>({1., 2.}),
+          "the delimiter before the comment character is skipped as well");
+    write_text(file, "  # 1 2 3\n### a b c\n1 2 3\n");
+    check(io::read(file, {"c"}).values == std::vector<double>({3.}),
+          "an indented comment holding numbers does not end the search for the ### line");
+
+    write_text(file, "1 2 3\r\n4 5 6\r\n");
+    check(io::read(file, {"0", "1", "2"}).values == std::vector<double>({1., 2., 3., 4., 5., 6.}),
+          "lines ending in a carriage return (CRLF) are read");
+
+    write_text(file, "% c\n1,5;2\n3,4;x\n");
+    check(message_of([&] { io::read(file, {"0", "1"}, ',', '%'); }) ==
+          "line 2 (from 1) of " + file + ": field 2 (from 1) is '5;2', which is not a number",
+          "another delimiter: fields are split on it, blanks and tabs only");
+    write_text(file, "1,5 2\nfoo\n");
+    check(message_of([&] { io::read(file, {"0", "1", "2"}, ',', '%'); }) ==
+          "line 2 (from 1) of " + file + ": field 1 (from 1) is 'foo', which is not a number"
+          "; a line that is not data must start with the comment character '%'",
+          "the message names the comment character given");
+
+    write_text(file, "# c\n### a b c\n1 2 3\n");
+    check(io::read(file, {"c", "a"}).values == std::vector<double>({3., 1.}), "the ### line names the columns");
     std::remove(file.c_str());
   }
 
@@ -388,9 +468,9 @@ int main ()
 
     const std::string asInteger = message_of([&] { io::read(file, {}, {"n"}); });
     const std::string asDouble = message_of([&] { io::read(file, {"n"}); });
-    check(asInteger.find("undefined value in the column 'n', row 2") != std::string::npos,
-          "read as an integer, the null is an error: " + asInteger);
-    check(asDouble.find("undefined value in the column 'n', row 2") != std::string::npos,
+    check(asInteger.find("undefined value in the column 'n', row 2 (from 1) of: ") != std::string::npos,
+          "read as an integer, the null is an error, its FITS row from 1: " + asInteger);
+    check(asDouble.find("undefined value in the column 'n', row 2 (from 1) of: ") != std::string::npos,
           "read as double, too: " + asDouble);
     std::remove(file.c_str());
   }

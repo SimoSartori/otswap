@@ -17,10 +17,19 @@ columns of a table, as double, and others exactly as 64-bit integers.
   an integer column must have an integer type.
 - **ASCII:** a column given by digits alone is a 0-based index; any other
   name is looked up in the last line starting with `###` before the first data
-  row, where otswap writes the names. Lines that are empty or start with the
-  comment character (`#` by default) are skipped; fields are separated by the
-  delimiter, blanks or tabs. An integer field is an optional `-` followed by
-  digits.
+  row, where otswap writes the names. Lines that are empty, hold only
+  separators, or start with the comment character (`#` by default) after any
+  separators are skipped; every other line is a data row, so a header line
+  must start with the comment character. Fields are separated by the delimiter, blanks or
+  tabs. Each requested field, and the first field of every data row, must be
+  a number as a whole: decimal, hexadecimal (`0x10`), `nan`, `inf` or
+  `infinity`, in any case and with an optional sign; `NA`, `1,5` with a blank
+  delimiter, `4.5abc` or `1e` is an error. A carriage return ending a line is
+  ignored. An integer field is an optional `-` followed by digits.
+- **Messages** name an ASCII line as the file shows it, counted from 1 with
+  comments and blank lines, a field counted from 1, and a FITS row counted
+  from 1; a row that `write` is given in memory is counted from 0. These
+  messages state which, as "(from 1)" or "(from 0)".
 - NaN and infinities are returned as stored, in both formats, so a file
   written with NaN rows reads back with them.
 

@@ -455,10 +455,11 @@ otswap::NeighbourAverage otswap::neighbourAverage (const std::vector<double>& po
 void otswap::internal::check_bias_table (const std::vector<double>& redshift,
                                          const std::vector<double>& bias,
                                          const std::string& what,
-                                         const std::string& entry,
-                                         const std::size_t first)
+                                         const std::function<std::string(std::size_t)>& entry)
 {
-  auto name = [&] (const std::size_t k) { return entry + " " + std::to_string(k + first); };
+  auto name = [&] (const std::size_t k) {
+    return entry ? entry(k) : "node " + std::to_string(k) + " (from 0)";
+  };
 
   if (redshift.size() != bias.size())
     throw Error(what + " holds " + std::to_string(redshift.size()) + " redshifts and " +

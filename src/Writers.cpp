@@ -358,20 +358,21 @@ namespace {
   };
 
   /// An entry of a column of 0 and 1.
-  std::uint8_t flag_of (const Header& h, const std::int64_t value, const char* const column, const std::size_t row)
+  std::uint8_t flag_of (const Header& h, const std::int64_t value, const char* const column,
+                        const otswap::internal::NumberedTable& table, const std::size_t row)
   {
     if (value != 0 && value != 1)
-      h.fail("the column " + std::string(column) + " holds " + std::to_string(value) + " at row " +
-             std::to_string(row) + " (from 0); it must be 0 or 1");
+      h.fail("the column " + std::string(column) + " holds " + std::to_string(value) + " at " + table.row(row) +
+             "; it must be 0 or 1");
     return (std::uint8_t)value;
   }
 
   /// The columns of a part, from its HDU or its twin file.
-  otswap::io::Table read_located (const otswap::internal::PartLocation& at, const std::vector<std::string>& columns,
-                                  const std::vector<std::string>& integerColumns)
+  otswap::internal::NumberedTable read_located (const otswap::internal::PartLocation& at,
+                                                const std::vector<std::string>& columns,
+                                                const std::vector<std::string>& integerColumns)
   {
-    return at.extname.empty() ? otswap::io::read(at.file, columns, integerColumns)
-                              : otswap::internal::read_part(at.file, at.extname, columns, integerColumns);
+    return otswap::internal::read_numbered(at.file, at.extname, columns, integerColumns);
   }
 
   /// The profile part a main table declares.
@@ -386,12 +387,13 @@ namespace {
     profile.redshiftMin = h.real("ZMIN");
     profile.redshiftMax = h.real("ZMAX");
     profile.representative = h.real("MPSREPR");
-    const otswap::io::Table t = read_located(at, {"redshift", "MPS"}, {"nTracers"});
+    const otswap::internal::NumberedTable numbered = read_located(at, {"redshift", "MPS"}, {"nTracers"});
+    const otswap::io::Table& t = numbered.table;
     if (t.nRows == 0) h.fail("it holds no bin");
     for (std::size_t row = 0; row < t.nRows; ++row) {
       if (t.integers[row] < 0)
-        h.fail("the column nTracers holds " + std::to_string(t.integers[row]) + " at row " + std::to_string(row) +
-               " (from 0)");
+        h.fail("the column nTracers holds " + std::to_string(t.integers[row]) + " at " + numbered.row(row) +
+               "; a count must not be negative");
       profile.redshift.push_back(t.values[2*row]);
       profile.mps.push_back(t.values[2*row+1]);
       profile.count.push_back((std::size_t)t.integers[row]);
@@ -412,7 +414,7 @@ namespace {
     const bool growth = std::find(names.begin(), names.end(), "growthRate") != names.end();
     std::vector<std::string> columns {"redshift", "distance"};
     if (growth) columns.push_back("growthRate");
-    const otswap::io::Table t = read_located(at, columns, {});
+    const otswap::io::Table t = read_located(at, columns, {}).table;
     std::vector<double> redshift(t.nRows), distance(t.nRows), growthRate(growth ? t.nRows : 0);
     for (std::size_t row = 0; row < t.nRows; ++row) {
       redshift[row] = t.values[t.nColumns*row];
@@ -738,7 +740,8 @@ otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
   std::vector<std::string> integerColumns {"realization", v010 ? "index" : "id", "valid", "outsideRedshiftCut",
                                            "outsideMask"};
   if (!v010) integerColumns.push_back("outsideBox");
-  const Table t = read(file, columns, integerColumns);
+  const internal::NumberedTable numbered = internal::read_numbered(file, "", columns, integerColumns);
+  const Table& t = numbered.table;
   if (t.nRows != rows)
     h.fail("it holds " + std::to_string(t.nRows) + " rows, where NOBJECTS x NREC = " + std::to_string(n) +
            " x " + std::to_string(nRec) + " = " + std::to_string(rows) + " are expected");
@@ -756,20 +759,20 @@ otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
     const double* v = &t.values[row * t.nColumns];
     const std::int64_t* k = &t.integers[row * t.nIntegerColumns];
     if (k[0] != (std::int64_t)(row / n))
-      h.fail("row " + std::to_string(row) + " (from 0) holds realization " + std::to_string(k[0]) + ", where " +
+      h.fail(numbered.row(row) + " holds realization " + std::to_string(k[0]) + ", where " +
              std::to_string(row / n) + " is expected: the rows are the NOBJECTS = " + std::to_string(n) +
              " objects of realization 0, then those of realization 1, and so on");
     for (std::size_t c = 0; c < 3; ++c) r.displacement[3*row+c] = v[xyz+3+c];
-    r.valid[row] = flag_of(h, k[2], "valid", row);
+    r.valid[row] = flag_of(h, k[2], "valid", numbered, row);
     if (row >= n) continue;
     for (std::size_t c = 0; c < 3; ++c) {
       r.tracers[3*row+c] = v[xyz+c];
       if (sky) skyDegrees[3*row+c] = v[c];
     }
     r.ids[row] = k[1];
-    r.outsideRedshiftCut[row] = flag_of(h, k[3], "outsideRedshiftCut", row);
-    r.outsideMask[row] = flag_of(h, k[4], "outsideMask", row);
-    if (!v010) r.outsideBox[row] = flag_of(h, k[5], "outsideBox", row);
+    r.outsideRedshiftCut[row] = flag_of(h, k[3], "outsideRedshiftCut", numbered, row);
+    r.outsideMask[row] = flag_of(h, k[4], "outsideMask", numbered, row);
+    if (!v010) r.outsideBox[row] = flag_of(h, k[5], "outsideBox", numbered, row);
   }
 
   bool sequential = true;

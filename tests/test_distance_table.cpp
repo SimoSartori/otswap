@@ -147,10 +147,15 @@ int main ()
   {
     check_throws([] { DistanceTable({0., 1.}, {0., 1., 2.}); }, "arrays of different length");
     check_throws([] { DistanceTable(std::vector<double>{0.}, std::vector<double>{0.}); }, "a table of one point");
-    check_throws([] { DistanceTable({0., 1., 0.5}, {0., 1., 2.}); },
-                 "a redshift array that is not increasing");
-    check_throws([] { DistanceTable({0., 1., 2.}, {0., 2., 1.}); },
-                 "a distance array that is not increasing");
+    check(throws_naming([] { DistanceTable({0., 1., 0.5}, {0., 1., 2.}); },
+                        "the redshift array is not strictly increasing at entry 2 (from 0)"),
+          "a redshift array that is not increasing, its entry from 0");
+    check(throws_naming([] { DistanceTable({0., 1., 2.}, {0., 2., 1.}); },
+                        "the distance array is not strictly increasing at entry 2 (from 0)"),
+          "a distance array that is not increasing, its entry from 0");
+    check(throws_naming([] { DistanceTable({0., std::nan(""), 2.}, {0., 1., 2.}); },
+                        "the table holds a non-finite value at entry 1 (from 0)"),
+          "a non-finite sample, its entry from 0");
 
     const DistanceTable t({0., 1., 2.}, {0., 100., 180.});
     check_close(t.distanceAt(0.5), 50., 1.e-12, "the supplied table interpolates linearly");
@@ -227,8 +232,9 @@ int main ()
 
     check_throws([] { DistanceTable({0., 1., 2.}, {0., 100., 180.}, {0.5, 0.8}); },
                  "a growth-rate array of the wrong length raises");
-    check_throws([] { DistanceTable({0., 1., 2.}, {0., 100., 180.}, {0.5, 0., 0.95}); },
-                 "a non-positive growth rate raises");
+    check(throws_naming([] { DistanceTable({0., 1., 2.}, {0., 100., 180.}, {0.5, 0., 0.95}); },
+                        "the growth-rate array holds a non-positive or non-finite value at entry 1 (from 0)"),
+          "a non-positive growth rate raises, its entry from 0");
     check_throws([] { DistanceTable({0., 1., 2.}, {0., 100., 180.}, {0.5, std::nan(""), 0.95}); },
                  "a non-finite growth rate raises");
 

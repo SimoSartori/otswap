@@ -709,7 +709,7 @@ int main ()
   group("readBiasTable: ASCII and FITS, and every error");
   {
     const std::string ascii = temporary("bias.txt");
-    write_text(ascii, "# z b\n0.1 1.2\n\n0.5 1.6   # trailing comment ignored by strtod\n1.0 2.0\n");
+    write_text(ascii, "# z b\n0.1 1.2\n\n0.5 1.6   # text after the last column read\n1.0 2.0\n");
     const BiasTable a = io::readBiasTable(ascii);
     check(a.redshift == std::vector<double>({0.1, 0.5, 1.0}) && a.bias == std::vector<double>({1.2, 1.6, 2.0}),
           "ASCII: columns 0 and 1, comments and blank lines skipped");
@@ -728,18 +728,26 @@ int main ()
 
     const std::string nonFinite = temporary("nan.fits");
     io::write(nonFinite, {{"REDSHIFT", 'D', "", "", {0.2, kNaN}, {}}, {"BIAS", 'D', "", "", {1.1, 1.3}, {}}});
-    check_throws([&] { io::readBiasTable(nonFinite); }, "FITS with a NaN raises");
+    check(throws_naming([&] { io::readBiasTable(nonFinite); },
+                        "the bias table " + nonFinite + ": the redshift of row 2 (from 1) is not finite"),
+          "FITS with a NaN raises, naming its row from 1");
+    check(throws_naming([] { rsdFactor({0.3}, DistanceTable(0.3, 0.7, -1., 0., 0., 1., 100),
+                                       BiasTable{{0.1, 0.5}, {1.2, -1.}}); },
+                        "the bias table: the bias of node 1 (from 0) is -1.000000; it must be finite and positive"),
+          "in memory, a node is counted from 0");
 
-    const std::pair<const char*, const char*> cases[] = {
-      {"0.1\n0.5 1.6\n", "row too short"},
+    const std::pair<std::string, std::string> cases[] = {
+      {"0.1\n0.5 1.6\n", "line 1 (from 1) of " + ascii + " holds 1 field(s), but column index 1 (from 0) was requested"},
       {"0.1 1.2\n", "at least 2"},
-      {"0.1 1.2\nnan 1.6\n", "data row 2"},
-      {"0.5 1.2\n0.5 1.6\n", "data row 2"},
+      {"0.1 1.2\nnan 1.6\n", "the redshift of line 2 (from 1) is not finite"},
+      {"0.5 1.2\n0.5 1.6\n", "the redshift of line 2 (from 1), 0.500000, is not greater"},
       {"0.5 1.2\n0.4 1.6\n", "not greater"},
-      {"0.1 1.2\n0.5 0\n", "data row 2"},
-      {"0.1 -1\n0.5 1\n", "data row 1"},
-      {"0.1 1.2\n0.5 nan\n", "data row 2"},
-      {"0.1 1.2\n0.5 inf\n", "data row 2"},
+      {"0.1 1.2\n0.5 0\n", "the bias of line 2 (from 1) is 0.000000"},
+      {"0.1 -1\n0.5 1\n", "the bias of line 1 (from 1) is -1.000000"},
+      {"0.1 1.2\n0.5 nan\n", "the bias of line 2 (from 1) is nan"},
+      {"0.1 1.2\n0.5 inf\n", "the bias of line 2 (from 1) is inf"},
+      {"# z b\n\n0.1 1.2\n# c\n0.5 0\n", "the bias table " + ascii + ": the bias of line 5 (from 1) is 0.000000"},
+      {"0.1 1.2\n0.5 1,6\n", "line 2 (from 1) of " + ascii + ": field 2 (from 1) is '1,6', which is not a number"},
     };
     for (const auto& c : cases) {
       write_text(ascii, c.first);
@@ -1571,10 +1579,10 @@ int main ()
     badRandoms[3*9+1] = -above;
     const std::vector<double> cart = toCartesian(sky, table), cartRandoms = toCartesian(randomsSky, table);
     check(throws_naming([&] { reconstructLightcone(bad, randomsSky, 800., 1, table, config); },
-                        "the tracer sky array holds a declination of 1.570796 at object 7, outside [-pi/2, pi/2]"),
+                        "the tracer sky array holds a declination of 1.570796 at object 7 (from 0), outside [-pi/2, pi/2]"),
           "the sky overload, tracers");
     check(throws_naming([&] { reconstructLightcone(sky, badRandoms, 800., 1, table, config); },
-                        "the random sky array holds a declination of -1.570796 at object 9"),
+                        "the random sky array holds a declination of -1.570796 at object 9 (from 0)"),
           "the sky overload, randoms");
     check(throws_naming([&] { reconstructLightcone(cart, cartRandoms, bad, randomsSky, 800., 1, table, config); },
                         "the tracer sky array holds a declination"), "the Cartesian overload");

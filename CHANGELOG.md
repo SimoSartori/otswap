@@ -23,6 +23,25 @@
   default, they are unchanged. The selection report says "unobserved pixels in
   a row", and the comments of CFMAXPIX and MAXPIXCR say so too, now short
   enough to be written whole in FITS.
+- `io::read` (Python `io.read`) reads ASCII strictly: every line that is not
+  empty or a comment is a data row, and each requested field, and the first
+  field of each row, must be a number as a whole (decimal, hexadecimal,
+  `nan`, `inf`, `infinity`). Files that read before may now be refused where
+  a field was skipped or cut silently: `NA` (the columns after it shifted),
+  glued tokens such as `x12`, `1,5` with a blank delimiter (read as two
+  fields), `4.5abc`, `1e`, and a header line or any line of text that does
+  not start with the comment character, now an error where it was skipped.
+  The message names the file, the line and the field. A comment may follow
+  blanks, tabs or the delimiter: such a line, read as data before when it
+  held a number, is now skipped. A carriage return ending a line is ignored.
+- Messages count as the file shows it, and say so: an ASCII line or FITS row
+  from 1 ("line 7 (from 1)"), a field from 1, a row `io::write` is given in
+  memory from 0. `readBiasTable` names an ASCII entry by its file line, no
+  longer its data row, and `readDisplacementComplete` names a row by its
+  file line or FITS row from 1, no longer from 0. The checks of coordinate
+  arrays and of a distance table built from arrays say "(from 0)". The
+  executable names a repeated ID by its file line or FITS row, from 1, no
+  longer its data row.
 
 ## 0.2.1 — 2026-10-28
 

@@ -84,6 +84,35 @@ namespace {
     return c == delimiter || c == ' ' || c == '\t';
   }
 
+  struct Field { std::size_t start = 0, size = 0; };
+
+  void split_fields (const std::string& line, const std::size_t from, const char delimiter,
+                     std::vector<Field>& fields)
+  {
+    fields.clear();
+    std::size_t i = from;
+    while (i < line.size()) {
+      while (i < line.size() && separator(line[i], delimiter)) ++i;
+      const std::size_t start = i;
+      while (i < line.size() && !separator(line[i], delimiter)) ++i;
+      if (i > start) fields.push_back({start, i - start});
+    }
+  }
+
+  bool is_comment (const std::string& line, const char delimiter, const char comment)
+  {
+    std::size_t i = 0;
+    while (i < line.size() && separator(line[i], delimiter)) ++i;
+    return i < line.size() && line[i] == comment;
+  }
+
+  bool next_line (std::istream& input, std::string& line)
+  {
+    if (!std::getline(input, line)) return false;
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    return true;
+  }
+
   /// True when the line holds a field strtod reads as a number, as a data
   /// row does.
   bool has_number (const std::string& line)
@@ -109,22 +138,18 @@ namespace {
       throw otswap::Error("cannot open the input file: " + file);
 
     std::vector<std::string> names;
+    std::vector<Field> fields;
     found = false;
     std::string line;
-    while (std::getline(input, line)) {
+    while (next_line(input, line)) {
       if (line.compare(0, 3, "###") == 0) {
         found = true;
+        split_fields(line, 3, delimiter, fields);
         names.clear();
-        std::size_t i = 3;
-        while (i < line.size()) {
-          while (i < line.size() && separator(line[i], delimiter)) ++i;
-          const std::size_t start = i;
-          while (i < line.size() && !separator(line[i], delimiter)) ++i;
-          if (i > start) names.push_back(line.substr(start, i - start));
-        }
+        for (const Field& f : fields) names.push_back(line.substr(f.start, f.size));
         continue;
       }
-      if (line.empty() || line[0] == comment) continue;
+      if (line.empty() || is_comment(line, delimiter, comment)) continue;
       if (has_number(line)) break;
     }
     return names;
@@ -133,7 +158,8 @@ namespace {
   otswap::io::Table read_ascii (const std::string& file,
                                 const std::vector<std::string>& columns,
                                 const std::vector<std::string>& integerColumns,
-                                const char delimiter, const char comment)
+                                const char delimiter, const char comment,
+                                std::vector<std::size_t>* lines = nullptr)
   {
     std::vector<std::string> names;
     bool namesFound = false;
@@ -196,55 +222,60 @@ namespace {
 
     std::vector<double> row(columns.size());
     std::vector<std::int64_t> integerRow(integerColumns.size());
+    std::vector<Field> fields;
     std::string line;
     std::size_t lineNumber = 0;
 
-    while (std::getline(input, line)) {
+    auto at_line = [&] () { return "line " + std::to_string(lineNumber) + " (from 1) of " + file; };
+
+    while (next_line(input, line)) {
       ++lineNumber;
-      if (line.empty() || line[0] == comment) continue;
+      if (line.empty() || is_comment(line, delimiter, comment)) continue;
 
-      const char* p = line.c_str();
-      char* end = nullptr;
-      std::size_t column = 0, fields = 0;
-      bool complete = false;
+      split_fields(line, 0, delimiter, fields);
+      if (fields.empty()) continue;
+      for (const Field& f : fields)
+        if (f.start + f.size < line.size()) line[f.start + f.size] = '\0';
 
-      while (*p != '\0' && column <= maxIndex) {
-        const double value = std::strtod(p, &end);
-        if (end == p) { ++p; continue; }
-        const Slot& slot = map[column];
-        if (slot.requested && !slot.integer) row[slot.at] = value;
+      const std::size_t n = std::min(fields.size(), maxIndex + 1);
+      for (std::size_t c = 0; c < n; ++c) {
+        const Slot& slot = map[c];
+        const char* begin = line.data() + fields[c].start;
+        const char* stop = begin + fields[c].size;
+        if (c == 0 || (slot.requested && !slot.integer)) {
+          char* end = nullptr;
+          const double value = std::strtod(begin, &end);
+          if (end != stop)
+            throw otswap::Error(at_line() + ": field " + std::to_string(c + 1) + " (from 1) is '" +
+                                std::string(begin, stop) + "', which is not a number" +
+                                (c == 0 ? std::string("; a line that is not data must start with the "
+                                                      "comment character '") + comment + "'"
+                                        : std::string()));
+          if (slot.requested && !slot.integer) row[slot.at] = value;
+        }
         if (slot.requested && slot.integer) {
-          const char* start = p;
-          while (start < end && std::isspace((unsigned char)*start)) ++start;
           std::int64_t integer = 0;
-          const auto conversion = std::from_chars(start, (const char*)end, integer);
-          if (conversion.ec != std::errc() || conversion.ptr != end)
+          const auto conversion = std::from_chars(begin, stop, integer);
+          if (conversion.ec != std::errc() || conversion.ptr != stop)
             throw otswap::Error("the integer column '" + integerColumns[slot.at] + "' of " + file +
-                                " holds " + std::string(start, (const char*)end) + " at line " +
-                                std::to_string(lineNumber) +
+                                " holds " + std::string(begin, stop) + " at line " +
+                                std::to_string(lineNumber) + " (from 1)" +
                                 (conversion.ec == std::errc::result_out_of_range
                                    ? ", outside the 64-bit integer range"
                                    : ", which is not an integer"));
           integerRow[slot.at] = integer;
         }
-        ++fields;
-        p = end;
-        while (*p != '\0' && separator(*p, delimiter)) ++p;
-        if (column == maxIndex) { complete = true; break; }
-        ++column;
       }
 
-      if (fields == 0) continue;
-
-      if (!complete)
-        throw otswap::Error("row too short in " + file + " at line " +
-                            std::to_string(lineNumber) + ": found " +
-                            std::to_string(fields) + " column(s), but column index " +
-                            std::to_string(maxIndex) + " was requested");
+      if (fields.size() <= maxIndex)
+        throw otswap::Error(at_line() + " holds " + std::to_string(fields.size()) +
+                            " field(s), but column index " + std::to_string(maxIndex) +
+                            " (from 0) was requested");
 
       table.values.insert(table.values.end(), row.begin(), row.end());
       table.integers.insert(table.integers.end(), integerRow.begin(), integerRow.end());
       ++table.nRows;
+      if (lines != nullptr) lines->push_back(lineNumber);
     }
 
     return table;
@@ -362,7 +393,7 @@ namespace {
                                        [] (const char flag) { return flag != 0; });
           const long offset = at == nullFlags.begin()+nread ? 0 : std::distance(nullFlags.begin(), at);
           fail("undefined value in the column '" + all[i] + "', row " +
-               std::to_string(first+offset) + " of: " + file);
+               std::to_string(first+offset) + " (from 1) of: " + file);
         }
       }
     }
@@ -434,7 +465,7 @@ namespace {
       text.imbue(std::locale::classic());
       text << std::setprecision(17) << value;
       throw otswap::Error("the 'J' column '" + column.name + "' holds " + text.str() + " at row " +
-                          std::to_string(row) + "; a 'J' value must be an integer in "
+                          std::to_string(row) + " (from 0); a 'J' value must be an integer in "
                           "[-2147483648, 2147483647]");
     }
   }
@@ -884,7 +915,8 @@ otswap::BiasTable otswap::io::readBiasTable (const std::string& file,
   const std::vector<std::string> columns = is_fits(file)
     ? std::vector<std::string>{"REDSHIFT", "BIAS"}
     : std::vector<std::string>{"0", "1"};
-  const Table table = read(file, columns, delimiter, comment);
+  const internal::NumberedTable numbered = internal::read_numbered(file, "", columns, {}, delimiter, comment);
+  const Table& table = numbered.table;
 
   BiasTable bias;
   bias.redshift.resize(table.nRows);
@@ -894,7 +926,8 @@ otswap::BiasTable otswap::io::readBiasTable (const std::string& file,
     bias.bias[r] = table.values[2*r+1];
   }
 
-  internal::check_bias_table(bias.redshift, bias.bias, "the bias table " + file, "data row", 1);
+  internal::check_bias_table(bias.redshift, bias.bias, "the bias table " + file,
+                             [&numbered] (const std::size_t r) { return numbered.row(r); });
 
   return bias;
 }
@@ -1015,6 +1048,38 @@ otswap::io::Table otswap::internal::read_part (const std::string& file, const st
   if (!is_fits(file))
     throw Error("the extension " + extname + " was requested from " + file + ", which is not FITS");
   return read_fits(file, columns, integerColumns, extname);
+}
+
+
+// ============================================================================
+
+
+std::string otswap::internal::NumberedTable::row (const std::size_t r) const
+{
+  return fits ? "row " + std::to_string(r + 1) + " (from 1)" : "line " + std::to_string(lines.at(r)) + " (from 1)";
+}
+
+
+// ============================================================================
+
+
+otswap::internal::NumberedTable otswap::internal::read_numbered (const std::string& file, const std::string& extname,
+                                                                 const std::vector<std::string>& columns,
+                                                                 const std::vector<std::string>& integerColumns,
+                                                                 const char delimiter, const char comment)
+{
+  NumberedTable numbered;
+  if (!extname.empty()) {
+    numbered.table = read_part(file, extname, columns, integerColumns);
+    numbered.fits = true;
+    return numbered;
+  }
+  if (columns.empty() && integerColumns.empty())
+    throw Error("no column was requested from: " + file);
+  numbered.fits = is_fits(file);
+  numbered.table = numbered.fits ? read_fits(file, columns, integerColumns)
+                                 : read_ascii(file, columns, integerColumns, delimiter, comment, &numbered.lines);
+  return numbered;
 }
 
 

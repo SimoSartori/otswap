@@ -296,13 +296,12 @@ namespace otswap {
 
     /// Check a b(z) table: at least two nodes, equal lengths, redshifts
     /// finite and strictly increasing, bias finite and positive. The
-    /// message starts with @p what and names the offending entry as
-    /// @p entry followed by its index plus @p first.
+    /// message starts with @p what and names the offending entry k as
+    /// @p name(k), or as "node k (from 0)" when @p name is empty.
     void check_bias_table (const std::vector<double>& redshift,
                            const std::vector<double>& bias,
                            const std::string& what,
-                           const std::string& entry = "node",
-                           std::size_t first = 0);
+                           const std::function<std::string(std::size_t)>& name = {});
 
     /// One table of a multi-table file: in FITS, HDU 2 for the first, then
     /// in order, extname written as EXTNAME, none when empty; in ASCII, the
@@ -333,6 +332,26 @@ namespace otswap {
     io::Table read_part (const std::string& file, const std::string& extname,
                          const std::vector<std::string>& columns,
                          const std::vector<std::string>& integerColumns);
+
+    /// A table as io::read returns it, with where each row stands in its
+    /// file: in ASCII the file line, from 1, comments and blank lines
+    /// counted; in FITS the row, from 1.
+    struct NumberedTable {
+      io::Table table;
+      bool fits = false;
+      std::vector<std::size_t> lines;
+
+      /// Row @p r of the table as its file numbers it: "line N (from 1)"
+      /// in ASCII, "row N (from 1)" in FITS.
+      std::string row (std::size_t r) const;
+    };
+
+    /// io::read of @p file, or, with an @p extname, read_part, keeping the
+    /// place of each row in the file.
+    NumberedTable read_numbered (const std::string& file, const std::string& extname,
+                                 const std::vector<std::string>& columns,
+                                 const std::vector<std::string>& integerColumns,
+                                 char delimiter = ' ', char comment = '#');
 
     /// True when a FITS file holds an HDU of that EXTNAME.
     bool has_part (const std::string& file, const std::string& extname);

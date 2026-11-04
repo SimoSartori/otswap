@@ -140,7 +140,7 @@ std::size_t otswap::internal::check_coordinates (const std::vector<double>& a,
     if (!std::isfinite(a[i]))
       throw Error(name + " holds a non-finite value at entry " +
                   std::to_string(i) + " (object " + std::to_string(i/3) +
-                  ", component " + std::to_string(i%3) + ")");
+                  ", component " + std::to_string(i%3) + "), each from 0");
 
   return a.size() / 3;
 }
@@ -160,7 +160,7 @@ std::size_t otswap::internal::check_sky (const std::vector<double>& sky,
   for (std::size_t i = 0; i < nObjects; ++i)
     if (!(std::fabs(sky[3*i+1]) <= kPi/2.))
       throw Error(name + " holds a declination of " + std::to_string(sky[3*i+1]) + " at object " +
-                  std::to_string(i) + ", outside [-pi/2, pi/2]");
+                  std::to_string(i) + " (from 0), outside [-pi/2, pi/2]");
 
   return nObjects;
 }

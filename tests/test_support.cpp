@@ -380,6 +380,20 @@ int main ()
     }
   }
 
+  group("the coordinate checks name the entry and the object from 0");
+  {
+    std::string m;
+    try { internal::check_coordinates({1., 2., 3., 4., std::nan(""), 6.}, "the tracer array"); }
+    catch (const Error& e) { m = e.what(); }
+    check(m == "the tracer array holds a non-finite value at entry 4 (object 1, component 1), each from 0",
+          "a non-finite coordinate: " + m);
+    m.clear();
+    try { internal::check_sky({0.1, 0.2, 0.3, 0.1, 2., 0.3}, "the sky array"); }
+    catch (const Error& e) { m = e.what(); }
+    check(m == "the sky array holds a declination of 2.000000 at object 1 (from 0), outside [-pi/2, pi/2]",
+          "a declination outside the range: " + m);
+  }
+
   group("an Error records where it was constructed, and its message stays the message alone");
   {
     const int line = __LINE__ + 1;

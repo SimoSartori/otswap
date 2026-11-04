@@ -291,15 +291,15 @@ otswap::DistanceTable::DistanceTable (std::vector<double> redshift,
 
   for (std::size_t i = 0; i < m_redshift.size(); ++i) {
     if (!std::isfinite(m_redshift[i]) || !std::isfinite(m_distance[i]))
-      throw Error("the table holds a non-finite value at entry " + std::to_string(i));
+      throw Error("the table holds a non-finite value at entry " + std::to_string(i) + " (from 0)");
 
     if (i > 0 && m_redshift[i] <= m_redshift[i-1])
       throw Error("the redshift array is not strictly increasing at entry " +
-                  std::to_string(i));
+                  std::to_string(i) + " (from 0)");
 
     if (i > 0 && m_distance[i] <= m_distance[i-1])
       throw Error("the distance array is not strictly increasing at entry " +
-                  std::to_string(i));
+                  std::to_string(i) + " (from 0)");
   }
 
   if (m_growthRate.empty()) return;
@@ -312,7 +312,7 @@ otswap::DistanceTable::DistanceTable (std::vector<double> redshift,
   for (std::size_t i = 0; i < m_growthRate.size(); ++i)
     if (!std::isfinite(m_growthRate[i]) || m_growthRate[i] <= 0.)
       throw Error("the growth-rate array holds a non-positive or non-finite value at entry " +
-                  std::to_string(i));
+                  std::to_string(i) + " (from 0)");
 }
 
 

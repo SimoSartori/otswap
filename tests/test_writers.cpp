@@ -285,6 +285,20 @@ namespace {
     fits_close_file(f, &closing);
   }
 
+  void set_cell (const std::string& file, const std::string& extname, const std::string& column,
+                 const long row, long long value)
+  {
+    fitsfile* f = nullptr;
+    int status = 0, hdutype = 0, colnum = 0;
+    fits_open_file(&f, file.c_str(), READWRITE, &status);
+    if (extname.empty()) fits_movabs_hdu(f, 2, &hdutype, &status);
+    else fits_movnam_hdu(f, ANY_HDU, const_cast<char*>(extname.c_str()), 0, &status);
+    fits_get_colnum(f, CASEINSEN, const_cast<char*>(column.c_str()), &colnum, &status);
+    fits_write_col(f, TLONGLONG, colnum, row, 1, 1, &value, &status);
+    int closing = 0;
+    fits_close_file(f, &closing);
+  }
+
   void remove_with_twins (const std::string& file)
   {
     for (const std::string& f : {file, internal::twin_file(file, "mps"), internal::twin_file(file, "distances")})
@@ -894,10 +908,18 @@ int main ()
     check(refused(replaced(good, "## NOBJECTS = 900", "## NOBJECTS = 901"),
                   "it holds 2700 rows, where NOBJECTS x NREC = 901 x 3 = 2703 are expected"), "rows not NOBJECTS x NREC");
     check(refused(good.substr(0, good.rfind('\n', good.size() - 2) + 1), "it holds 2699 rows"), "a row missing");
-    check(refused(with_field(good, 1, 0, "1"), "row 1 (from 0) holds realization 1, where 0 is expected"),
-          "a row out of its realization's block");
-    check(refused(with_field(good, 5, 11, "2"), "the column valid holds 2 at row 5"), "valid neither 0 nor 1");
-    check(refused(with_field(good, 4, 14, "2"), "the column outsideBox holds 2 at row 4"), "a flag neither 0 nor 1");
+    const std::size_t header = (std::size_t)std::count(good.begin(), good.begin() + good.find('\n', good.find("###")) + 1, '\n');
+    auto line = [&] (const std::size_t r) { return "line " + std::to_string(header + r + 1) + " (from 1)"; };
+    check(refused(with_field(good, 1, 0, "1"), line(1) + " holds realization 1, where 0 is expected"),
+          "a row out of its realization's block, named by its file line from 1");
+    check(refused(with_field(good, 5, 11, "2"), "the column valid holds 2 at " + line(5) + "; it must be 0 or 1"),
+          "valid neither 0 nor 1");
+    check(refused(with_field(good, 4, 14, "2"), "the column outsideBox holds 2 at " + line(4) + "; it must be 0 or 1"),
+          "a flag neither 0 nor 1");
+    write_text(file, with_field(good, 2, 3, "x"));
+    check(throws_naming([&] { io::readDisplacementComplete(file); },
+                        "line " + std::to_string(header + 3) + " (from 1) of " + file + ": field 4 (from 1) is 'x', which is not a number"),
+          "a field that is not a number, named by line and field from 1");
     check(refused(with_field(good, 0, 1, "1"), "ids holds 1 twice"), "an ID repeated");
     const std::string cut = count_of("NTRCUT");
     check(refused(replaced(good, "## NTRCUT = " + cut, "## NTRCUT = " + std::to_string(std::stoul(cut) + 1)),
@@ -927,7 +949,34 @@ int main ()
                         "DISTPART = 1, and " + tableTwin + " does not exist"), "ASCII: a declared table missing");
     remove_with_twins(file);
 
+    io::writeDisplacementComplete(file, lc);
+    const std::string profileText = text_of(mpsTwin);
+    const std::size_t profileHeader =
+      (std::size_t)std::count(profileText.begin(), profileText.begin() + profileText.find('\n', profileText.find("###")) + 1, '\n');
+    write_text(mpsTwin, with_field(profileText, 0, 2, "-1"));
+    check(throws_naming([&] { io::readDisplacementComplete(file); },
+                        "the mps profile in " + mpsTwin + ": the column nTracers holds -1 at line " +
+                        std::to_string(profileHeader + 1) + " (from 1); a count must not be negative"),
+          "ASCII: a negative count in the profile, named by its twin's line from 1");
+    remove_with_twins(file);
+
     const std::string fits = temporary("bad.fits");
+    io::writeDisplacementComplete(fits, lc);
+    set_cell(fits, "", "realization", 2, 1);
+    check(throws_naming([&] { io::readDisplacementComplete(fits); },
+                        fits + ": row 2 (from 1) holds realization 1, where 0 is expected"),
+          "FITS: a row out of its realization's block, named by its row from 1");
+    io::writeDisplacementComplete(fits, lc);
+    set_cell(fits, "", "valid", 6, 2);
+    check(throws_naming([&] { io::readDisplacementComplete(fits); },
+                        fits + ": the column valid holds 2 at row 6 (from 1); it must be 0 or 1"),
+          "FITS: a flag neither 0 nor 1, its row from 1");
+    io::writeDisplacementComplete(fits, lc);
+    set_cell(fits, "MPSPROF", "nTracers", 1, -1);
+    check(throws_naming([&] { io::readDisplacementComplete(fits); },
+                        "the mps profile in the HDU MPSPROF of " + fits +
+                        ": the column nTracers holds -1 at row 1 (from 1); a count must not be negative"),
+          "FITS: a negative count in the profile, its row from 1");
     io::writeDisplacementComplete(fits, lc);
     delete_hdu(fits, "MPSPROF");
     check(throws_naming([&] { io::readDisplacementComplete(fits); },

@@ -1632,7 +1632,7 @@ def test_declinations_are_checked_in_the_unit_given(table, lightcone):
     radians = np.column_stack([np.deg2rad(bad[:, 0]), np.deg2rad(bad[:, 1]), bad[:, 2]])
     radians[7, 1] = np.nextafter(np.pi / 2, 2.0)
     with pytest.raises(otswap.Error, match=r"the tracer sky array holds a declination of 1\.570796 "
-                                           r"at object 7, outside \[-pi/2, pi/2\]"):
+                                           r"at object 7 \(from 0\), outside \[-pi/2, pi/2\]"):
         otswap.reconstruct_lightcone(radians, to_radians(randoms_sky), angle_unit="rad", **options)
     with pytest.raises(otswap.Error, match=r"the sky array holds a declination of 1\.570796"):
         otswap.to_cartesian(radians[:10], table, angle_unit="rad")
@@ -2011,7 +2011,7 @@ def test_io_column(tmp_path):
 def test_io_errors(tmp_path):
     path = tmp_path / "e.dat"
     for value in (np.nan, 1.5, 2.0 ** 31):
-        with pytest.raises(otswap.Error, match=r"'J' column 'n' holds .* at row 1"):
+        with pytest.raises(otswap.Error, match=r"'J' column 'n' holds .* at row 1 \(from 0\); "):
             otswap.io.write(path, [otswap.io.Column("n", [1.0, value], type="J")])
     with pytest.raises(otswap.Error, match="holds 1 entries"):
         otswap.io.write(path, [otswap.io.Column("a", [1.0, 2.0]), otswap.io.Column("b", [1.0])])
@@ -2032,10 +2032,41 @@ def test_io_errors(tmp_path):
     with pytest.raises(otswap.Error, match="cannot open"):
         otswap.io.read(tmp_path / "missing.fits", ["a"])
     path.write_text("1 2.5\n")
-    with pytest.raises(otswap.Error, match="holds 2.5 at line 1, which is not an integer"):
+    with pytest.raises(otswap.Error, match=re.escape("holds 2.5 at line 1 (from 1), which is not an integer")):
         otswap.io.read(path, [0], integer_columns=[1])
-    path.write_text("% c\n1;2\n")
+    path.write_text("% c\n1;2\n  % indented\n")
     assert otswap.io.read(path, [1], delimiter=";", comment="%").values.tolist() == [[2.0]]
+
+
+@pytest.mark.parametrize("line, field, token, hint", [
+    ("4 NA 6 7", 2, "NA", False),
+    ("x12 5 6", 1, "x12", True),
+    ("1,5 2 3", 1, "1,5", True),
+    ("4.5abc 6 7", 1, "4.5abc", True),
+    ("1e 2 3", 1, "1e", True),
+    ("foo", 1, "foo", True),
+    ("RA DEC Z", 1, "RA", True),
+])
+def test_io_read_ascii_fields_must_be_numbers(tmp_path, line, field, token, hint):
+    path = tmp_path / "strict.dat"
+    path.write_text("# c\n\n1 2 3\n" + line + "\n")
+    expected = (f"line 4 (from 1) of {path}: field {field} (from 1) is '{token}', which is not a number"
+                + ("; a line that is not data must start with the comment character '#'" if hint else ""))
+    with pytest.raises(otswap.Error) as caught:
+        otswap.io.read(path, [0, 1, 2])
+    assert str(caught.value) == expected
+
+
+def test_io_read_ascii_accepted_values(tmp_path):
+    path = tmp_path / "values.dat"
+    path.write_text("0x10 2 3\nnan inf -infinity\n\n# c\n4 NA 6 junk\n")
+    t = otswap.io.read(path, [0, 2]).values
+    assert t[0].tolist() == [16.0, 3.0] and np.isnan(t[1, 0]) and t[1, 1] == -np.inf
+    assert t[2].tolist() == [4.0, 6.0]
+    path.write_text("1 2 3\n4 5\n")
+    with pytest.raises(otswap.Error) as caught:
+        otswap.io.read(path, [0, 1, 2])
+    assert str(caught.value) == f"line 2 (from 1) of {path} holds 2 field(s), but column index 2 (from 0) was requested"
 
 
 def test_io_table_keeps_its_arrays(tmp_path):
@@ -2063,9 +2094,12 @@ def test_bias_table(tmp_path):
     fits = tmp_path / "bias.fits"
     otswap.io.write(fits, [otswap.io.Column("REDSHIFT", [0.5, 1.0]), otswap.io.Column("BIAS", [1.2, 1.6])])
     assert otswap.io.read_bias_table(str(fits)).bias.tolist() == [1.2, 1.6]
-    path.write_text("0.5 1.2\n0.4 1.6\n")
-    with pytest.raises(otswap.Error, match="data row 2"):
+    path.write_text("# z b\n0.5 1.2\n0.4 1.6\n")
+    with pytest.raises(otswap.Error, match=re.escape("the redshift of line 3 (from 1), 0.400000, is not greater")):
         otswap.io.read_bias_table(path)
+    otswap.io.write(fits, [otswap.io.Column("REDSHIFT", [0.5, 1.0]), otswap.io.Column("BIAS", [1.2, -1.0])])
+    with pytest.raises(otswap.Error, match=re.escape("the bias of row 2 (from 1) is -1.000000")):
+        otswap.io.read_bias_table(fits)
 
 
 def test_io_stub_lists_the_module():

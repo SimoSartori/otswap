@@ -51,6 +51,8 @@
 #include "otswap/RSD.h"
 #include "otswap/io.h"
 
+#include "internal.h"
+
 namespace {
 
   const char* const kUsage = "usage: otswap <parameter-file>";
@@ -460,16 +462,18 @@ namespace {
   // The run
   // ==========================================================================
 
-  /// The first ID met twice, in row order, with both data rows counted from 1.
-  void check_ids (const std::vector<std::int64_t>& ids, const Run& run)
+  /// The first ID met twice, in row order, with both rows named as the
+  /// file numbers them: the ASCII line or the FITS row, from 1.
+  void check_ids (const otswap::internal::NumberedTable& table, const Run& run)
   {
+    const std::vector<std::int64_t>& ids = table.table.integers;
     std::unordered_map<std::int64_t, std::size_t> first;
     for (std::size_t row = 0; row < ids.size(); ++row) {
       const auto found = first.emplace(ids[row], row);
       if (!found.second)
         throw otswap::Error(run.tracerFile + ": the column " + *run.idColumn + " holds the ID " +
-                            std::to_string(ids[row]) + " twice, at data rows " +
-                            std::to_string(found.first->second+1) + " and " + std::to_string(row+1));
+                            std::to_string(ids[row]) + " twice, at " + table.row(found.first->second) +
+                            " and " + table.row(row));
     }
   }
 
@@ -527,11 +531,12 @@ namespace {
     std::vector<double> tracers, randoms;
     std::vector<std::int64_t> ids;
     if (run.idColumn) {
-      otswap::io::Table table = otswap::io::read(run.tracerFile, run.tracerColumns, {*run.idColumn},
-                                                 run.delimiter, run.comment);
-      tracers = std::move(table.values);
-      ids = std::move(table.integers);
-      check_ids(ids, run);
+      otswap::internal::NumberedTable numbered =
+        otswap::internal::read_numbered(run.tracerFile, "", run.tracerColumns, {*run.idColumn},
+                                        run.delimiter, run.comment);
+      check_ids(numbered, run);
+      tracers = std::move(numbered.table.values);
+      ids = std::move(numbered.table.integers);
     }
     else
       tracers = otswap::io::read(run.tracerFile, run.tracerColumns, run.delimiter, run.comment).values;

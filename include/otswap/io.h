@@ -160,8 +160,15 @@ namespace otswap {
      *  scalar. In ASCII a column given by digits alone is a 0-based index;
      *  any other string is a name, looked up in the last line starting with
      *  "###" before the first data row, which is where io::write puts the
-     *  names. Lines that are empty or start with @p comment are skipped, and
-     *  fields are separated by @p delimiter, blanks or tabs.
+     *  names. Lines that are empty, hold only blanks, tabs and @p delimiter,
+     *  or hold @p comment as their first other character are skipped; every
+     *  other line is a data row, so a line of text such as a header must
+     *  start with @p comment, after any blanks, tabs or @p delimiter. Fields
+     *  are separated by @p delimiter, blanks or tabs. Each requested field,
+     *  and the first field of every data row, must be a number as a whole:
+     *  decimal, hexadecimal (0x10), nan, inf or infinity, in any case and
+     *  with an optional sign. Fields not requested after the first are not
+     *  read. A carriage return ending a line is ignored.
      *
      *  NaN and infinities are returned as stored, in both formats: a file
      *  io::write wrote with NaN rows reads back with them. A null value of
@@ -169,8 +176,10 @@ namespace otswap {
      *
      *  @exception Error if the file is missing or unreadable, a column is
      *  absent (the message lists the names found), a column is requested
-     *  twice, a requested index is too large, a row is too short, or a null
-     *  integer is met.
+     *  twice, a requested index is too large, a row is too short, a field
+     *  that must be a number is not one, or a null integer is met. The
+     *  message names the ASCII line, counted from 1 with comments and blank
+     *  lines, the field, counted from 1, or the FITS row, counted from 1.
      */
     Table read (const std::string& file,
                 const std::vector<std::string>& columns,
@@ -188,7 +197,8 @@ namespace otswap {
      *  @exception Error as above, and if an integer field holds anything
      *  else (a decimal point, an exponent, a '+', nan), lies outside the
      *  64-bit range, is null, or comes from a FITS column of floating type;
-     *  the message names the row and the column.
+     *  the message names the column and the ASCII line or FITS row, each
+     *  counted from 1.
      */
     Table read (const std::string& file,
                 const std::vector<std::string>& columns,
@@ -367,7 +377,8 @@ namespace otswap {
      *  @exception Error if the file cannot be read (as io::read), if it
      *  holds fewer than two rows, if a redshift is not finite or not greater
      *  than the one before, or if a bias is not finite or not positive; the
-     *  message names the file and the row.
+     *  message names the file and the row, as the ASCII line or the FITS
+     *  row, each counted from 1.
      */
     BiasTable readBiasTable (const std::string& file,
                              char delimiter = ' ', char comment = '#');
@@ -540,7 +551,8 @@ namespace otswap {
      *  (NTRAC) and one disagrees with the flags; if a box file declares a
      *  profile or a table; if a declared profile or table is missing, the
      *  message naming the file and the part, or is not the part written, by
-     *  its PRODUCT, or is malformed. Every message names the file.
+     *  its PRODUCT, or is malformed. Every message names the file, and a
+     *  row by its ASCII line or FITS row, counted from 1.
      */
     Result readDisplacementComplete (const std::string& file);
 

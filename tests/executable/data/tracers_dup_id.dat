@@ -1,4 +1,4 @@
-# Six points with IDs; the ID 12 appears at data rows 2 and 5.
+# Six points with IDs; the ID 12 appears at lines 4 and 7.
 ### x y z id
 1.0 2.0 3.0 11
 4.0 5.0 6.0 12

@@ -133,17 +133,26 @@ def read(
     an integer column must have an integer type. In ASCII an int, or a str
     of digits, is a 0-based index; any other str is a name, looked up in the
     last line starting with ``###`` before the first data row, where
-    ``write`` puts the names. Lines that are empty or start with ``comment``
-    are skipped; fields are separated by ``delimiter``, blanks or tabs. An
-    ASCII integer field is an optional ``-`` followed by digits.
+    ``write`` puts the names. Lines that are empty, hold only blanks, tabs
+    and ``delimiter``, or hold ``comment`` as their first other character
+    are skipped; every other line is a data row, so a line of text such as a
+    header must start with ``comment``, after any blanks, tabs or
+    ``delimiter``. Fields are separated by ``delimiter``, blanks or tabs. Each
+    requested field, and the first field of every data row, must be a number
+    as a whole: decimal, hexadecimal (``0x10``), ``nan``, ``inf`` or
+    ``infinity``, in any case and with an optional sign. Fields not
+    requested after the first are not read. A carriage return ending a line
+    is ignored. An ASCII integer field is an optional ``-`` followed by
+    digits.
 
     NaN and infinities are returned as stored, in both formats. Raises if the
     file is missing or unreadable, a column is absent (the message lists the
     names found) or requested twice, a requested index is too large, a row is
-    too short, an integer field is not an integer, lies outside the 64-bit
-    range or comes from a FITS column of floating type, or a FITS integer
-    column holds a null value; for an integer field the message names the
-    row and the column.
+    too short, a field that must be a number is not one, an integer field is
+    not an integer, lies outside the 64-bit range or comes from a FITS column
+    of floating type, or a FITS integer column holds a null value. The
+    message names the ASCII line, counted from 1 with comments and blank
+    lines, the field, counted from 1, or the FITS row, counted from 1.
     """
 
 
@@ -318,7 +327,7 @@ def read_bias_table(file: Path, *, delimiter: str = " ", comment: str = "#") -> 
     if the file cannot be read (as ``read``), if it holds fewer than two
     rows, if a redshift is not finite or not greater than the one before, or
     if a bias is not finite or not positive; the message names the file and
-    the row."""
+    the row, as the ASCII line or the FITS row, each counted from 1."""
 
 
 DisplacementGroup: TypeAlias = Literal["id", "tracer_sky", "lagrangian_sky", "tracer",
@@ -494,7 +503,8 @@ def read_displacement_complete(file: Path, *, angle_unit: AngleUnit) -> Result:
         with the flags; if a box file declares a profile or a table; if a
         declared profile or table is missing, the message naming the file and
         the part, or is not the part written, by its PRODUCT, or is
-        malformed. Every message names the file.
+        malformed. Every message names the file, and a row by its ASCII
+        line or FITS row, counted from 1.
 
     Notes
     -----
