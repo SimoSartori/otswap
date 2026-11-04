@@ -1237,6 +1237,21 @@ class RealSpaceCatalog:
         """Wall time of the call that made the catalogue, in seconds."""
 
 
+def openmp_root() -> Optional[str]:
+    """The directory of the OpenMP runtime a macOS wheel of otswap ships, the
+    ``openmp`` directory of the package: ``lib/libomp.dylib``, the LLVM
+    libomp otswap was built with, whose install name is
+    ``@rpath/libomp.dylib``; ``include/omp.h`` and ``include/ompx.h``; and
+    LLVM's licence, ``LICENSE.TXT``. None when otswap ships no runtime: a
+    Linux wheel, or a build from source, which uses the runtime it was built
+    against.
+
+    A package with OpenMP code of its own gives this directory to CMake as
+    ``OpenMP_ROOT``, so that its extension loads the same runtime as otswap;
+    see "Linking the same OpenMP runtime". The version of the runtime may
+    change between minor releases of otswap."""
+
+
 def radial_projection(displacement: ArrayLike, positions: ArrayLike) -> NDArray[np.float64]:
     """Component of each displacement, shape (N, 3), along the line of sight
     of its position, shape (N, 3), Cartesian, finite and away from the origin

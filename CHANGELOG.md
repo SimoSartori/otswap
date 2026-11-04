@@ -28,6 +28,12 @@
   PRODUCT, and the keywords MPSPART and DISTPART. `writeDisplacementMean`
   (Python `write_displacement_mean`) takes `lightconeTables`
   (`lightcone_tables`), true by default, to leave them out.
+- `otswap.openmp_root()`: the directory of the OpenMP runtime a macOS wheel
+  ships, `otswap/openmp/` (`lib/libomp.dylib` with install name
+  `@rpath/libomp.dylib`, `include/omp.h`, `include/ompx.h`, LLVM's
+  `LICENSE.TXT`), or None. A package with OpenMP code of its own links that
+  file and loads the same runtime as otswap; "Linking the same OpenMP
+  runtime" in the Python reference says how.
 
 ### Changed
 
@@ -38,6 +44,9 @@
 - The executable writes the `MPS_` file of `printMps` only when neither
   displacement file is written, those files holding the profile; in ASCII it
   reports the twin files of the mean file too.
+- The macOS wheels hold libomp in `otswap/openmp/lib/`, where the module
+  finds it through its rpath, instead of the copy delocate made in
+  `otswap/.dylibs/`.
 
 - `reconstructBox` and `reconstructLightcone` refuse more than 2^32 − 1
   tracers.

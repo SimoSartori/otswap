@@ -27,6 +27,7 @@ neighbouring tracers. ``real_space_lightcone`` and ``real_space_box`` run the
 whole chain; the four steps are also available on their own.
 """
 
+import os
 from enum import IntEnum
 from typing import Literal, NamedTuple
 
@@ -88,6 +89,18 @@ class NeighbourAverage(NamedTuple):
     n_realizations_averaged: NDArray[np.uint32]
 
 
+def openmp_root():
+    """The directory of the OpenMP runtime a macOS wheel of otswap ships,
+    with ``lib/libomp.dylib`` and ``include/omp.h``; None when otswap ships
+    no runtime."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.join(here, "openmp")
+    if (os.path.isfile(os.path.join(root, "lib", "libomp.dylib"))
+            and os.path.isfile(os.path.join(root, "include", "omp.h"))):
+        return root
+    return None
+
+
 __all__ = [
     "AngleUnit",
     "BiasTable",
@@ -108,6 +121,7 @@ __all__ = [
     "axis_projection",
     "measure_mps_profile",
     "neighbour_average",
+    "openmp_root",
     "radial_projection",
     "real_space_box",
     "real_space_lightcone",

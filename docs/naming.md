@@ -107,6 +107,12 @@ passed as `config=` or `correction=`; a flat
 | `lightconeTables` of `writeDisplacementMean`, `writeDisplacementComplete` | `lightcone_tables` | keyword-only |
 | `io::DisplacementGroup`, `io::CatalogGroup` | strings | `TracerSky` is `"tracer_sky"` |
 
+## OpenMP runtime
+
+| C++ | Python | Notes |
+|---|---|---|
+| — | `openmp_root` | the directory of the OpenMP runtime of a macOS wheel, or None; see "Linking the same OpenMP runtime" |
+
 ## Random draws
 
 | C++ | Python | Notes |

@@ -7,7 +7,8 @@
 # architecture, from the same sources and against the same dependencies, and
 # its absence is an error rather than a skip. Then the reproducibility test,
 # tests/test_determinism.py, which compares the wheel's outputs with the
-# hashes recorded in tests/determinism_hashes.json.
+# hashes recorded in tests/determinism_hashes.json. On macOS, last, the
+# OpenMP runtime the wheel ships (tests/cmake/openmp/check.py).
 #
 # Usage: test_wheel.sh PROJECT WHEEL
 #
@@ -44,3 +45,9 @@ fi
 
 OTSWAP_CPP_REFERENCE="$reference" python -m pytest "$PROJECT/tests/test_otswap.py" \
   "$PROJECT/tests/test_rsd.py" "$PROJECT/tests/test_determinism.py" -p no:cacheprovider -rs
+
+# A new build directory each time: the library it builds goes into the
+# site-packages of the environment under test.
+if [ "$(uname)" = Darwin ]; then
+  python "$PROJECT/tests/cmake/openmp/check.py" "$arch" "$(mktemp -d "${TMPDIR:-/tmp}/otswap-openmp.XXXXXX")"
+fi

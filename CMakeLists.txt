@@ -34,6 +34,9 @@ endif()
 option(OTSWAP_BUILD_TESTS "Build the C++ test suite" ${OTSWAP_IS_TOP_LEVEL})
 option(OTSWAP_BUILD_PYTHON "Build the Python bindings" OFF)
 option(OTSWAP_INSTALL "Generate the C++ install rules" ${OTSWAP_INSTALL_DEFAULT})
+# macOS wheels only, set in pyproject.toml: the module's libomp, with its
+# headers and licence, goes into the package (see the Python bindings below).
+option(OTSWAP_BUNDLE_OPENMP "Install the module's libomp into the Python package" OFF)
 
 # The otswap executable: built by a standalone build, not by the wheel nor
 # as a subproject.
@@ -349,6 +352,34 @@ if (OTSWAP_BUILD_PYTHON)
   target_include_directories(otswap_python PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(otswap_python PRIVATE otswap)
   install(TARGETS otswap_python LIBRARY DESTINATION otswap)
+
+  # With OTSWAP_BUNDLE_OPENMP, the libomp the module links, built by
+  # tools/wheels/build_deps.sh with install name @rpath/libomp.dylib, goes
+  # into the package as otswap/openmp/{lib,include}, the tree
+  # otswap.openmp_root() names, and the module finds it through its rpath.
+  # Otherwise the module keeps the directories of the libraries it links as
+  # its rpath, for a libomp whose install name is relative.
+  if (OTSWAP_BUNDLE_OPENMP)
+    set(otswap_omp_library "")
+    foreach (library IN LISTS OpenMP_CXX_LIBRARIES)
+      if (library MATCHES "/libomp\\.dylib$")
+        set(otswap_omp_library "${library}")
+      endif()
+    endforeach()
+    if (NOT APPLE OR NOT otswap_omp_library)
+      message(FATAL_ERROR "OTSWAP_BUNDLE_OPENMP needs macOS and a libomp.dylib, found through OpenMP_ROOT.")
+    endif()
+    get_filename_component(otswap_omp_library "${otswap_omp_library}" REALPATH)
+    get_filename_component(otswap_omp_root "${otswap_omp_library}" DIRECTORY)
+    get_filename_component(otswap_omp_root "${otswap_omp_root}" DIRECTORY)
+    install(FILES "${otswap_omp_library}" DESTINATION otswap/openmp/lib RENAME libomp.dylib)
+    install(FILES "${otswap_omp_root}/include/omp.h" "${otswap_omp_root}/include/ompx.h"
+      DESTINATION otswap/openmp/include)
+    install(FILES "${otswap_omp_root}/LICENSE.TXT" DESTINATION otswap/openmp)
+    set_target_properties(otswap_python PROPERTIES INSTALL_RPATH "@loader_path/openmp/lib")
+  else()
+    set_target_properties(otswap_python PROPERTIES INSTALL_RPATH_USE_LINK_PATH ON)
+  endif()
 
   # _otswap_crosstest, for tests/test_crossmodule.py: a second module that
   # takes and returns otswap's types as their C++ types, as a package built

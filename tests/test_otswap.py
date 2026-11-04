@@ -201,7 +201,7 @@ def test_exports():
         "AngleUnit", "BiasTable", "BoxLimits", "Config", "CorrectionConfig", "CorrectionStatus", "DistanceTable",
         "Error", "ExtrapolationWarning", "Mask", "MpsProfile", "NeighbourAverage", "RealSpaceCatalog",
         "RedshiftCut", "Result", "SelectionCounts",
-        "axis_projection", "measure_mps_profile", "neighbour_average", "radial_projection",
+        "axis_projection", "measure_mps_profile", "neighbour_average", "openmp_root", "radial_projection",
         "real_space_box", "real_space_lightcone", "recompute_means", "reconstruct_box",
         "reconstruct_lightcone", "reject_mask_crossings", "rsd_factor", "rsd_factor_box",
         "shift_along_axis", "shift_radially",
@@ -223,6 +223,22 @@ def test_stub_and_marker_are_installed():
     assert os.path.isfile(os.path.join(here, "__init__.pyi"))
     assert os.path.isfile(os.path.join(here, "io.pyi"))
     assert os.path.isfile(os.path.join(here, "py.typed"))
+
+
+def test_openmp_root_names_the_shipped_runtime_or_none():
+    root = otswap.openmp_root()
+    here = os.path.dirname(os.path.abspath(otswap.__file__))
+    shipped = (os.path.isfile(os.path.join(here, "openmp", "lib", "libomp.dylib"))
+               and os.path.isfile(os.path.join(here, "openmp", "include", "omp.h")))
+    if shipped:
+        assert isinstance(root, str)
+        assert os.path.realpath(root) == os.path.realpath(os.path.join(here, "openmp"))
+    else:
+        assert root is None
+    assert not os.path.isdir(os.path.join(here, ".dylibs")) or not any(
+        name.startswith("libomp") for name in os.listdir(os.path.join(here, ".dylibs")))
+    with open(os.path.join(here, "__init__.pyi")) as f:
+        assert "def openmp_root() -> Optional[str]:" in f.read()
 
 
 def test_classes_have_no_public_constructor_where_the_spec_gives_none():

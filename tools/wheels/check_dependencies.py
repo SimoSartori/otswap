@@ -5,7 +5,9 @@ outside itself but the allowed system libraries, and prints what each
 binary in it links.
 
 macOS: every load command of every binary must name a library under
-/usr/lib or /System/Library, or one shipped in the wheel.
+/usr/lib or /System/Library, or one shipped in the wheel; libomp must not be
+under .dylibs/, where delocate would put a copy of its own, but in
+otswap/openmp/lib/.
 Linux: auditwheel show must find the wheel consistent with a manylinux tag
 among its own, which admits no external library beyond that policy's.
 
@@ -35,6 +37,8 @@ def check_macos(wheel):
                 if name.endswith((".so", ".dylib")):
                     binaries.append(path)
                     shipped[name] = path
+                    if name.startswith("libomp") and os.path.basename(folder) == ".dylibs":
+                        problems.append(f"{os.path.relpath(path, root)}: libomp bundled by delocate")
         for binary in binaries:
             out = subprocess.run(["otool", "-L", binary], check=True,
                                  capture_output=True, text=True).stdout.splitlines()

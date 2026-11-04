@@ -60,6 +60,9 @@ repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel} && python {proje
 archs = ["arm64", "x86_64"]
 # meshsearch's deployment target; arm64 wheels start at 11.0 in any case
 environment = { MACOSX_DEPLOYMENT_TARGET = "10.13", CFITSIO_ROOT = "$PWD/build/wheel-deps", ZLIB_ROOT = "$PWD/build/wheel-deps", OpenMP_ROOT = "$PWD/build/wheel-deps/omp" }
-# the libomp of the architecture being built, which delocate then bundles
+# the libomp of the architecture being built, which the build installs into
+# the package as otswap/openmp/, the place otswap.openmp_root() names;
+# delocate leaves it there
 before-build = "bash {project}/tools/wheels/select_omp.sh {project}/build/wheel-deps"
-repair-wheel-command = "delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel} && python {project}/tools/wheels/check_dependencies.py {dest_dir}"
+config-settings = { "cmake.define.OTSWAP_BUNDLE_OPENMP" = "ON" }
+repair-wheel-command = "delocate-wheel --exclude libomp --require-archs {delocate_archs} -w {dest_dir} -v {wheel} && python {project}/tools/wheels/check_dependencies.py {dest_dir}"

@@ -9,7 +9,9 @@
 #   cfitsio  static, position-independent, without curl, bzip2, pthreads,
 #            SSE, the network drivers, the utilities and the test programs
 #   libomp   macOS only: a shared library per architecture, in omp-arm64/
-#            and omp-x86_64/, which delocate copies into each wheel
+#            and omp-x86_64/, with install name @rpath/libomp.dylib and
+#            LLVM's licence as LICENSE.TXT; each wheel ships it in
+#            otswap/openmp/
 #
 # On macOS zlib and cfitsio are universal (arm64 and x86_64), and everything
 # is built for MACOSX_DEPLOYMENT_TARGET, or 11.0 for arm64 if that is later.
@@ -41,7 +43,7 @@ LLVM_VERSION=23.1.2
 LLVM_URL=https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/llvm-project-${LLVM_VERSION}.src.tar.xz
 LLVM_SHA256=c98bbef08a2b4c2613cd50e9aa9ae7b69b1fe6c16b2c40373bc0ab6116fdf78a
 
-STAMP="zlib ${ZLIB_VERSION}, cfitsio ${CFITSIO_VERSION}, libomp ${LLVM_VERSION}, macOS ${MACOSX_DEPLOYMENT_TARGET:-none}"
+STAMP="zlib ${ZLIB_VERSION}, cfitsio ${CFITSIO_VERSION}, libomp ${LLVM_VERSION} @rpath, macOS ${MACOSX_DEPLOYMENT_TARGET:-none}"
 
 if [ -f "$PREFIX/.built" ] && [ "$(cat "$PREFIX/.built")" = "$STAMP" ]; then
   echo "build_deps: $PREFIX already holds $STAMP"
@@ -139,9 +141,12 @@ if [ "$(uname)" = Darwin ]; then
       -DLIBOMP_OMPD_SUPPORT=OFF -DLIBOMP_USE_HWLOC=OFF -DOPENMP_ENABLE_OMPT_TOOLS=OFF
     cmake --build "$WORK/omp-build-$arch" --parallel "$jobs"
     cmake --install "$WORK/omp-build-$arch"
-    # An absolute install name, so that delocate finds this library from the
-    # extension that links it.
-    install_name_tool -id "$omp/lib/libomp.dylib" "$omp/lib/libomp.dylib"
+    # Found through the rpath of whatever links it: otswap/openmp/lib for
+    # the module, otswap's directory seen from a package beside it. The
+    # signature is redone after the change.
+    install_name_tool -id @rpath/libomp.dylib "$omp/lib/libomp.dylib"
+    codesign -s - -f "$omp/lib/libomp.dylib"
+    cp "$WORK/$llvm/openmp/LICENSE.TXT" "$omp/LICENSE.TXT"
   done
 fi
 
