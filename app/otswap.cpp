@@ -30,7 +30,8 @@
  *  that needs no data comes before any data is read. The keys are listed
  *  in docs/executable.md.
  *
- *  Uses the public headers only, as an outside program would.
+ *  Uses the public headers, and src/internal.h to name a repeated ID by its
+ *  ASCII line or FITS row.
  *
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */

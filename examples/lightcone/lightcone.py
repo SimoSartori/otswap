@@ -179,16 +179,19 @@ def main():
     # and those of its mean Lagrangian position, in degrees, its Cartesian
     # position, its mean Lagrangian position and its mean displacement, in
     # Mpc/h, its number of valid realizations and the two selection flags,
-    # with a header giving the units and the parameters of the run. A tracer
+    # with a header giving the units and the parameters of the run, and, in
+    # two twin files, the mps(z) profile and the distance table, so that
+    # otswap.io.read_displacement_mean reads the file back whole. A tracer
     # left out, or without a valid realization, has NaN Lagrangian
     # coordinates and displacement. The writer is the C++ library's, so the
-    # file is the C++ example's, byte for byte.
+    # files are the C++ example's, byte for byte.
     # otswap.io.write_displacement_complete writes every realization instead,
-    # losslessly, otswap.io.read_displacement_complete reads it back, and
-    # otswap.io.write_mps_profile writes the mps(z)
+    # losslessly, and otswap.io.read_displacement_complete reads it back
     otswap.io.write_displacement_mean(output / "displacement_lightcone.dat", result)
 
-    print("Written: output/displacement_lightcone.dat")
+    print("Written: output/displacement_lightcone.dat, "
+          "output/displacement_lightcone.mps.dat and "
+          "output/displacement_lightcone.distances.dat")
 
 
 if __name__ == "__main__":

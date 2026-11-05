@@ -212,14 +212,18 @@ int main (int argc, char** argv)
     // and those of its mean Lagrangian position, in degrees, its Cartesian
     // position, its mean Lagrangian position and its mean displacement, in
     // Mpc/h, its number of valid realizations and the two selection flags,
-    // with a header giving the units and the parameters of the run. A
-    // tracer left out, or without a valid realization, has NaN Lagrangian
-    // coordinates and displacement. io::writeDisplacementComplete writes
-    // every realization instead, losslessly, io::readDisplacementComplete
-    // reads it back, and io::writeMpsProfile writes the mps(z)
+    // with a header giving the units and the parameters of the run, and, in
+    // two twin files, the mps(z) profile and the distance table, so that
+    // io::readDisplacementMean reads the file back whole. A tracer left
+    // out, or without a valid realization, has NaN Lagrangian coordinates
+    // and displacement. io::writeDisplacementComplete writes every
+    // realization instead, losslessly, and io::readDisplacementComplete
+    // reads it back
     otswap::io::writeDisplacementMean(output + "/displacement_lightcone.dat", result);
 
-    std::cout << "Written: output/displacement_lightcone.dat" << std::endl;
+    std::cout << "Written: output/displacement_lightcone.dat, "
+                 "output/displacement_lightcone.mps.dat and "
+                 "output/displacement_lightcone.distances.dat" << std::endl;
 
   }
 

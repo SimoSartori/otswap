@@ -955,6 +955,16 @@ int main ()
             "the ASCII file " + ascii + " has no line starting with ### before its first data row; that line "
             "names the columns",
           "ASCII: no ### line before the data is refused, naming the file");
+    write_text(ascii, "x y z\n### a b c\n1 2 3\n");
+    check(message_of([&] { io::columnNames(ascii); }) ==
+            "the ASCII file " + ascii + " has no line starting with ### before its first data row; that line "
+            "names the columns" &&
+          !message_of([&] { io::read(ascii, {"a"}); }).empty() && !message_of([&] { io::read(ascii, {"0"}); }).empty(),
+          "ASCII: a line of text without a number is a data row, as io::read takes it, so the ### line after it "
+          "names nothing");
+    write_text(ascii, "  , \n\t\n### a b c\n1 2 3\n");
+    check(io::columnNames(ascii, "", ',') == Names{"a", "b", "c"} && agrees(ascii, Names{"a", "b", "c"}, ',', '#'),
+          "ASCII: lines of only separators before the ### line are blank, not data");
 
     const std::string parts = temporary("names_parts.dat");
     io::writeParts(parts, {{"", "", sample(), 0, {}, {}},

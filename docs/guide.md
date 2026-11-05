@@ -90,6 +90,12 @@ displacements and no valid realization. Tracers outside the limits of a box
 are flagged in the same way, in `outsideBox` (`outside_box`). Every output
 keeps one row per input object, in input order.
 
+A mean displacement file read back with {cpp:func}`otswap::io::readDisplacementMean`
+({py:func}`otswap.io.read_displacement_mean`) gives a result of one
+realization holding the mean: `nRealizationsMean` (`n_realizations_mean`)
+records how many realizations were averaged, and `validRealizations` how many
+of them were valid, so it may exceed 1.
+
 To carry the catalogue's own IDs into the files, set them on the result
 before writing or correcting it: `Result::ids` (`result.ids = ...`), one
 64-bit integer per object, no value twice. The writers then add an `id`
@@ -157,8 +163,11 @@ Each call reports, as `verbosity` says ({cpp:enum}`otswap::Verbosity`,
   corrected and of the uncorrected tracers.
 
 C++ writes to `Config::log`, `std::clog` by default; Python to `sys.stdout`,
-which a notebook shows. The counts behind every line are in the object
-returned.
+which a notebook shows. Each line is written as soon as its step finishes, so
+a long run shows its progress, and a call that fails keeps the lines of the
+steps it finished. In Python, Ctrl+C stops a reconstruction,
+`measure_mps_profile` or a correction at its next line with
+`KeyboardInterrupt`. The counts behind every line are in the object returned.
 
 ## Errors
 

@@ -7,7 +7,9 @@
 - The header `otswap/Random.h`: `otswap::uniformInt`, `uniformReal` and
   `shuffle`, random draws over `std::mt19937` that give the same values on
   every supported platform and compiler. Their algorithms are fixed: later
-  versions do not change them.
+  versions do not change them. `uniformReal` refuses a bound that is not
+  finite, a lower bound not below the upper one, or an infinite width, and
+  `shuffle` more than 2^32 − 1 elements, each with `otswap::Error`.
 - `io::readDisplacementMean` (Python `io.read_displacement_mean`) reads a mean
   displacement file, of this version or of otswap 0.2, into a `Result` of one
   realization holding the mean, with the counts of valid realizations and
@@ -19,7 +21,8 @@
   realizations. `validRealizations` is then the count of the realizations
   averaged that were valid, always at most nRealizations x
   nRealizationsMean; `rejectMaskCrossings` on such a result sets it to 0 for
-  the objects it rejects and keeps it for the others.
+  the objects it rejects and keeps it for the others. `readDisplacementComplete`
+  reads NRECMEAN back, 1 when the file has none.
 - `io::columnNames` (Python `io.column_names`): the names of the columns of
   a table, those `io::read` finds.
 - The mean displacement file of a lightcone holds the mps(z) profile and the
@@ -37,25 +40,6 @@
 
 ### Changed
 
-- `rejectMaskCrossings` (Python `reject_mask_crossings`) requires finite
-  values only in the valid displacements, which it reads, so it accepts a
-  NaN in a cleared entry, as a mean read from file holds for a tracer
-  without valid realizations.
-- The executable writes the `MPS_` file of `printMps` only when neither
-  displacement file is written, those files holding the profile; in ASCII it
-  reports the twin files of the mean file too.
-- The macOS wheels hold libomp in `otswap/openmp/lib/`, where the module
-  finds it through its rpath, instead of the copy delocate made in
-  `otswap/.dylibs/`.
-- Each line of a report is written as soon as its step finishes, the log
-  flushed after it, no longer all of them when the call ends; the text is
-  unchanged. A call that throws leaves the lines of the steps it finished.
-  Python prints each line to `sys.stdout` while the call runs, and Ctrl+C
-  stops a reconstruction, `measure_mps_profile` or a correction at its next
-  report line with `KeyboardInterrupt`.
-
-- `reconstructBox` and `reconstructLightcone` refuse more than 2^32 − 1
-  tracers.
 - `rejectMaskCrossings` (Python `reject_mask_crossings`), and the filter of
   `reconstructLightcone` with a mask, judge a displacement by the longest run
   of unobserved pixels its arc crosses one after another, no longer by the
@@ -101,12 +85,30 @@
   same limits. The comment of MPSREPR and the descriptions of lagrRA,
   lagrDec and lagrRed, of displX, displY and displZ in the complete file,
   and of nNeighbours, which FITS cut, are now shorter and written whole.
+- Each line of a report is written as soon as its step finishes, the log
+  flushed after it, no longer all of them when the call ends; the text is
+  unchanged. A call that throws leaves the lines of the steps it finished.
+  Python prints each line to `sys.stdout` while the call runs, and Ctrl+C
+  stops a reconstruction, `measure_mps_profile` or a correction at its next
+  report line with `KeyboardInterrupt`.
+- `rejectMaskCrossings` (Python `reject_mask_crossings`) requires finite
+  values only in the valid displacements, which it reads, so it accepts a
+  NaN in a cleared entry, as a mean read from file holds for a tracer
+  without valid realizations.
+- `reconstructBox` and `reconstructLightcone` refuse more than 2^32 − 1
+  tracers.
+- The executable writes the `MPS_` file of `printMps` only when neither
+  displacement file is written, those files holding the profile; in ASCII it
+  reports the twin files of the mean file too.
 - The executable takes `key =`, with no value, as leaving the key out, for
   the keys whose default is none: `id_column`, `random_file` (box), `z_min`,
   `z_max`, `box_min`, `box_max` and `mps`. Every other key still needs a
   value. The parameter files in `examples/executable/` set every key that
   applies to their run, defaults included, and the keys without a default as
   `key =`, instead of leaving them commented out.
+- The macOS wheels hold libomp in `otswap/openmp/lib/`, where the module
+  finds it through its rpath, instead of `otswap/.dylibs/`, so that
+  another package can link the same file (see `openmp_root()`).
 - The README and the citation files say that a version of otswap is
   included in CosmoBolognaLib, and no longer ask to cite CosmoBolognaLib.
 

@@ -29,7 +29,8 @@
  *  different compilers. The functions here are written out over the
  *  engine's 32-bit outputs, so a given engine state gives the same values
  *  on every supported platform and compiler. The reconstructions draw
- *  through them.
+ *  through them; on an axis of zero width a draw takes its two outputs and
+ *  gives the bound.
  *
  *  Their algorithms, described below down to the engine outputs each call
  *  consumes, are fixed: no later version of otswap changes them, so a

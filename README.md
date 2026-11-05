@@ -158,7 +158,9 @@ GPL-2.0-or-later; see `LICENSE`. Vendored code keeps its own terms:
 
 - `extern/fdlibm`: FreeBSD msun, under the Sun Microsystems notice in each file,
   a permissive licence (see its README);
-- `extern/healpix`: HEALPix 3.82, GPL-2.0-or-later, built only with the tests.
+- `extern/healpix`: HEALPix 3.82, GPL-2.0-or-later, built only with the tests;
+- the macOS wheels: LLVM's libomp, under its own licence,
+  `otswap/openmp/LICENSE.TXT`.
 
 The example data in `examples/data` are not covered by this licence: they may
 be redistributed unchanged with the examples and used only to run them (see

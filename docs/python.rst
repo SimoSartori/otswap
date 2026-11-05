@@ -183,10 +183,7 @@ package, the directory ``otswap.openmp_root()`` returns:
 - ``lib/libomp.dylib``, with install name ``@rpath/libomp.dylib``; the
   module ``_otswap`` finds it through its rpath ``@loader_path/openmp/lib``;
 - ``include/omp.h`` and ``include/ompx.h``;
-- ``LICENSE.TXT``, LLVM's licence.
-
-The macOS wheels include LLVM's libomp, with its licence at
-``otswap/openmp/LICENSE.TXT``.
+- ``LICENSE.TXT``, LLVM's licence: the macOS wheels include LLVM's libomp.
 
 The runtime is the LLVM libomp otswap was built with; its version may change
 between minor releases of otswap. On Linux, and in a build from source,

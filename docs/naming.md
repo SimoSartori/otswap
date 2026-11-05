@@ -64,6 +64,7 @@ passed as `config=` or `correction=`; a flat
 | C++ | Python | Notes |
 |---|---|---|
 | `Result` fields, camelCase | `Result` properties, snake_case | read-only views in Python |
+| `Result::nRealizationsMean` | `Result.n_realizations_mean` | read-only in Python; set by `readDisplacementMean` |
 | `Result::ids`, empty without IDs | `Result.ids`, 0..n_objects-1 without IDs | settable in Python, checked on assignment; a new copy on each access |
 | `Result::config` | `Result.config` | a copy; `seed` is the one used |
 | `Result::distances` | `Result.distances` | a copy; None in a box |

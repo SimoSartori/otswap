@@ -147,8 +147,8 @@ def read(
     digits.
 
     NaN and infinities are returned as stored, in both formats. Raises if the
-    file is missing or unreadable, a column is absent (the message lists the
-    names found) or requested twice, a requested index is too large, a row is
+    file is missing or unreadable, a column is absent (in ASCII the message
+    lists the names of the ``###`` line) or requested twice, a requested index is too large, a row is
     too short, a field that must be a number is not one, an integer field is
     not an integer, lies outside the 64-bit range or comes from a FITS column
     of floating type, or a FITS integer column holds a null value. The

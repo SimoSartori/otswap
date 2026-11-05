@@ -117,22 +117,9 @@ namespace {
     return true;
   }
 
-  /// True when the line holds a field strtod reads as a number, as a data
-  /// row does.
-  bool has_number (const std::string& line)
-  {
-    const char* p = line.c_str();
-    char* end = nullptr;
-    while (*p != '\0') {
-      std::strtod(p, &end);
-      if (end != p) return true;
-      ++p;
-    }
-    return false;
-  }
-
   /// The column names of an ASCII file: the fields of the last line
-  /// starting with "###" before the first data row. found is false when
+  /// starting with "###" before the first data row, the first line that is
+  /// not blank, a comment or a names line. found is false when
   /// there is no such line.
   std::vector<std::string> ascii_names (const std::string& file, const char delimiter,
                                         const char comment, bool& found)
@@ -154,7 +141,8 @@ namespace {
         continue;
       }
       if (line.empty() || is_comment(line, delimiter, comment)) continue;
-      if (has_number(line)) break;
+      split_fields(line, 0, delimiter, fields);
+      if (!fields.empty()) break;
     }
     return names;
   }

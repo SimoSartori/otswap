@@ -182,7 +182,7 @@ namespace otswap {
      *  a FITS integer column (TNULL) is an error.
      *
      *  @exception Error if the file is missing or unreadable, a column is
-     *  absent (the message lists the names found), a column is requested
+     *  absent (in ASCII the message lists the names of the ### line), a column is requested
      *  twice, a requested index is too large, a row is too short, a field
      *  that must be a number is not one, or a null integer is met. The
      *  message names the ASCII line, counted from 1 with comments and blank

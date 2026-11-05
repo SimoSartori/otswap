@@ -22,7 +22,7 @@
  *  @file src/Writers.cpp
  *
  *  @brief The writers of a Result, a RealSpaceCatalog and an MpsProfile,
- *  and the reader of the complete displacement file.
+ *  and the readers of the mean and the complete displacement files.
  *
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */
@@ -58,8 +58,8 @@ namespace {
   constexpr int kPrecision = 9;
   constexpr int kLossless = 17;
 
-  /// The EXTNAME of the main table of both displacement writers, and of
-  /// the parts of the complete file.
+  /// The EXTNAMEs of the main table and of the lightcone parts of both
+  /// displacement writers, and the PRODUCT prefix of each file's parts.
   const char* const kMainExtname = "DISPLACEMENTS";
   const char* const kProfileExtname = "MPSPROF";
   const char* const kTableExtname = "DISTANCE";
