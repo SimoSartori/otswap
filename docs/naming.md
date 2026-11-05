@@ -137,7 +137,7 @@ module binds none of these types itself.
   used: it registers the types. The pairs `(min, max)` and
   `((x0, y0, z0), (x1, y1, z1))` are converted in the other module's
   functions too.
-- The layouts of the structs are part of the interface across 0.2.x: a field
+- The layouts of the structs are part of the interface across 0.3.x: a field
   added in a patch release would break a module built against the older
   header.
 - A `Config` or `CorrectionConfig` received from Python holds
