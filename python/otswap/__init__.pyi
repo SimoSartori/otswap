@@ -235,6 +235,8 @@ class Result:
         outside_box: Optional[ArrayLike] = None,
         ids: Optional[ArrayLike] = None,
         config: Optional[Config] = None,
+        periodic: bool = False,
+        box: Optional[Union["BoxLimits", tuple[ArrayLike, ArrayLike]]] = None,
     ) -> "Result":
         """Build a result from its arrays, as read back from a file.
 
@@ -262,6 +264,15 @@ class Result:
             The configuration to record, as ``Result.config``; its
             ``n_realizations`` must equal the arrays'. When omitted, the
             defaults with the arrays' ``n_realizations``.
+        periodic : bool, optional
+            Whether the result is that of a periodic box (``reconstruct_box``
+            with ``periodic``); requires ``box`` and raises with
+            ``tracers_sky``. The displacements are then taken as minimum-image
+            and ``lagrangian`` is wrapped into the box.
+        box : BoxLimits or ((x0, y0, z0), (x1, y1, z1)), optional
+            The limits of the periodic box, each side an integer multiple of
+            the shortest; given only with ``periodic``, and then recorded as
+            ``box`` and ``selection.box_limits``.
 
         Notes
         -----
@@ -269,7 +280,8 @@ class Result:
         ``lagrangian_sky`` are computed as ``recompute_means`` computes them,
         so arrays read back exactly give the reconstruction's values, bit for
         bit. The profile, the mps, the box and the selection counts are not
-        reconstructed: ``mps``, ``mps_profile`` and ``box`` are None.
+        reconstructed: ``mps``, ``mps_profile`` and ``box`` are None, the
+        box being that given with ``periodic``.
         """
 
     @property
@@ -356,6 +368,13 @@ class Result:
     def mps(self) -> Optional[float]:
         """Box: the mean particle separation used, given or computed, in
         coordinate units. None for a lightcone, whose separation is ``mps_profile``."""
+
+    @property
+    def periodic(self) -> bool:
+        """Box: whether the box was periodic, as given to ``reconstruct_box``;
+        False for a lightcone. A periodic result holds its tracers wrapped
+        into ``box``, its displacements in [-L/2, L/2) on each axis, of
+        period L, and ``lagrangian`` wrapped into the box."""
 
     @property
     def box(self) -> Optional["BoxLimits"]:
@@ -505,8 +524,17 @@ class SelectionCounts:
         """The ``box`` given to ``reconstruct_box``; None when none was."""
 
     @property
+    def periodic(self) -> bool:
+        """Whether the box was periodic."""
+
+    @property
     def tracers(self) -> int:
         """Tracers given."""
+
+    @property
+    def tracers_wrapped(self) -> int:
+        """Tracers wrapped into the periodic box, because they lay outside
+        it; 0 unless periodic."""
 
     @property
     def tracers_outside_redshift_cut(self) -> int: ...
@@ -525,6 +553,10 @@ class SelectionCounts:
     @property
     def randoms(self) -> int:
         """Randoms given."""
+
+    @property
+    def randoms_wrapped(self) -> int:
+        """Randoms given wrapped into the periodic box; 0 unless periodic."""
 
     @property
     def randoms_outside_redshift_cut(self) -> int: ...
@@ -800,6 +832,7 @@ def reconstruct_box(
     *,
     mps: Optional[float] = None,
     box: Optional[Union[BoxLimits, tuple[ArrayLike, ArrayLike]]] = None,
+    periodic: bool = False,
     config: Config = Config(),
 ) -> Result:
     """Reconstruct in box geometry, with a constant mean particle separation.
@@ -826,6 +859,24 @@ def reconstruct_box(
         The tracers outside it take no part in the reconstruction and are
         flagged in ``Result.outside_box``, the randoms given outside it are
         dropped, and the neighbour grids span it. ``Result.box`` holds it.
+    periodic : bool, optional
+        Whether the box is periodic, with ``box`` required. Each side must
+        be an integer multiple of the shortest (a cube, or for instance
+        500 x 500 x 1000). The tracers and the given randoms outside the box
+        are wrapped into it, not removed: ``Result.tracers`` holds the
+        wrapped positions, ``outside_box`` is all False, and the numbers
+        wrapped are ``selection.tracers_wrapped`` and
+        ``selection.randoms_wrapped``. Distances are minimum-image;
+        displacements lie in [-L/2, L/2) on each axis, of period L, and
+        ``Result.lagrangian`` is wrapped into the box. The mean particle
+        separation is (V / N)^(1/3) of the box with N all the tracers.
+        With ``periodic``, ``"normal"`` prints in
+        place of the box lines::
+
+            otswap: wrapped <a> of <N> tracers into the periodic box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
+            otswap: wrapped <b> of <M> randoms into the periodic box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
+
+        the second line only when randoms are given.
     config : Config, optional
         ``n_realizations``, ``convergence``, ``seed``, ``cell_size`` and
         ``verbosity``; ``reject_crossings`` and
@@ -851,6 +902,9 @@ def reconstruct_box(
     Error
         If a field of ``config`` is out of range, the message describing the
         quantity and its rule.
+    Error
+        With ``periodic``, if ``box`` is not given or its sides are not
+        integer multiples of the shortest; the message names the sides.
     Error
         If a bound of ``box`` is not finite or a lower bound is not below the
         upper one, or if ``box`` keeps too few tracers or randoms; the
@@ -1297,6 +1351,8 @@ def neighbour_average(
     *,
     sigma: float,
     weight_by_realizations: bool = False,
+    box: Optional[Union[BoxLimits, tuple[ArrayLike, ArrayLike]]] = None,
+    periodic: bool = False,
 ) -> NeighbourAverage:
     """Gaussian average of ``values`` over the neighbours of each object.
 
@@ -1322,6 +1378,15 @@ def neighbour_average(
         non-negative. For coordinates in Mpc/h, 10 Mpc/h is a reasonable
         starting value; the best value depends on the sample, and should be
         checked in each analysis.
+    weight_by_realizations : bool, optional
+        Weight each neighbour by its valid realizations as well.
+    box : BoxLimits or ((x0, y0, z0), (x1, y1, z1)), optional
+        The limits of a periodic box; given only with ``periodic``. Each side
+        must be an integer multiple of the shortest, and every position must
+        lie inside the limits (closed): wrap them first.
+    periodic : bool, optional
+        Find the neighbours across the faces of ``box``, with minimum-image
+        distances.
 
     Returns
     -------
@@ -1381,7 +1446,7 @@ def shift_radially(positions: ArrayLike, shift: ArrayLike) -> NDArray[np.float64
 
 def shift_along_axis(positions: ArrayLike, shift: ArrayLike, axis: int) -> NDArray[np.float64]:
     """Move each position, shape (N, 3), by its shift, shape (N,), along the
-    Cartesian axis 0, 1 or 2, without periodic wrapping. A NaN shift gives NaN
+    Cartesian axis 0, 1 or 2, without wrapping, whether or not a box is periodic. A NaN shift gives NaN
     along the axis; infinite ones raise."""
 
 
@@ -1469,11 +1534,13 @@ def real_space_box(
     """Move a box catalogue, the tracers of ``result``, from redshift space to
     real space, with the line of sight along ``axis``: the chain of
     ``real_space_lightcone`` with the projection on the axis, a single factor
-    at ``redshift`` with the constant ``bias``, and the shift along the axis,
-    without periodic wrapping.
+    at ``redshift`` with the constant ``bias``, and the shift along the axis.
 
-    The box is not periodic: nothing flows through its faces, so modes on the
-    scale of the box itself cannot be reconstructed. Tracers outside the
+    Unless ``result.periodic``, the box is not periodic: nothing flows through
+    its faces, so modes on the scale of the box itself cannot be
+    reconstructed, and positions are not wrapped. For a periodic result the
+    neighbours are found across the faces with minimum-image distances, and
+    the corrected coordinate along the axis is wrapped into the box. Tracers outside the
     reconstruction's box limits are not corrected, take no part in any
     average, and have status 3. The catalogue carries the result's ``ids``.
 

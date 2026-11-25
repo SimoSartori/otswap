@@ -183,6 +183,8 @@ namespace {
            (!a.redshiftCut || (a.redshiftCut->min == b.redshiftCut->min &&
                                a.redshiftCut->max == b.redshiftCut->max)) &&
            a.maskApplied == b.maskApplied && same_box(a.boxLimits, b.boxLimits) &&
+           a.periodic == b.periodic && a.tracersWrapped == b.tracersWrapped &&
+           a.randomsWrapped == b.randomsWrapped &&
            a.tracers == b.tracers && a.tracersOutsideRedshiftCut == b.tracersOutsideRedshiftCut &&
            a.tracersOutsideMask == b.tracersOutsideMask && a.tracersOutsideBoth == b.tracersOutsideBoth &&
            a.tracersOutsideBox == b.tracersOutsideBox && a.randoms == b.randoms &&
@@ -225,6 +227,7 @@ namespace {
     if (!same_bits(read.lagrangianSky, expected.lagrangianSky)) return "lagrangianSky";
     if (!same_bits({read.mps}, {expected.mps})) return "mps";
     if (!same_box(read.box, expected.box)) return "box";
+    if (read.periodic != expected.periodic) return "periodic";
     if (!same_bits(p.redshift, q.redshift) || !same_bits(p.mps, q.mps) || p.count != q.count ||
         !same_bits({p.redshiftMin, p.redshiftMax, p.representative},
                    {q.redshiftMin, q.redshiftMax, q.representative})) return "mpsProfile";
@@ -411,6 +414,13 @@ int main ()
   BoxLimits half = *box.box;
   half.upper[0] = 0.5 * (half.lower[0] + half.upper[0]);
   const Result limited = reconstructBox(toCartesian(sky, table), {}, config, half);
+  BoxLimits cubeBox = *box.box;
+  {
+    double side = 0.;
+    for (int k = 0; k < 3; ++k) side = std::max(side, cubeBox.upper[k] - cubeBox.lower[k]);
+    for (int k = 0; k < 3; ++k) cubeBox.upper[k] = cubeBox.lower[k] + side;
+  }
+  const Result periodicBox = reconstructBox(toCartesian(sky, table), {}, config, cubeBox, true);
   CorrectionConfig quiet;
   quiet.verbosity = Verbosity::Silent;
   const BiasTable bias {{0.3, 0.6}, {1.2, 1.6}};
@@ -815,7 +825,7 @@ int main ()
     const std::pair<const char*, const Result*> cases[] = {
       {"lightcone with mask, cut and filter", &lc}, {"lightcone with IDs", &lcIds},
       {"lightcone with the sky area", &plain}, {"box", &box}, {"box with limits", &limited},
-      {"box with limits and IDs", &boxIds}};
+      {"box with limits and IDs", &boxIds}, {"periodic box", &periodicBox}};
     for (const auto& c : cases)
       for (const std::string ext : {".dat", ".fits"}) {
         const std::string file = temporary("read" + ext);
@@ -1091,6 +1101,36 @@ int main ()
     check(throws_naming([&] { io::readDisplacementComplete(boxFile); },
                         "BOXLIM = 1 records the limits as the box, and the box keywords are missing"),
           "BOXLIM without the box");
+    {
+      Result narrow = periodicBox;
+      narrow.selection.tracersWrapped = 7;
+      narrow.selection.randomsWrapped = 3;
+      io::writeDisplacementComplete(boxFile, narrow);
+      const std::string periodicText = text_of(boxFile);
+      check(periodicText.find("## PERIODIC = 1 /") != std::string::npos &&
+            periodicText.find("## NTRWRAP = 7 /") != std::string::npos &&
+            periodicText.find("## NRNWRAP = 3 /") != std::string::npos,
+            "a periodic result writes PERIODIC, NTRWRAP and NRNWRAP");
+      const Result back = io::readDisplacementComplete(boxFile);
+      check(back.periodic && back.selection.periodic && back.selection.tracersWrapped == 7 &&
+            back.selection.randomsWrapped == 3, "and reads them back");
+      io::writeDisplacementComplete(boxFile, box);
+      const std::string plain = text_of(boxFile);
+      check(plain.find("PERIODIC") == std::string::npos && plain.find("NTRWRAP") == std::string::npos,
+            "a non-periodic file holds none of them");
+      write_text(boxFile, replaced(periodicText, "## BOXLIM = 1 / the box is the limits given\n", ""));
+      check(throws_naming([&] { io::readDisplacementComplete(boxFile); }, "PERIODIC = 1 needs the limits"),
+            "PERIODIC without BOXLIM is refused");
+      Result bad = periodicBox;
+      bad.selection.periodic = false;
+      check_throws([&] { io::writeDisplacementComplete(boxFile, bad); }, "periodic and selection.periodic differing is refused");
+      bad = periodicBox;
+      bad.selection.boxLimits.reset();
+      check_throws([&] { io::writeDisplacementMean(boxFile, bad); }, "a periodic result without selection.boxLimits is refused");
+      bad = periodicBox;
+      bad.outsideBox[0] = 1;
+      check_throws([&] { io::writeDisplacementMean(boxFile, bad); }, "a periodic result with a tracer flagged outside is refused");
+    }
     for (const char* part : {"MPSPART", "DISTPART"}) {
       write_text(boxFile, replaced(boxText, "## NREC", std::string("## ") + part + " = 1 / declared by hand\n## NREC"));
       check(throws_naming([&] { io::readDisplacementComplete(boxFile); },

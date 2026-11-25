@@ -156,6 +156,7 @@ namespace {
     }
     const otswap::SelectionCounts& s = r.selection;
     if (s.boxLimits) k.push_back({"BOXLIM", "1", "the box is the limits given"});
+    if (r.periodic) k.push_back({"PERIODIC", "1", "the box is periodic"});
     if (s.redshiftCut && std::isfinite(s.redshiftCut->min))
       k.push_back({"ZCUTMIN", number(s.redshiftCut->min), "lower bound of the redshift cut"});
     if (s.redshiftCut && std::isfinite(s.redshiftCut->max))
@@ -177,6 +178,8 @@ namespace {
       {"NRNMASK", {s.randomsOutsideMask, "of them, on an unobserved pixel"}},
       {"NRNBOTH", {s.randomsOutsideBoth, "of them, outside both"}},
       {"NRNBOX",  {s.randomsOutsideBox, "of them, outside the box limits"}},
+      {"NTRWRAP", {s.tracersWrapped, "tracers wrapped into the periodic box"}},
+      {"NRNWRAP", {s.randomsWrapped, "randoms wrapped into the periodic box"}},
       {"NDISPL",  {s.displacements, "valid displacements before the filters"}},
       {"NDISPCR", {s.displacementsCrossingMask, "of them, rejected as crossing the mask"}}};
     for (const auto& c : counts)
@@ -204,6 +207,19 @@ namespace {
                                   r.selection.boxLimits->upper != r.box->upper))
       throw otswap::Error("the result holds selection.boxLimits different from its box; they must be "
                           "equal");
+    if (r.selection.periodic != r.periodic)
+      throw otswap::Error("the result holds periodic and selection.periodic different; they must be equal");
+    if (r.periodic) {
+      if (r.geometry != otswap::Geometry::Box)
+        throw otswap::Error("the result is periodic and its geometry is not a box; only a box is periodic");
+      if (!r.selection.boxLimits)
+        throw otswap::Error("the result is periodic and holds no selection.boxLimits; a periodic box has its "
+                            "limits");
+      for (const std::uint8_t flag : r.outsideBox)
+        if (flag != 0)
+          throw otswap::Error("the result is periodic and flags a tracer in outsideBox; a periodic box drops "
+                              "no tracer");
+    }
   }
 
   /// A 3-column group over a flat [object][3] array; angles converted to
@@ -570,6 +586,13 @@ namespace {
       if (!r.box) h.fail("BOXLIM = 1 records the limits as the box, and the box keywords are missing");
       s.boxLimits = r.box;
     }
+    if (h.one("PERIODIC")) {
+      if (!s.boxLimits) h.fail("PERIODIC = 1 needs the limits of the box, and BOXLIM = 1 and the six box keywords "
+                               "are missing");
+      if (r.geometry != Geometry::Box) h.fail("PERIODIC = 1 and the geometry is not a box");
+      s.periodic = true;
+      r.periodic = true;
+    }
     if (h.find("ZCUTMIN") || h.find("ZCUTMAX"))
       s.redshiftCut = RedshiftCut{h.real("ZCUTMIN", -std::numeric_limits<double>::infinity()),
                                   h.real("ZCUTMAX", std::numeric_limits<double>::infinity())};
@@ -580,7 +603,8 @@ namespace {
       {"NTRAC", &s.tracers}, {"NTRCUT", &s.tracersOutsideRedshiftCut}, {"NTRMASK", &s.tracersOutsideMask},
       {"NTRBOTH", &s.tracersOutsideBoth}, {"NTRBOX", &s.tracersOutsideBox}, {"NRAND", &s.randoms},
       {"NRNCUT", &s.randomsOutsideRedshiftCut}, {"NRNMASK", &s.randomsOutsideMask},
-      {"NRNBOTH", &s.randomsOutsideBoth}, {"NRNBOX", &s.randomsOutsideBox}, {"NDISPL", &s.displacements},
+      {"NRNBOTH", &s.randomsOutsideBoth}, {"NRNBOX", &s.randomsOutsideBox}, {"NTRWRAP", &s.tracersWrapped},
+      {"NRNWRAP", &s.randomsWrapped}, {"NDISPL", &s.displacements},
       {"NDISPCR", &s.displacementsCrossingMask}};
     for (const auto& c : counts) *c.second = (std::size_t)h.whole(c.first, kSize, 0);
   }

@@ -322,6 +322,52 @@ int main ()
           "a wrap that rounds past a bound lands on it");
   }
 
+  group("neighbourAverage and realSpaceBox in a periodic box: across the faces, minimum-image, wrapped");
+  {
+    // Two valid tracers either side of the x faces of a cube of side 80: 1 from each face.
+    const std::vector<double> pos = {1., 40., 40.,   79., 40., 40.,   40., 10., 70.};
+    const std::vector<double> values = {1., 3., 0.};
+    const std::vector<unsigned> valid = {1, 1, 0};
+    const NeighbourAverage open = neighbourAverage(pos, values, valid, 2., false);
+    const NeighbourAverage wrapped = neighbourAverage(pos, values, valid, 2., false, cube, true);
+    check(open.nNeighbours[0] == 1 && wrapped.nNeighbours[0] == 2,
+          "a tracer sees the one across the face only when periodic");
+    const double w = std::exp(-0.5);   // the other tracer, at the minimum-image distance 2 = sigma
+    check(std::fabs(wrapped.values[0] - (1. + 3. * w) / (1. + w)) < 1.e-12 &&
+          std::fabs(wrapped.values[1] - (3. + w) / (1. + w)) < 1.e-12,
+          "and each averages itself with the other at the minimum-image distance");
+    check(std::isnan(wrapped.values[2]) && wrapped.nNeighbours[2] == 0, "the middle one has no neighbour");
+    const NeighbourAverage same = neighbourAverage(pos, values, valid, 2., false, cube, false);
+    check(same.values[0] == open.values[0] && same.nNeighbours[0] == open.nNeighbours[0],
+          "periodic false is the first overload");
+    std::vector<double> out = pos;
+    out[0] = 90.;
+    check_throws([&] { neighbourAverage(out, values, valid, 2., false, cube, true); },
+                 "a position outside the periodic box is refused");
+    BoxLimits odd = cube;
+    odd.upper[2] = 120.;
+    check_throws([&] { neighbourAverage(pos, values, valid, 2., false, odd, true); },
+                 "a box that is not an integer multiple is refused");
+
+    Config c;
+    c.verbosity = Verbosity::Silent;
+    c.nRealizations = 2;
+    c.seed = 9;
+    const Result r = reconstructBox(tracers, {}, c, cube, true);
+    const DistanceTable table(0.3, 0.7, -1., 0., 0., 2., 21);
+    CorrectionConfig quiet;
+    quiet.verbosity = Verbosity::Silent;
+    const RealSpaceCatalog moved = realSpaceBox(r, 0, 1., table, 1.5, 10., quiet);
+    check(inside(moved.cartesian, cube), "every corrected coordinate lies inside the periodic box");
+    std::size_t corrected = 0;
+    for (const CorrectionStatus s : moved.status) corrected += s == CorrectionStatus::Corrected;
+    check(corrected == nObjects, "every tracer is corrected");
+    Result edited = r;
+    edited.tracers[0] = -5.;
+    check_throws([&] { realSpaceBox(edited, 0, 1., table, 1.5, 10., quiet); },
+                 "a periodic result whose tracer lies outside its box is refused");
+  }
+
   group("a seed pins a periodic result down at one and four threads, to the recorded bits");
   {
     Config c;

@@ -114,6 +114,7 @@ namespace {
     {"box_min",                       Applies::Always,        Applies::Never},
     {"box_max",                       Applies::Always,        Applies::Never},
     {"mps",                           Applies::Always,        Applies::Never},
+    {"periodic",                      Applies::Always,        Applies::Never},
     {"perform_recons",                Applies::Always,        Applies::Always},
     {"rsd_smoothing_scale",           Applies::PerformRecons, Applies::PerformRecons},
     {"rsd_weight_by_realizations",    Applies::PerformRecons, Applies::PerformRecons},
@@ -319,6 +320,7 @@ namespace {
     unsigned bins = 0;
     std::optional<otswap::BoxLimits> limits;
     std::optional<double> mps;
+    bool periodic = false;
 
     double sigma = 0.;
     double redshift = 0., bias = 0.;
@@ -426,6 +428,9 @@ namespace {
         run.mps = f.get<double>("mps");
         p.require("mps", *run.mps > 0., "positive");
       }
+      run.periodic = f.get<bool>("periodic", run.periodic);
+      if (run.periodic && !run.limits)
+        p.fail("periodic", "a periodic box needs its limits; give box_min and box_max");
     }
 
     if (recons) {
@@ -560,8 +565,8 @@ namespace {
     otswap::Result result =
       run.switches.lightcone
         ? otswap::reconstructLightcone(tracers, randoms, *mask, run.bins, *distances, run.config, run.cut)
-        : run.mps ? otswap::reconstructBox(tracers, randoms, *run.mps, run.config, run.limits)
-                  : otswap::reconstructBox(tracers, randoms, run.config, run.limits);
+        : run.mps ? otswap::reconstructBox(tracers, randoms, *run.mps, run.config, run.limits, run.periodic)
+                  : otswap::reconstructBox(tracers, randoms, run.config, run.limits, run.periodic);
     if (run.idColumn) result.ids = std::move(ids);
 
     const bool report = run.config.verbosity != otswap::Verbosity::Silent;

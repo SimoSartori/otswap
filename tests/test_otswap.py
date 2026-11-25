@@ -993,6 +993,74 @@ def test_reconstruct_box_limits():
     assert g.selection.randoms == 3000 and g.selection.randoms_outside_box == int((~inside).sum())
 
 
+def test_reconstruct_box_periodic(tmp_path, table, capsys):
+    tracers = box_catalogue() + 20.0               # in [20, 100): some lie outside the box
+    cube = ((0.0, 0.0, 0.0), (80.0, 80.0, 80.0))
+    config = otswap.Config(n_realizations=2, seed=3, verbosity="silent")
+    r = otswap.reconstruct_box(tracers, box=cube, periodic=True, config=config)
+    assert r.periodic and not otswap.reconstruct_box(tracers, config=config).periodic
+    lo, hi = np.array(cube[0]), np.array(cube[1])
+    assert (r.tracers >= lo).all() and (r.tracers <= hi).all(), "tracers are wrapped into the box"
+    assert not r.outside_box.any() and r.valid.all()
+    s = r.selection
+    assert s.periodic and s.tracers == 512 and s.randoms_wrapped == 0
+    assert s.tracers_wrapped == int((~np.all((tracers >= lo) & (tracers <= hi), axis=1)).sum()) > 0
+    assert (np.abs(r.displacement) <= 40.0).all(), "minimum-image displacements"
+    assert (r.lagrangian >= lo).all() and (r.lagrangian <= hi).all()
+    assert r.mps == pytest.approx((80.0 ** 3 / 512) ** (1 / 3), rel=1e-13)
+    assert repr(s).startswith(f"otswap: wrapped {s.tracers_wrapped} of 512 tracers into the periodic box")
+
+    noisy = otswap.Config(n_realizations=1, seed=3)
+    otswap.reconstruct_box(tracers, box=cube, periodic=True, config=noisy)
+    assert "wrapped" in capsys.readouterr().out
+
+    with pytest.raises(otswap.Error, match="needs its limits"):
+        otswap.reconstruct_box(tracers, periodic=True, config=config)
+    with pytest.raises(otswap.Error, match="integer multiple"):
+        otswap.reconstruct_box(tracers, box=((0, 0, 0), (80, 80, 120)), periodic=True, config=config)
+
+    for name in ("p.dat", "p.fits"):
+        path = tmp_path / name
+        otswap.io.write_displacement_complete(path, r)
+        back = otswap.io.read_displacement_complete(path, angle_unit="deg")
+        assert back.periodic and back.selection.periodic
+        assert back.selection.tracers_wrapped == s.tracers_wrapped
+        assert same_values(back.displacement, r.displacement) and same_values(back.lagrangian, r.lagrangian)
+    assert b"PERIODIC" in (tmp_path / "p.dat").read_bytes()
+    plain = otswap.reconstruct_box(tracers, config=config)
+    otswap.io.write_displacement_complete(tmp_path / "plain.dat", plain)
+    assert b"PERIODIC" not in (tmp_path / "plain.dat").read_bytes()
+
+    rebuilt = otswap.Result.from_arrays(r.displacement, r.valid, r.tracers, periodic=True, box=cube,
+                                        config=config)
+    assert rebuilt.periodic and same_values(rebuilt.lagrangian, r.lagrangian)
+    assert same_values(rebuilt.mean_displacement, r.mean_displacement)
+    with pytest.raises(otswap.Error, match="needs the limits"):
+        otswap.Result.from_arrays(r.displacement, r.valid, r.tracers, periodic=True)
+    with pytest.raises(otswap.Error, match="periodic = True"):
+        otswap.Result.from_arrays(r.displacement, r.valid, r.tracers, box=cube)
+
+    moved = otswap.real_space_box(r, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=10.0,
+                                  correction=otswap.CorrectionConfig(verbosity="silent"))
+    assert (moved.cartesian >= lo).all() and (moved.cartesian <= hi).all()
+
+
+def test_neighbour_average_periodic():
+    pos = np.array([[1.0, 40.0, 40.0], [79.0, 40.0, 40.0], [40.0, 10.0, 70.0]])
+    values = np.array([1.0, 3.0, 0.0])
+    valid = np.array([1, 1, 0])
+    cube = ((0, 0, 0), (80, 80, 80))
+    plain = otswap.neighbour_average(pos, values, valid, sigma=2.0)
+    wrapped = otswap.neighbour_average(pos, values, valid, sigma=2.0, box=cube, periodic=True)
+    assert plain.n_neighbours[0] == 1 and wrapped.n_neighbours[0] == 2
+    w = math.exp(-0.5)
+    assert wrapped.values[0] == pytest.approx((1 + 3 * w) / (1 + w), rel=1e-12)
+    with pytest.raises(otswap.Error, match="needs the limits"):
+        otswap.neighbour_average(pos, values, valid, sigma=2.0, periodic=True)
+    with pytest.raises(otswap.Error, match="periodic = True"):
+        otswap.neighbour_average(pos, values, valid, sigma=2.0, box=cube)
+
+
 def test_reconstruct_box_without_limits_records_the_bounding_box():
     tracers = box_catalogue()
     for kwargs in (dict(), dict(mps=10.0)):

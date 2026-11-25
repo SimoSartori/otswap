@@ -151,6 +151,7 @@ library's message.
 | `box_min` | 3 doubles | none | B | the lower x, y, z of the box, in coordinate units; with `box_max` or not at all |
 | `box_max` | 3 doubles | none | B | the upper x, y, z, each above `box_min`'s |
 | `mps` | double | none, measured | B | the mean particle separation, in coordinate units, positive |
+| `periodic` | bool | false | B | the box is periodic: tracers and randoms outside it are wrapped into it, distances are minimum-image; requires `box_min` and `box_max`, each side an integer multiple of the shortest |
 
 Without `box_min` and `box_max` the box is the bounding box of the tracers and
 the randoms of `random_file`, or of the tracers alone without it. The

@@ -241,13 +241,16 @@ namespace otswap {
 
     /// Cell side of the grid neighbourAverage searches, for these positions
     /// (3*N, finite, N > 0): 4 (V / N)^(1/3), V the volume of their
-    /// bounding box. A pure function of the positions. It is 0 when the positions span no
+    /// bounding box, or of the periodic box when one is given. A pure
+    /// function of the positions. It is 0 when the positions span no
     /// volume, and the grid then refuses it.
-    double neighbour_cell (const std::vector<double>& positions);
+    double neighbour_cell (const std::vector<double>& positions, const BoxLimits* periodicBox = nullptr);
 
     /// neighbourAverage with the grid's cell side given; the public
     /// overloads call it with neighbour_cell(positions). The grid spans the
-    /// bounding box of every position and holds the valid objects only.
+    /// bounding box of every position and holds the valid objects only; with
+    /// periodicBox, the grid is periodic on those limits and the distances
+    /// are minimum-image.
     std::vector<double> neighbour_average (const std::vector<double>& positions,
                                            const std::vector<double>& values,
                                            const std::vector<unsigned>& validRealizations,
@@ -255,7 +258,8 @@ namespace otswap {
                                            bool weightByRealizations,
                                            double cellSize,
                                            std::vector<unsigned>& nNeighbours,
-                                           std::vector<unsigned>& nRealizations);
+                                           std::vector<unsigned>& nRealizations,
+                                           const BoxLimits* periodicBox = nullptr);
 
     /// The selections of a reconstruction, evaluated on every object of an
     /// array: whether it lies outside the closed range of a redshift cut,
