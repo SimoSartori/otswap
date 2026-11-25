@@ -139,7 +139,7 @@ filter, the redshift-space correction and the table readers and writers of
 - **`nRealizations`** (`n_realizations`), default 30: more realizations
   bring the mean Lagrangian position closer to the centroid of the tracer's
   Laguerre cell, and need N more randoms each.
-- **`cellSize`** (`cell_size`), default 4 mps: affects the speed only, never
+- **`cellSize`** (`cell_size`), default 3 mps: affects the speed only, never
   the result.
 - **σ of the redshift-space correction:** for coordinates in Mpc/h, 10 Mpc/h
   is a reasonable starting

@@ -805,8 +805,8 @@ def test_reconstruct_box_errors(args, kwargs):
 def test_config_defaults_repr_and_equality():
     c = otswap.Config()
     assert (c.n_realizations, c.convergence, c.seed, c.cell_size, c.reject_crossings,
-            c.max_unobserved_pixels_crossed, c.verbosity) == (30, 1e-3, 0, 4.0, True, 0, "normal")
-    assert repr(c) == ("Config(n_realizations=30, convergence=0.001, seed=0, cell_size=4.0, "
+            c.max_unobserved_pixels_crossed, c.verbosity) == (30, 1e-3, 0, 3.0, True, 0, "normal")
+    assert repr(c) == ("Config(n_realizations=30, convergence=0.001, seed=0, cell_size=3.0, "
                        "reject_crossings=True, max_unobserved_pixels_crossed=0, verbosity='normal')")
     other = otswap.Config(n_realizations=3, convergence=0.25, seed=7, cell_size=2.5, reject_crossings=False,
                           max_unobserved_pixels_crossed=4, verbosity="detailed")
@@ -2689,7 +2689,7 @@ def test_write_displacement_complete_parts(tmp_path, table, lightcone):
     otswap.io.write_displacement_complete(path, r)
     text = path.read_text()
     assert "## MPSPART = 1 /" in text and "## DISTPART = 1 /" in text
-    assert "## CELLSIZE = 4 /" in text and "## VERBOSE = silent /" in text and "## NTRAC = " in text
+    assert "## CELLSIZE = 3 /" in text and "## VERBOSE = silent /" in text and "## NTRAC = " in text
     mps, distances = tmp_path / "run.mps.dat", tmp_path / "run.distances.dat"
     assert mps.read_text().startswith("## PRODUCT = complete displacements mps profile /")
     assert distances.read_text().startswith("## PRODUCT = complete displacements distance table /")

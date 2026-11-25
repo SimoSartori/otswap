@@ -675,7 +675,7 @@ int main ()
           next = at + 1;
         }
         check(ordered, label + "the keywords in the order of the format");
-        check(value_of(k, "CELLSIZE") == "4" && value_of(k, "REJCROSS") == "1" &&
+        check(value_of(k, "CELLSIZE") == "3" && value_of(k, "REJCROSS") == "1" &&
               value_of(k, "CFMAXPIX") == "0" && value_of(k, "VERBOSE") == "silent" &&
               value_of(k, "NREC") == "3" && value_of(k, "SEED") == "4321",
               label + "the configuration of the lightcone");
@@ -899,6 +899,7 @@ int main ()
       s.maxUnobservedPixelsCrossed = r.selection.maxUnobservedPixelsCrossed;
       r.selection = s;
       r.config.verbosity = Config().verbosity;
+      r.config.cellSize = Config().cellSize;
       return r;
     };
     const Result boxExpected = as_v010(box010);

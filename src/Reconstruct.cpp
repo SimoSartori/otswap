@@ -226,8 +226,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
                                               const unsigned seed,
                                               const BoxLimits* box,
                                               std::vector<std::vector<double>>* sweepCosts,
-                                              const bool periodic,
-                                              const bool means)
+                                              const bool periodic)
 {
   const std::size_t nObjects = tracers.size() / 3;
 
@@ -472,7 +471,6 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
     result.box = *box;
     result.periodic = true;
   }
-  if (means) summarize(result);
 
   return result;
 }
@@ -695,12 +693,12 @@ namespace {
     const std::vector<double> perObject(nKept, mps);
 
     Result result = internal::reconstruct(t, r, perObject, mps, config, seed,
-                                          limits ? &*limits : nullptr, nullptr, periodic, !dropTracers);
+                                          limits ? &*limits : nullptr, nullptr, periodic);
     if (dropTracers) {
       result = internal::expand(result, tracerSelection, nObjects);
       result.tracers = tracers;
-      internal::summarize(result);
     }
+    internal::summarize(result);
     result.mps = mps;
     result.box = span;
     result.selection = counts;

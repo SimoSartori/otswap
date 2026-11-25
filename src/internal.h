@@ -159,9 +159,9 @@ namespace otswap {
     ///   tracers and randoms lie inside it, the grids span it exactly and
     ///   wrap, the costs and displacements are minimum images, and the
     ///   result carries box, periodic and the wrapped lagrangian
-    /// @param means whether to set validRealizations, meanDisplacement and
-    ///   lagrangian; false when the caller expands the result and calls
-    ///   summarize itself
+    ///
+    /// validRealizations, meanDisplacement and lagrangian are left unset:
+    /// the caller calls summarize once its result is final.
     ///
     /// The grids span the union of the tracers' (or the box's) and the
     /// given randoms' extents, so a random may lie outside the tracers'
@@ -174,8 +174,7 @@ namespace otswap {
                         unsigned seed,
                         const BoxLimits* box = nullptr,
                         std::vector<std::vector<double>>* sweepCosts = nullptr,
-                        bool periodic = false,
-                        bool means = true);
+                        bool periodic = false);
 
     /// Set the fields that follow from valid: validRealizations and
     /// meanDisplacement (the count of valid realizations per object, and

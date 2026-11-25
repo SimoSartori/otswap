@@ -102,7 +102,7 @@ class Config:
         n_realizations: int = 30,
         convergence: float = 1e-3,
         seed: int = 0,
-        cell_size: float = 4.0,
+        cell_size: float = 3.0,
         reject_crossings: bool = True,
         max_unobserved_pixels_crossed: int = 0,
         verbosity: Verbosity = "normal",

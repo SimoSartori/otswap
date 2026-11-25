@@ -144,7 +144,7 @@ library's message.
 | `Nrec` | unsigned | 30 | B, L | the number of realizations, at least 1 |
 | `threshold` | double | 1e-3 | B, L | the convergence threshold of the swap loop, strictly between 0 and 1 |
 | `seed` | unsigned | 0 | B, L | the seed of the random streams; 0 draws one, written in the displacement files |
-| `mesh_cellsize` | double | 4 | B, L | the grid cell size, in mean particle separations, positive; it changes the speed only |
+| `mesh_cellsize` | double | 3 | B, L | the grid cell size, in mean particle separations, positive; it changes the speed only |
 | `bins` | unsigned | required | L | the redshift bins of the mean particle separation profile, at least 1 |
 | `reject_mask_crossings` | bool | true | L | reject a displacement whose path crosses unobserved pixels |
 | `max_unobserved_pixels_crossed` | unsigned | 0 | L with `reject_mask_crossings` | the unobserved pixels in a row a path may cross; 0 rejects at the first |

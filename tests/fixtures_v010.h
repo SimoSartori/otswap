@@ -108,6 +108,7 @@ namespace fixtures_v010 {
     otswap::Config c;
     c.nRealizations = kRealizations;
     c.seed = kSeed;
+    c.cellSize = 4.;
     c.verbosity = otswap::Verbosity::Silent;
     return c;
   }
