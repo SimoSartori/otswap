@@ -270,9 +270,11 @@ class Result:
             ``tracers_sky``. The displacements are then taken as minimum-image
             and ``lagrangian`` is wrapped into the box.
         box : BoxLimits or ((x0, y0, z0), (x1, y1, z1)), optional
-            The limits of the periodic box, each side an integer multiple of
-            the shortest; given only with ``periodic``, and then recorded as
-            ``box`` and ``selection.box_limits``.
+            The limits of the box, recorded as ``box`` and
+            ``selection.box_limits``, as ``reconstruct_box`` does when given
+            ``box``. Required with ``periodic``, each side then an integer
+            multiple of the shortest. For a box result only: raises with
+            ``tracers_sky``.
 
         Notes
         -----
@@ -281,7 +283,7 @@ class Result:
         so arrays read back exactly give the reconstruction's values, bit for
         bit. The profile, the mps, the box and the selection counts are not
         reconstructed: ``mps``, ``mps_profile`` and ``box`` are None, the
-        box being that given with ``periodic``.
+        box being the ``box`` given, if any.
         """
 
     @property

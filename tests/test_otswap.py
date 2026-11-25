@@ -1037,8 +1037,9 @@ def test_reconstruct_box_periodic(tmp_path, table, capsys):
     assert same_values(rebuilt.mean_displacement, r.mean_displacement)
     with pytest.raises(otswap.Error, match="needs the limits"):
         otswap.Result.from_arrays(r.displacement, r.valid, r.tracers, periodic=True)
-    with pytest.raises(otswap.Error, match="periodic = True"):
-        otswap.Result.from_arrays(r.displacement, r.valid, r.tracers, box=cube)
+    plain = otswap.Result.from_arrays(r.displacement, r.valid, r.tracers, box=cube)
+    assert not plain.periodic and plain.box == otswap.BoxLimits(*cube)
+    assert plain.selection.box_limits == plain.box
 
     moved = otswap.real_space_box(r, axis=2, redshift=0.5, distances=table, bias=1.5, sigma=10.0,
                                   correction=otswap.CorrectionConfig(verbosity="silent"))

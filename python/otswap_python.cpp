@@ -1242,22 +1242,21 @@ NB_MODULE(_otswap, m)
           r.outsideBox = outsideBox.is_none()
             ? std::vector<std::uint8_t>(n, 0) : flags(outsideBox, "outside_box", {n});
           r.ids = ids_value(ids, n);
-          if (periodic) {
+          if (periodic || !boxArg.is_none()) {
             if (!tracersSky.is_none())
-              throw otswap::Error("periodic describes a box result, and tracers_sky a lightcone one; "
-                                  "give periodic without tracers_sky");
+              throw otswap::Error(std::string(periodic ? "periodic" : "box") +
+                                  " describes a box result, and tracers_sky a lightcone one; "
+                                  "give it without tracers_sky");
             const std::optional<otswap::BoxLimits> limits = to_box(boxArg);
             if (!limits)
               throw otswap::Error("a periodic result needs the limits of its box; give box");
             otswap::internal::check_box(*limits);
-            otswap::internal::check_periodic_box(*limits);
+            if (periodic) otswap::internal::check_periodic_box(*limits);
             r.box = limits;
             r.selection.boxLimits = limits;
-            r.selection.periodic = true;
-            r.periodic = true;
+            r.selection.periodic = periodic;
+            r.periodic = periodic;
           }
-          else if (!boxArg.is_none())
-            throw otswap::Error("box gives the limits of a periodic box; give it with periodic = True");
           if (config.is_none()) r.config.nRealizations = (unsigned)nRec;
           else {
             r.config = instance<otswap::Config>(config, "config", "Config");
