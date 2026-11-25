@@ -30,6 +30,7 @@
 #ifndef OTSWAP_INTERNAL_H
 #define OTSWAP_INTERNAL_H
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -134,7 +135,7 @@ namespace otswap {
                                     const std::vector<double>& Y,
                                     const std::vector<double>& Z,
                                     double cellsize,
-                                    const std::vector<std::vector<double>>& limits,
+                                    const std::array<std::array<double,2>,3>& limits,
                                     const char* file = __builtin_FILE(),
                                     const char* function = __builtin_FUNCTION(),
                                     int line = __builtin_LINE());

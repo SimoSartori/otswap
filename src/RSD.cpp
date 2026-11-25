@@ -365,14 +365,14 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
     return values;
   }
 
-  std::vector<std::vector<double>> limits(3, std::vector<double>(2));
+  std::array<std::array<double,2>,3> limits;
   for (int k = 0; k < 3; ++k) {
     double lo = positions[(std::size_t)k], hi = lo;
     for (std::size_t i = 1; i < n; ++i) {
       lo = std::min(lo, positions[3*i+k]);
       hi = std::max(hi, positions[3*i+k]);
     }
-    limits[(std::size_t)k] = {lo, hi};
+    limits[(std::size_t)k] = {{lo, hi}};
   }
 
   std::vector<std::size_t> member;
@@ -395,11 +395,14 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
 
   std::exception_ptr failure;
 
-#pragma omp parallel for schedule(dynamic, 64)
+#pragma omp parallel
+  {
+  std::vector<unsigned int> found;
+#pragma omp for schedule(dynamic, 64)
   for (std::size_t i = 0; i < n; ++i) {
     try {
       const double x = positions[3*i], y = positions[3*i+1], z = positions[3*i+2];
-      const std::vector<unsigned int> found = grid.closeObjects(x, y, z, cutoff);
+      grid.closeObjects(x, y, z, cutoff, found);
 
       double sum = 0., norm = 0.;
       unsigned realizations = 0;
@@ -421,6 +424,7 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
 #pragma omp critical
       if (!failure) failure = std::current_exception();
     }
+  }
   }
 
   if (failure) internal::rethrow(failure);

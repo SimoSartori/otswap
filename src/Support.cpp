@@ -306,12 +306,14 @@ meshsearch::MeshGrid otswap::internal::mesh_grid (const std::vector<double>& X,
                                                   const std::vector<double>& Y,
                                                   const std::vector<double>& Z,
                                                   const double cellsize,
-                                                  const std::vector<std::vector<double>>& limits,
+                                                  const std::array<std::array<double,2>,3>& limits,
                                                   const char* file, const char* function,
                                                   const int line)
 {
   try {
-    return meshsearch::MeshGrid(X, Y, Z, cellsize, limits);
+    meshsearch::MeshGrid::Options options;
+    options.limits = limits;
+    return meshsearch::MeshGrid(X, Y, Z, cellsize, options);
   }
   catch (...) {
     rethrow(std::current_exception(), file, function, line);

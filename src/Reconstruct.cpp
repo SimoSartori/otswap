@@ -146,15 +146,15 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
     minZ = box->lower[2]; maxZ = box->upper[2];
   }
 
-  std::vector<std::vector<double>> extent {{minX, maxX}, {minY, maxY}, {minZ, maxZ}};
+  std::array<std::array<double,2>,3> extent {{{minX, maxX}, {minY, maxY}, {minZ, maxZ}}};
   for (std::size_t i = 0; i < randoms.size(); ++i) {
-    std::vector<double>& axis = extent[i % 3];
+    std::array<double,2>& axis = extent[i % 3];
     axis[0] = std::min(axis[0], randoms[i]);
     axis[1] = std::max(axis[1], randoms[i]);
   }
 
   const meshsearch::MeshGrid tracerGrid = mesh_grid(tracerX, tracerY, tracerZ, cellsize, extent);
-  const std::vector<std::vector<double>> lims = tracerGrid.get_lims();
+  const std::array<std::array<double,2>,3> lims = tracerGrid.get_lims();
 
   std::vector<std::vector<unsigned>> neighbours(nObjects);
   {
@@ -219,7 +219,9 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
         }
       }
 
-      const meshsearch::MeshGrid randomGrid(randomX, randomY, randomZ, cellsize, lims);
+      meshsearch::MeshGrid::Options randomOptions;
+      randomOptions.limits = lims;
+      const meshsearch::MeshGrid randomGrid(randomX, randomY, randomZ, cellsize, randomOptions);
 
       std::mt19937 seeding = stream(seed, rec, Stream::Seeding);
 
@@ -235,13 +237,13 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
       shuffle(starters, seeding);
 
       std::vector<std::uint8_t> paired(nObjects, 0);
+      std::vector<unsigned> close;
 
       for (const unsigned i : starters) {
         if (paired[i]) continue;
 
-        std::vector<unsigned> close =
-          tracerCopy.closeObjects(tracerX[i], tracerY[i], tracerZ[i],
-                                  kSeedingRadiusInMps * mps[i]);
+        tracerCopy.closeObjects(tracerX[i], tracerY[i], tracerZ[i],
+                                kSeedingRadiusInMps * mps[i], close);
         std::sort(close.begin(), close.end());
 
         unsigned toRemove = std::min((unsigned)kMaxPairsPerStarter, (unsigned)close.size());
