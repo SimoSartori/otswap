@@ -107,7 +107,7 @@ def main():
     # is the same whatever the number of threads.
     #
     # cell_size: the grid cell, in units of the mean particle separation,
-    # affects the speed only, never the result; the default is 3; this example uses 4.
+    # affects the speed only, never the result; the default is 3.
     #
     # reject_crossings, max_unobserved_pixels_crossed: after the
     # reconstruction, a displacement whose path on the sky (the great-circle
@@ -131,7 +131,7 @@ def main():
     # out of the reconstruction. The range here spans the whole catalogue:
     # narrow it to reconstruct a slice. The default, None, cuts nothing; a
     # (min, max) pair is accepted too
-    config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, cell_size=4.0,
+    config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, cell_size=3.0,
                            reject_crossings=True, max_unobserved_pixels_crossed=0, verbosity="normal")
     n_bins = 30
     redshift_cut = otswap.RedshiftCut(0.885, 1.10)

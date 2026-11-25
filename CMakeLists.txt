@@ -306,6 +306,7 @@ if (OTSWAP_BUILD_TESTS)
   # Runs the library on raw input files for the Python tests, which compare
   # its outputs with those of the bindings; not a test by itself.
   add_executable(cpp_reference tests/cpp_reference.cpp)
+  target_include_directories(cpp_reference PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(cpp_reference PRIVATE otswap)
   if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(cpp_reference PRIVATE -Wall -Wextra)

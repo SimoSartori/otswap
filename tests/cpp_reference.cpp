@@ -78,6 +78,7 @@
 #include <vector>
 
 #include "otswap/OT.h"
+#include "internal.h"
 
 namespace {
 
@@ -197,9 +198,10 @@ int main (int argc, char** argv)
       otswap::Result result;
       if (has("sky_area_deg2")) {
         result = has("tracers")
-          ? otswap::reconstructLightcone(read("tracers"), read("randoms"), read("tracers_sky"),
-                                         read("randoms_sky"), real("sky_area_deg2"), integer("n_bins"),
-                                         distances, config())
+          ? otswap::internal::reconstruct_lightcone_both(read("tracers"), read("randoms"), read("tracers_sky"),
+                                                         read("randoms_sky"), real("sky_area_deg2"), nullptr,
+                                                         integer("n_bins"), distances, config(),
+                                                         otswap::RedshiftCut{})
           : otswap::reconstructLightcone(read("tracers_sky"), read("randoms_sky"), real("sky_area_deg2"),
                                          integer("n_bins"), distances, config());
         finish(result, has("mask"));
@@ -207,9 +209,9 @@ int main (int argc, char** argv)
       else {
         const otswap::Mask mask(arg("mask"));
         result = has("tracers")
-          ? otswap::reconstructLightcone(read("tracers"), read("randoms"), read("tracers_sky"),
-                                         read("randoms_sky"), mask, integer("n_bins"), distances,
-                                         config())
+          ? otswap::internal::reconstruct_lightcone_both(read("tracers"), read("randoms"), read("tracers_sky"),
+                                                         read("randoms_sky"), 0., &mask, integer("n_bins"),
+                                                         distances, config(), otswap::RedshiftCut{})
           : otswap::reconstructLightcone(read("tracers_sky"), read("randoms_sky"), mask,
                                          integer("n_bins"), distances, config());
         finish(result, false);

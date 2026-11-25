@@ -550,9 +550,14 @@ void otswap::internal::summarize (Result& result)
   }
   else result.lagrangian.clear();
 
-  if (result.geometry == Geometry::Lightcone && result.distances && !result.lagrangian.empty())
-    sky_of_positions(result.lagrangian, *result.distances, result.lagrangianSky);
-  else result.lagrangianSky.clear();
+  if (result.geometry == Geometry::Lightcone && !result.lagrangian.empty() &&
+      (result.distances || !result.mpsProfile.distance.empty()))
+    sky_of_positions(result.lagrangian, result.distances.get(), result.lagrangianSky,
+                     &result.lagrangianDistance);
+  else {
+    result.lagrangianSky.clear();
+    result.lagrangianDistance.clear();
+  }
 }
 
 

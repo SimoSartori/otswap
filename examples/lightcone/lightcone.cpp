@@ -126,8 +126,8 @@ int main (int argc, char** argv)
     config.seed = 12345;
 
     // The grid cell, in units of the mean particle separation, affects the
-    // speed only, never the result; the default is 3; this example uses 4
-    config.cellSize = 4.;
+    // speed only, never the result; the default is 3
+    config.cellSize = 3.;
 
     // After the reconstruction, a displacement whose path on the sky (the
     // great-circle arc from the tracer to its random) crosses more than

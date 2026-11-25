@@ -166,6 +166,10 @@ void otswap::internal::check_flags (const Result& result)
   check3(result.tracersSky, "tracersSky");
   check3(result.lagrangian, "lagrangian");
   check3(result.lagrangianSky, "lagrangianSky");
+  if (!result.lagrangianDistance.empty() && result.lagrangianDistance.size() != result.nObjects)
+    throw Error("the result is malformed: lagrangianDistance holds " +
+                std::to_string(result.lagrangianDistance.size()) + " entries for " +
+                std::to_string(result.nObjects) + " objects");
 
   if (result.periodic) {
     if (result.geometry != Geometry::Box)

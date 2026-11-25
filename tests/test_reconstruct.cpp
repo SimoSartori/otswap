@@ -36,6 +36,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifdef _OPENMP
@@ -570,9 +571,10 @@ int main ()
     check(fromSky.nObjects == nLc, "the sky overload reports the object count");
     check(fromSky.displacement.size() == 3 * nLc, "and returns a field of the right size");
 
-    // The same run with the Cartesian coordinates supplied must give the
-    // same answer: the second overload only skips the conversion, and
-    // toCartesian is the conversion the first one performs.
+    // The same run with the Cartesian coordinates supplied beside the sky
+    // ones, as the Python binding's tracers= gives them, must give the same
+    // answer: it only skips the conversion, and toCartesian is the
+    // conversion the sky overload performs.
     const std::vector<double> cart = toCartesian(sky, distances);
     const std::vector<double> randomCart = toCartesian(randomSky, distances);
 
@@ -584,12 +586,12 @@ int main ()
     }
     check(sameConversion, "toCartesian is the per-object conversion, bit for bit");
 
-    const Result fromCartesian =
-      reconstructLightcone(cart, randomCart, sky, randomSky, skyAreaDeg2, nBins,
-                           distances, c);
+    const Result fromBoth =
+      internal::reconstruct_lightcone_both(cart, randomCart, sky, randomSky, skyAreaDeg2, nullptr, nBins,
+                                           distances, c, RedshiftCut{});
 
-    check(fromSky.displacement == fromCartesian.displacement,
-          "both overloads produce the same field, bit for bit");
+    check(fromSky.displacement == fromBoth.displacement,
+          "Cartesian and sky arrays together produce the sky overload's field, bit for bit");
 
     // Exactly a permutation: the seeding pass pairs every tracer.
     std::set<std::array<double, 3>> used;
@@ -598,9 +600,8 @@ int main ()
     check(used.size() == nLc, "the lightcone matching is a permutation too");
 
     check_throws([&] {
-      reconstructLightcone(cart, randomCart, sky, randomSky, skyAreaDeg2, 20,
-                           distances, c);
-    }, "too many bins for the catalog raises");
+      reconstructLightcone(cart, randomCart, skyAreaDeg2, 20, c);
+    }, "too many bins for the catalog raises, in the Cartesian overload too");
 
     // Randoms spread wider on the sky and deeper in redshift than the
     // tracers, so that many lie outside the bounding box of the tracers.
@@ -625,8 +626,8 @@ int main ()
 
     std::vector<double> shortSky(sky.begin(), sky.end() - 3);
     check_throws([&] {
-      reconstructLightcone(cart, randomCart, shortSky, randomSky, skyAreaDeg2, nBins,
-                           distances, c);
+      internal::reconstruct_lightcone_both(cart, randomCart, shortSky, randomSky, skyAreaDeg2, nullptr,
+                                           nBins, distances, c, RedshiftCut{});
     }, "Cartesian and sky arrays of different length raise");
 
     const DistanceTable narrow(0.3, 0.7, -1., 0., 0.6, 0.8, 500);
@@ -642,14 +643,99 @@ int main ()
       reconstructLightcone(sky, randomSky, skyAreaDeg2, nBins, distances, fine);
     }, "meshsearch: ", "the sky overload with the sky area");
     check_nested<meshsearch::Error>([&] {
-      reconstructLightcone(cart, randomCart, sky, randomSky, skyAreaDeg2, nBins, distances, fine);
+      reconstructLightcone(cart, randomCart, skyAreaDeg2, nBins, fine);
     }, "meshsearch: ", "the Cartesian overload with the sky area");
     check_nested<meshsearch::Error>([&] {
       reconstructLightcone(sky, randomSky, fullSky, nBins, distances, fine);
     }, "meshsearch: ", "the sky overload with a mask");
     check_nested<meshsearch::Error>([&] {
-      reconstructLightcone(cart, randomCart, sky, randomSky, fullSky, nBins, distances, fine);
+      reconstructLightcone(cart, randomCart, fullSky, nBins, fine);
     }, "meshsearch: ", "the Cartesian overload with a mask");
+
+    group("the Cartesian overloads: a profile in distance, measureMpsProfile's; the table fills the "
+          "redshifts only; pointToSky gives the angles and distances");
+    {
+      const auto bits = [] (const std::vector<double>& a, const std::vector<double>& b) {
+        return a.size() == b.size() && std::memcmp(a.data(), b.data(), a.size() * sizeof(double)) == 0;
+      };
+      const Result bare = reconstructLightcone(cart, randomCart, skyAreaDeg2, nBins, c);
+      const Result tabled = reconstructLightcone(cart, randomCart, skyAreaDeg2, nBins, c, &distances);
+
+      std::set<std::array<double, 3>> cartUsed;
+      for (std::size_t i = 0; i < nLc; ++i) cartUsed.insert(matched(bare, i));
+      check(cartUsed.size() == nLc && bare.geometry == Geometry::Lightcone && bare.tracers == cart,
+            "a lightcone result, the tracers as given, the matching a permutation");
+
+      const MpsProfile measured = measureMpsProfile(cart, skyAreaDeg2, nBins, Verbosity::Silent);
+      const MpsProfile& p = bare.mpsProfile;
+      check(p.redshift.empty() && p.distance.size() == nBins && std::isnan(p.redshiftMin) &&
+            bits(p.distance, measured.distance) && bits(p.mps, measured.mps) && p.count == measured.count &&
+            p.distanceMin == measured.distanceMin && p.distanceMax == measured.distanceMax &&
+            p.representative == measured.representative,
+            "the profile is in distance, measureMpsProfile's bit for bit");
+
+      double dMin = INFINITY, dMax = -INFINITY;
+      bool angles = true, noRedshift = true, redshifts = true;
+      for (std::size_t i = 0; i < nLc; ++i) {
+        double d, ra, dec;
+        pointToSky(cart[3*i], cart[3*i+1], cart[3*i+2], d, ra, dec);
+        dMin = std::min(dMin, d);
+        dMax = std::max(dMax, d);
+        angles = angles && bare.tracersSky[3*i] == ra && bare.tracersSky[3*i+1] == dec;
+        noRedshift = noRedshift && std::isnan(bare.tracersSky[3*i+2]);
+        redshifts = redshifts && tabled.tracersSky[3*i+2] == distances.redshiftAt(d);
+      }
+      check(p.distanceMin == dMin && p.distanceMax == dMax, "binned over the tracers' distances");
+      check(angles && noRedshift && redshifts,
+            "tracersSky: pointToSky's angles; redshifts NaN without a table, the table's with one");
+
+      check(bits(bare.displacement, tabled.displacement) && bare.valid == tabled.valid &&
+            bits(bare.mpsProfile.mps, tabled.mpsProfile.mps) && !bare.distances && tabled.distances,
+            "the table changes nothing of the reconstruction; only the result with one keeps it");
+
+      bool lagrangian = true;
+      for (std::size_t i = 0; i < nLc; ++i) {
+        double d, ra, dec;
+        pointToSky(bare.lagrangian[3*i], bare.lagrangian[3*i+1], bare.lagrangian[3*i+2], d, ra, dec);
+        lagrangian = lagrangian && bare.lagrangianDistance[i] == d && bare.lagrangianSky[3*i] == ra &&
+                     bare.lagrangianSky[3*i+1] == dec && std::isnan(bare.lagrangianSky[3*i+2]) &&
+                     tabled.lagrangianDistance[i] == d && tabled.lagrangianSky[3*i] == ra &&
+                     tabled.lagrangianSky[3*i+2] == distances.redshiftAt(d);
+      }
+      check(lagrangian, "lagrangianSky and lagrangianDistance by pointToSky; the redshift the table's, "
+                        "NaN without one");
+      check(fromSky.lagrangianDistance.size() == nLc, "a sky result carries lagrangianDistance too");
+
+      throws_with([&] { reconstructLightcone(cart, randomCart, skyAreaDeg2, 0, c); },
+                  "the number of distance bins is 0; it must be at least 1", "zero bins raise");
+      check(message_contains([&] { measureMpsProfile(cart, skyAreaDeg2, 20, Verbosity::Silent); },
+                             "distance bin 0 (from 0) of 20"), "a thin bin raises, named as a distance bin");
+      std::vector<double> flat(3 * nLc, 0.);
+      for (std::size_t i = 0; i < nLc; ++i) flat[3*i] = 1000.;
+      check(message_contains([&] { measureMpsProfile(flat, skyAreaDeg2, 1, Verbosity::Silent); },
+                             "every tracer is at distance 1000"), "a single distance raises");
+    }
+
+    group("pointToSky: toSky's angles and distance, bit for bit; the origin and NaN; noexcept");
+    {
+      static_assert(noexcept(pointToSky(0., 0., 0., std::declval<double&>(), std::declval<double&>(),
+                                        std::declval<double&>())), "pointToSky is noexcept");
+      const std::vector<double> back = toSky(cart, distances);
+      bool same = true;
+      for (std::size_t i = 0; i < nLc; ++i) {
+        double d, ra, dec;
+        pointToSky(cart[3*i], cart[3*i+1], cart[3*i+2], d, ra, dec);
+        same = same && back[3*i] == ra && back[3*i+1] == dec && back[3*i+2] == distances.redshiftAt(d);
+      }
+      check(same, "every point of the lightcone");
+      double d = 1., ra = 1., dec = 1.;
+      pointToSky(0., 0., 0., d, ra, dec);
+      check(d == 0. && ra == 0. && dec == 0., "the origin: all three 0");
+      pointToSky(NAN, 1., 1., d, ra, dec);
+      check(std::isnan(d) && std::isnan(ra) && std::isnan(dec), "a NaN coordinate: all three NaN");
+      pointToSky(0., -2., 0., d, ra, dec);
+      check(d == 2. && ra > 4.71 && ra < 4.72 && dec == 0., "the right ascension folded into [0, 2 pi)");
+    }
   }
 
   group("the box Result: geometry, configuration with the seed used, tracers, lagrangian, mps, time");

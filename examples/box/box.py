@@ -85,12 +85,12 @@ def main():
     # is the same whatever the number of threads.
     #
     # cell_size: the grid cell, in units of mps, affects the speed only,
-    # never the result; the default is 3; this example uses 4.
+    # never the result; the default is 3.
     #
     # verbosity: what the reconstruction prints; "detailed" adds, before the
     # line of the call, a line with the mean particle separation and its
     # source
-    config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, cell_size=4.0,
+    config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, cell_size=3.0,
                            verbosity="detailed")
 
     # ------------------------------------------------

@@ -225,12 +225,15 @@ namespace {
     if (!same_selection(read.selection, expected.selection)) return "selection";
     if (!same_bits(read.lagrangian, expected.lagrangian)) return "lagrangian";
     if (!same_bits(read.lagrangianSky, expected.lagrangianSky)) return "lagrangianSky";
+    if (!same_bits(read.lagrangianDistance, expected.lagrangianDistance)) return "lagrangianDistance";
     if (!same_bits({read.mps}, {expected.mps})) return "mps";
     if (!same_box(read.box, expected.box)) return "box";
     if (read.periodic != expected.periodic) return "periodic";
     if (!same_bits(p.redshift, q.redshift) || !same_bits(p.mps, q.mps) || p.count != q.count ||
-        !same_bits({p.redshiftMin, p.redshiftMax, p.representative},
-                   {q.redshiftMin, q.redshiftMax, q.representative})) return "mpsProfile";
+        !same_bits(p.distance, q.distance) ||
+        !same_bits({p.redshiftMin, p.redshiftMax, p.representative, p.distanceMin, p.distanceMax},
+                   {q.redshiftMin, q.redshiftMax, q.representative, q.distanceMin, q.distanceMax}))
+      return "mpsProfile";
     if ((read.distances == nullptr) != (expected.distances == nullptr) ||
         (read.distances && (!same_bits(read.distances->redshift(), expected.distances->redshift()) ||
                             !same_bits(read.distances->distance(), expected.distances->distance()) ||
@@ -814,6 +817,9 @@ int main ()
   group("readDisplacementComplete: every member back bit for bit, but the sky angles within rounding, both formats");
   {
     const Result plain = reconstructLightcone(sky, randomsSky, 2000., 1, table, config);
+    const std::vector<double> cart = toCartesian(sky, table), cartRandoms = toCartesian(randomsSky, table);
+    const Result cartBare = reconstructLightcone(cart, cartRandoms, 2000., 1, config);
+    const Result cartTabled = reconstructLightcone(cart, cartRandoms, 2000., 1, config, &table);
     Result lcIds = lc;
     Result boxIds = limited;
     lcIds.ids.resize(n);
@@ -824,7 +830,8 @@ int main ()
     }
     const std::pair<const char*, const Result*> cases[] = {
       {"lightcone with mask, cut and filter", &lc}, {"lightcone with IDs", &lcIds},
-      {"lightcone with the sky area", &plain}, {"box", &box}, {"box with limits", &limited},
+      {"lightcone with the sky area", &plain}, {"Cartesian lightcone, no table", &cartBare},
+      {"Cartesian lightcone with a table", &cartTabled}, {"box", &box}, {"box with limits", &limited},
       {"box with limits and IDs", &boxIds}, {"periodic box", &periodicBox}};
     for (const auto& c : cases)
       for (const std::string ext : {".dat", ".fits"}) {
@@ -834,6 +841,22 @@ int main ()
         check(d.empty(), std::string(c.first) + ", " + ext + ": " + (d.empty() ? "every member back" : d + " differs"));
         remove_with_twins(file);
       }
+    check(!cartBare.mpsProfile.distance.empty() && !cartBare.distances && cartTabled.distances,
+          "the Cartesian cases hold a profile in distance, with and without a table");
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string file = temporary("profile" + ext);
+      io::writeMpsProfile(file, cartBare.mpsProfile);
+      const io::Table t = io::read(file, {"distance", "MPS"});
+      const std::vector<io::Keyword> k = internal::read_keywords(file);
+      const std::vector<double> centres = column_of(t, 0);
+      bool close = centres.size() == cartBare.mpsProfile.distance.size();
+      for (std::size_t i = 0; close && i < centres.size(); ++i)
+        close = std::fabs(centres[i] - cartBare.mpsProfile.distance[i]) <= 1.e-8 * centres[i];
+      check(close && value_of(k, "DISTMIN") != "missing" && value_of(k, "DISTMAX") != "missing" &&
+            value_of(k, "ZMIN") == "missing",
+            ext + ": writeMpsProfile writes a profile in distance as the column distance, with DISTMIN and DISTMAX");
+      std::remove(file.c_str());
+    }
     check(!lc.outsideRedshiftCut.empty() && std::count(lc.outsideMask.begin(), lc.outsideMask.end(), 1) > 0 &&
           lc.filteredNside == 64 && lc.selection.displacementsCrossingMask > 0 && limited.selection.boxLimits &&
           std::count(limited.outsideBox.begin(), limited.outsideBox.end(), 1) > 0,
@@ -861,6 +884,7 @@ int main ()
     expected.mpsProfile = MpsProfile();
     expected.distances = nullptr;
     expected.lagrangianSky.clear();
+    expected.lagrangianDistance.clear();
     for (const std::string ext : {".dat", ".fits"}) {
       const std::string file = temporary("noparts" + ext);
       io::writeDisplacementComplete(file, lc, false);
@@ -891,6 +915,7 @@ int main ()
     auto as_v010 = [] (Result r) {
       r.tracersSky.clear();
       r.lagrangianSky.clear();
+      r.lagrangianDistance.clear();
       r.mpsProfile = MpsProfile();
       r.distances = nullptr;
       SelectionCounts s;
@@ -1222,7 +1247,8 @@ int main ()
     const std::pair<const char*, std::vector<double> Result::*> fields[] = {
       {"tracers", &Result::tracers}, {"displacement", &Result::displacement},
       {"meanDisplacement", &Result::meanDisplacement}, {"lagrangian", &Result::lagrangian},
-      {"tracersSky", &Result::tracersSky}, {"lagrangianSky", &Result::lagrangianSky}};
+      {"tracersSky", &Result::tracersSky}, {"lagrangianSky", &Result::lagrangianSky},
+      {"lagrangianDistance", &Result::lagrangianDistance}};
     for (const auto& f : fields) {
       const bool sky = f.second == &Result::tracersSky || f.second == &Result::lagrangianSky;
       const std::vector<double>& a = read.*(f.second);

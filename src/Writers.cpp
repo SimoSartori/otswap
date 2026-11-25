@@ -294,6 +294,28 @@ namespace {
     otswap::internal::write_parts(file, parts);
   }
 
+  /// The first column of a profile table: the bin centres, in redshift
+  /// or in distance.
+  Column profile_centre_column (const bool inDistance)
+  {
+    return inDistance ? column("distance", 'D', "centre of the distance bin, coordinate units")
+                      : column("redshift", 'D', "centre of the redshift bin");
+  }
+
+  /// The keywords of a profile's binned range: ZMIN and ZMAX in redshift,
+  /// DISTMIN and DISTMAX in distance.
+  void profile_range_keywords (const otswap::MpsProfile& profile, std::vector<Keyword>& keywords)
+  {
+    if (profile.distance.empty()) {
+      keywords.push_back({"ZMIN", number(profile.redshiftMin), "lowest redshift binned"});
+      keywords.push_back({"ZMAX", number(profile.redshiftMax), "highest redshift binned"});
+    }
+    else {
+      keywords.push_back({"DISTMIN", number(profile.distanceMin), "lowest distance binned, coordinate units"});
+      keywords.push_back({"DISTMAX", number(profile.distanceMax), "highest distance binned, coordinate units"});
+    }
+  }
+
   std::vector<otswap::internal::TablePart> lightcone_parts (const otswap::Result& result,
                                                             const std::string& product, const bool tables,
                                                             std::vector<Keyword>& keywords)
@@ -301,31 +323,36 @@ namespace {
     using otswap::internal::TablePart;
     const bool lightcone = result.geometry == otswap::Geometry::Lightcone;
     const otswap::MpsProfile& profile = result.mpsProfile;
-    const bool writeProfile = tables && lightcone && !profile.redshift.empty();
+    const bool inDistance = !profile.distance.empty();
+    const std::vector<double>& centres = inDistance ? profile.distance : profile.redshift;
+    const bool writeProfile = tables && lightcone && !centres.empty();
     const bool writeTable = tables && lightcone && result.distances != nullptr;
     std::vector<TablePart> parts;
 
     if (writeProfile) {
-      check_size(profile.mps.size(), profile.redshift.size(), "the mps of the profile");
-      check_size(profile.count.size(), profile.redshift.size(), "the counts of the profile");
-      keywords.push_back({"MPSPART", "1", "the mps(z) profile is written"});
+      if (inDistance && !profile.redshift.empty())
+        throw otswap::Error("the mps profile holds both redshifts and distances");
+      check_size(profile.mps.size(), centres.size(), "the mps of the profile");
+      check_size(profile.count.size(), centres.size(), "the counts of the profile");
+      keywords.push_back({"MPSPART", "1", inDistance ? "the mps(d) profile is written"
+                                                     : "the mps(z) profile is written"});
       TablePart part;
       part.extname = kProfileExtname;
       part.twin = "mps";
-      part.columns = {column("redshift", 'D', "centre of the redshift bin"),
+      part.columns = {profile_centre_column(inDistance),
                       column("MPS", 'D', "mean particle separation in the bin"),
                       column("nTracers", 'J', "tracers in the bin")};
-      part.nRows = profile.redshift.size();
+      part.nRows = centres.size();
       part.options.precision = kLossless;
       part.options.keywords = {{"PRODUCT", product + " mps profile", "what the table holds"},
-                               {"OTSWAPV", OTSWAP_VERSION, "otswap version"},
-                               {"ZMIN", number(profile.redshiftMin), "lowest redshift binned"},
-                               {"ZMAX", number(profile.redshiftMax), "highest redshift binned"},
-                               {"MPSREPR", number(profile.representative),
-                                "count-weighted median mps, coordinate units"}};
+                               {"OTSWAPV", OTSWAP_VERSION, "otswap version"}};
+      profile_range_keywords(profile, part.options.keywords);
+      part.options.keywords.push_back({"MPSREPR", number(profile.representative),
+                                       "count-weighted median mps, coordinate units"});
+      const std::vector<double>* c = &centres;
       const otswap::MpsProfile* p = &profile;
-      part.fillRow = [p] (const std::size_t row, std::vector<double>& values, std::vector<std::int64_t>&) {
-        values[0] = p->redshift[row];
+      part.fillRow = [c, p] (const std::size_t row, std::vector<double>& values, std::vector<std::int64_t>&) {
+        values[0] = (*c)[row];
         values[1] = p->mps[row];
         values[2] = (double)p->count[row];
       };
@@ -480,17 +507,26 @@ namespace {
     h.product(product + " mps profile");
 
     otswap::MpsProfile profile;
-    profile.redshiftMin = h.real("ZMIN");
-    profile.redshiftMax = h.real("ZMAX");
+    const bool inDistance = h.find("DISTMIN") != nullptr;
+    if (inDistance) {
+      profile.distanceMin = h.real("DISTMIN");
+      profile.distanceMax = h.real("DISTMAX");
+    }
+    else {
+      profile.redshiftMin = h.real("ZMIN");
+      profile.redshiftMax = h.real("ZMAX");
+    }
     profile.representative = h.real("MPSREPR");
-    const otswap::internal::NumberedTable numbered = read_located(at, {"redshift", "MPS"}, {"nTracers"});
+    std::vector<double>& centres = inDistance ? profile.distance : profile.redshift;
+    const otswap::internal::NumberedTable numbered =
+      read_located(at, {inDistance ? "distance" : "redshift", "MPS"}, {"nTracers"});
     const otswap::io::Table& t = numbered.table;
     if (t.nRows == 0) h.fail("it holds no bin");
     for (std::size_t row = 0; row < t.nRows; ++row) {
       if (t.integers[row] < 0)
         h.fail("the column nTracers holds " + std::to_string(t.integers[row]) + " at " + numbered.row(row) +
                "; a count must not be negative");
-      profile.redshift.push_back(t.values[2*row]);
+      centres.push_back(t.values[2*row]);
       profile.mps.push_back(t.values[2*row+1]);
       profile.count.push_back((std::size_t)t.integers[row]);
     }
@@ -1022,7 +1058,12 @@ otswap::Result otswap::io::readDisplacementMean (const std::string& file)
   r.meanDisplacement = r.displacement;
   r.validRealizations = std::move(counts);
   if (readLagrangian) r.lagrangian = std::move(lagrangianRead);
-  if (readLagrangianSky) r.lagrangianSky = std::move(lagrangianDegrees);
+  if (readLagrangianSky) {
+    r.lagrangianSky = std::move(lagrangianDegrees);
+    std::vector<double> unused;
+    if (r.lagrangian.size() == 3 * n) internal::sky_of_positions(r.lagrangian, nullptr, unused, &r.lagrangianDistance);
+    else r.lagrangianDistance.clear();
+  }
   return r;
 }
 
@@ -1126,13 +1167,19 @@ void otswap::io::writeRealSpaceCatalog (const std::string& file, const RealSpace
 
 void otswap::io::writeMpsProfile (const std::string& file, const MpsProfile& profile)
 {
-  const std::size_t n = profile.redshift.size();
+  const bool inDistance = !profile.distance.empty();
+  if (inDistance && !profile.redshift.empty())
+    throw Error("the mps profile holds both redshifts and distances");
+  const std::vector<double>& centres = inDistance ? profile.distance : profile.redshift;
+  const std::size_t n = centres.size();
   if (n == 0) throw Error("cannot write an empty mean particle separation profile");
   check_size(profile.mps.size(), n, "the mps of the profile");
   check_size(profile.count.size(), n, "the counts of the profile");
 
+  Column centre = profile_centre_column(inDistance);
+  centre.data = centres;
   std::vector<Column> columns {
-    {"redshift", 'D', "centre of the redshift bin", "", profile.redshift, {}},
+    centre,
     {"MPS", 'D', "mean particle separation in the bin", "", profile.mps, {}},
     {"nTracers", 'J', "tracers in the bin", "", std::vector<double>(n), {}}};
   for (std::size_t i = 0; i < n; ++i) columns[2].data[i] = (double)profile.count[i];
@@ -1140,10 +1187,9 @@ void otswap::io::writeMpsProfile (const std::string& file, const MpsProfile& pro
   WriteOptions options;
   options.precision = kPrecision;
   options.keywords = {{"PRODUCT", "mps profile", "what the file holds"},
-                      {"OTSWAPV", OTSWAP_VERSION, "otswap version"},
-                      {"ZMIN", number(profile.redshiftMin), "lowest redshift binned"},
-                      {"ZMAX", number(profile.redshiftMax), "highest redshift binned"},
-                      {"MPSREPR", number(profile.representative),
-                       "count-weighted median mps, coordinate units"}};
+                      {"OTSWAPV", OTSWAP_VERSION, "otswap version"}};
+  profile_range_keywords(profile, options.keywords);
+  options.keywords.push_back({"MPSREPR", number(profile.representative),
+                              "count-weighted median mps, coordinate units"});
   write(file, columns, options);
 }
