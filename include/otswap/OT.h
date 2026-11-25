@@ -232,6 +232,10 @@ namespace otswap {
    *  lower[k] <= x[k] <= upper[k] on each axis k, in coordinate units.
    *  Each bound must
    *  be finite, with lower[k] < upper[k]; the default, NaN, is refused.
+   *
+   *  For a periodic box, the period of axis k is upper[k] - lower[k], and
+   *  each period must be an integer multiple of the shortest one, within a
+   *  relative 1e-12: a cube, or a cuboid such as 500 x 500 x 1000.
    */
   struct BoxLimits {
     /// x, y, z of the lower corner.
@@ -253,27 +257,33 @@ namespace otswap {
    *  and the same for the randoms. In a box result, the tracers removed are
    *  tracersOutsideBox, and the randoms removed randomsOutsideBox; these
    *  and the counts of what was given are set only when limits were given
-   *  to reconstructBox, with randoms 0 when the randoms were drawn. Every
-   *  other count is 0, and nothing else is applied, in a box result; the
-   *  box counts are 0 in a lightcone result.
+   *  to reconstructBox, with randoms 0 when the randoms were drawn. In a
+   *  periodic box nothing is removed: the objects outside the limits are
+   *  wrapped into them, counted in tracersWrapped and randomsWrapped, and
+   *  the counts outside the box are 0. Every other count is 0, and nothing
+   *  else is applied, in a box result; the box counts are 0 in a lightcone
+   *  result.
    */
   struct SelectionCounts {
 
     std::optional<RedshiftCut> redshiftCut;  ///< the cut, when a bound was finite
     bool maskApplied = false;                ///< a Mask was given
     std::optional<BoxLimits> boxLimits;      ///< the limits, when given to reconstructBox
+    bool periodic = false;                   ///< the box of reconstructBox was periodic
 
     std::size_t tracers = 0;                    ///< tracers given
     std::size_t tracersOutsideRedshiftCut = 0;  ///< of them, outside the cut
     std::size_t tracersOutsideMask = 0;         ///< of them, on an unobserved pixel
     std::size_t tracersOutsideBoth = 0;         ///< counted in both of the above
     std::size_t tracersOutsideBox = 0;          ///< of them, outside the box limits
+    std::size_t tracersWrapped = 0;             ///< of them, wrapped into the periodic box
 
     std::size_t randoms = 0;                    ///< randoms given
     std::size_t randomsOutsideRedshiftCut = 0;  ///< of them, outside the cut
     std::size_t randomsOutsideMask = 0;         ///< of them, on an unobserved pixel
     std::size_t randomsOutsideBoth = 0;         ///< counted in both of the above
     std::size_t randomsOutsideBox = 0;          ///< of them, outside the box limits
+    std::size_t randomsWrapped = 0;             ///< of them, wrapped into the periodic box
 
     /// The threshold of the latest rejectMaskCrossings applied to the
     /// result, by reconstructLightcone or afterwards; empty when none was.
@@ -298,6 +308,11 @@ namespace otswap {
      *
      *      otswap: kept <n> of <N> tracers: <a> outside the box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
      *      otswap: kept <m> of <M> randoms: <b> outside the box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
+     *
+     *  For a periodic box, in their place:
+     *
+     *      otswap: wrapped <a> of <N> tracers into the periodic box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
+     *      otswap: wrapped <b> of <M> randoms into the periodic box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
      *
      *  @return the report, or an empty string when no selection was
      *  applied.
@@ -393,7 +408,10 @@ namespace otswap {
 
     /// Cartesian position of each tracer, the start of its displacements:
     /// the array given to reconstructBox or to a Cartesian overload of
-    /// reconstructLightcone, or toCartesian of the sky array. A tracer left
+    /// reconstructLightcone, or toCartesian of the sky array. In a periodic
+    /// box, the tracers wrapped into the box: a coordinate outside the
+    /// limits is shifted by a whole number of periods, one inside them is
+    /// kept as given. A tracer left
     /// out by the redshift cut or the mask has its conversion when its
     /// redshift lies in the distance table, NaN otherwise. Flat,
     /// [object][xyz]; size 3 * nObjects.
@@ -406,7 +424,9 @@ namespace otswap {
 
     /// Displacements: the random matched to each object in each
     /// realization, minus the tracer. Flat, [realization][object][xyz].
-    /// Size 3 * nRealizations * nObjects.
+    /// Size 3 * nRealizations * nObjects. In a periodic box, the minimum
+    /// image: on each axis, d - L floor(d / L + 1/2), d the difference and
+    /// L the period, in [-L/2, L/2) within rounding.
     std::vector<double> displacement;
 
     /// Validity of each displacement: 1 valid, 0 rejected by a filter.
@@ -457,7 +477,8 @@ namespace otswap {
     /// Whether each tracer lay outside the limits given to reconstructBox,
     /// and so took no part in the reconstruction: 1 for such a tracer, 0
     /// otherwise. Flat, [object]. Size nObjects, all 0 when no limits were
-    /// given and in a lightcone result. A flagged tracer's rows are as for
+    /// given, in a periodic box and in a lightcone result. A flagged
+    /// tracer's rows are as for
     /// outsideRedshiftCut, and no filter changes the flag. An empty field is
     /// read as all 0.
     std::vector<std::uint8_t> outsideBox;
@@ -466,7 +487,8 @@ namespace otswap {
     /// rejected; updated by every rejectMaskCrossings.
     SelectionCounts selection;
 
-    /// Mean Lagrangian position of each tracer, tracers + meanDisplacement.
+    /// Mean Lagrangian position of each tracer, tracers + meanDisplacement,
+    /// in a periodic box wrapped into the box as the tracers are.
     /// NaN rows where meanDisplacement is NaN. Flat, [object][xyz]; size
     /// 3 * nObjects. Recomputed with meanDisplacement by rejectMaskCrossings
     /// and recomputeMeans.
@@ -496,6 +518,12 @@ namespace otswap {
     /// drawn), also when mps was given. Every random matched to a tracer
     /// lies inside it. Empty in a lightcone result.
     std::optional<BoxLimits> box;
+
+    /// Box: whether the box was periodic, as given to reconstructBox. A
+    /// periodic result has geometry Box and its limits in box; its
+    /// tracers, displacements and lagrangian follow the periodic box.
+    /// Always false in a lightcone result.
+    bool periodic = false;
 
     /// Lightcone: the mean particle separation profile measured on the
     /// tracers kept. Empty in a box result.
@@ -747,11 +775,21 @@ namespace otswap {
    *  in Result::outsideBox, the randoms given outside it are dropped, and
    *  the neighbour grids span it. A point on a face is inside.
    *
+   *  @param periodic whether the box is periodic; requires @p limits, each
+   *  of whose sides must then be an integer multiple of the shortest (see
+   *  BoxLimits). Every distance is then the minimum image, and nothing is
+   *  left out: each tracer and each given random outside the limits is
+   *  wrapped into them, by a whole number of periods per axis, and counted
+   *  in Result::selection. Result::tracers holds the wrapped tracers, and
+   *  the randoms are counted and drawn as with limits.
+   *
    *  @exception Error if any array has a size that is not a multiple of
    *  three, if the tracer array is empty, if the randoms are too few, if
    *  any coordinate is not finite, if a bound of the limits is not finite
    *  or a lower bound is not below the upper one, if the limits keep too
-   *  few tracers or randoms, or if mps is not positive. Also, from
+   *  few tracers or randoms, or if mps is not positive; with @p periodic,
+   *  if no limits are given or a side is not an integer multiple of the
+   *  shortest. Also, from
    *  the neighbour search (see Error), if the grid cannot be built: a cell
    *  of config.cellSize * mps so small against the extent of the tracers
    *  and randoms that the grid would need more cells than it can count.
@@ -764,8 +802,11 @@ namespace otswap {
    *  without them, the bounding box of the tracers and the given randoms,
    *  or of the tracers alone when the randoms are drawn.
    *
-   *  @note The box is not periodic: nothing flows through its faces, so
-   *  modes on the scale of the box itself cannot be reconstructed.
+   *  @note Unless @p periodic, nothing flows through the faces of the
+   *  box, so modes on the scale of the box itself cannot be reconstructed.
+   *
+   *  @note In a periodic box the cells of the neighbour grids divide the
+   *  shortest side, so they may be smaller than config.cellSize * mps.
    *
    *  @note Given a seed, the result does not depend on the number of
    *  threads. The assignment of given randoms to realizations, and in
@@ -777,7 +818,8 @@ namespace otswap {
                          const std::vector<double>& randoms,
                          double mps,
                          const Config& config,
-                         const std::optional<BoxLimits>& limits = std::nullopt);
+                         const std::optional<BoxLimits>& limits = std::nullopt,
+                         bool periodic = false);
 
   /**
    *  @brief Reconstruct in box geometry, with the mean particle separation
@@ -785,7 +827,8 @@ namespace otswap {
    *  V its volume, the box being Result::box: the limits or, without them,
    *  the bounding box of the tracers and the given randoms, or of the
    *  tracers alone when the randoms are drawn (the box drawn randoms
-   *  fill). The value used is Result::mps.
+   *  fill). The value used is Result::mps. In a periodic box, V is the
+   *  volume of the limits and N every tracer.
    *
    *  @exception Error as above, from the neighbour search included, and,
    *  without limits, if the tracers, with the given randoms, span no
@@ -794,7 +837,8 @@ namespace otswap {
   Result reconstructBox (const std::vector<double>& tracers,
                          const std::vector<double>& randoms,
                          const Config& config,
-                         const std::optional<BoxLimits>& limits = std::nullopt);
+                         const std::optional<BoxLimits>& limits = std::nullopt,
+                         bool periodic = false);
 
   /**
    *  @brief Convert sky coordinates to Cartesian comoving coordinates.

@@ -599,6 +599,18 @@ namespace {
     out << '\n';
   }
 
+  /// One line of the selection report of a periodic box, for the tracers
+  /// or the randoms.
+  void wrap_line (std::ostream& out, const otswap::BoxLimits& box, const char* what,
+                  const std::size_t given, const std::size_t wrapped)
+  {
+    out << "otswap: wrapped " << wrapped << " of " << given << " " << what
+        << " into the periodic box";
+    for (std::size_t k = 0; k < 3; ++k)
+      out << (k ? " x [" : " [") << box.lower[k] << ", " << box.upper[k] << "]";
+    out << '\n';
+  }
+
 }
 
 
@@ -610,7 +622,11 @@ std::string otswap::SelectionCounts::message () const
   std::ostringstream out;
   out.imbue(std::locale::classic());
 
-  if (boxLimits) {
+  if (boxLimits && periodic) {
+    wrap_line(out, *boxLimits, "tracers", tracers, tracersWrapped);
+    if (randoms > 0) wrap_line(out, *boxLimits, "randoms", randoms, randomsWrapped);
+  }
+  else if (boxLimits) {
     box_line(out, *boxLimits, "tracers", tracers, tracersOutsideBox);
     if (randoms > 0) box_line(out, *boxLimits, "randoms", randoms, randomsOutsideBox);
   }

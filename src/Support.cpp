@@ -189,6 +189,14 @@ void otswap::internal::check_flags (const Result& result)
   check3(result.tracersSky, "tracersSky");
   check3(result.lagrangian, "lagrangian");
   check3(result.lagrangianSky, "lagrangianSky");
+
+  if (result.periodic) {
+    if (result.geometry != Geometry::Box)
+      throw Error("the result is malformed: it is periodic but its geometry is not Box");
+    if (!result.box)
+      throw Error("the result is malformed: it is periodic but has no box");
+    check_box(*result.box);
+  }
 }
 
 
@@ -307,12 +315,14 @@ meshsearch::MeshGrid otswap::internal::mesh_grid (const std::vector<double>& X,
                                                   const std::vector<double>& Z,
                                                   const double cellsize,
                                                   const std::array<std::array<double,2>,3>& limits,
+                                                  const bool periodic,
                                                   const char* file, const char* function,
                                                   const int line)
 {
   try {
     meshsearch::MeshGrid::Options options;
     options.limits = limits;
+    options.periodic = {periodic, periodic, periodic};
     return meshsearch::MeshGrid(X, Y, Z, cellsize, options);
   }
   catch (...) {
