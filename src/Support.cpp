@@ -58,29 +58,6 @@ namespace {
 // ============================================================================
 
 
-unsigned otswap::uniformInt (std::mt19937& engine, const unsigned bound)
-{
-  if (bound == 0) return 0;
-
-  const std::uint64_t range = bound;
-  std::uint64_t product = (std::uint64_t)engine() * range;
-  std::uint32_t low = (std::uint32_t)product;
-
-  if (low < range) {
-    const std::uint32_t threshold = (std::uint32_t)(0u - (std::uint32_t)range) % (std::uint32_t)range;
-    while (low < threshold) {
-      product = (std::uint64_t)engine() * range;
-      low = (std::uint32_t)product;
-    }
-  }
-
-  return (unsigned)(product >> 32);
-}
-
-
-// ============================================================================
-
-
 double otswap::uniformReal (std::mt19937& engine, const double lo, const double hi)
 {
   for (const double bound : {lo, hi})

@@ -387,14 +387,22 @@ void otswap::internal::mark_observed (PixelMask& mask, const std::int64_t first,
 // ============================================================================
 
 
+double otswap::internal::arc_pixel_size (const PixelMask& mask)
+{
+  return std::sqrt(4. * kPi / (double)mask.base.npix());
+}
+
+
+// ============================================================================
+
+
 std::size_t otswap::internal::arc_longest_unobserved_run (const PixelMask& mask,
-                                                         const Vec3& a, const Vec3& b,
+                                                         const Vec3& a, const std::int64_t pixA,
+                                                         const Vec3& b, const double pixelSize,
                                                          const unsigned limit,
                                                          std::vector<std::int64_t>& path)
 {
-  const std::int64_t pixA = vec2pix(mask.base, a);
   const std::int64_t pixB = vec2pix(mask.base, b);
-  const double pixelSize = std::sqrt(4. * kPi / (double)mask.base.npix());
   const double arcFloor = kArcFloorInPixels * pixelSize;
 
   path.assign(1, pixA);
@@ -403,6 +411,19 @@ std::size_t otswap::internal::arc_longest_unobserved_run (const PixelMask& mask,
   if (!segment_exceeds(search, a, pixA, b, pixB)) meet(search, pixB);
 
   return search.longest;
+}
+
+
+// ============================================================================
+
+
+std::size_t otswap::internal::arc_longest_unobserved_run (const PixelMask& mask,
+                                                         const Vec3& a, const Vec3& b,
+                                                         const unsigned limit,
+                                                         std::vector<std::int64_t>& path)
+{
+  return arc_longest_unobserved_run(mask, a, vec2pix(mask.base, a), b, arc_pixel_size(mask),
+                                    limit, path);
 }
 
 
@@ -477,6 +498,7 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
                 "between the two, so filter an unfiltered result instead");
 
   const internal::PixelMask& pixels = mask.m_impl->mask;
+  const double pixelSize = internal::arc_pixel_size(pixels);
   const std::ptrdiff_t nValidBefore = std::count(result.valid.begin(), result.valid.end(), 1);
 
   std::exception_ptr failure;
@@ -486,30 +508,43 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
 
       std::vector<std::int64_t> path;
 
+      const double ex = result.tracers[3*i];
+      const double ey = result.tracers[3*i+1];
+      const double ez = result.tracers[3*i+2];
+
+      // Left out objects may hold any coordinates and have no valid
+      // displacement: the Eulerian direction is taken at the first valid one
+      bool started = false;
+      internal::Vec3 a;
+      std::int64_t pixA = 0;
+
       for (unsigned rec = 0; rec < nRealizations; ++rec) {
 
         const std::size_t d = (std::size_t)rec * nObjects + i;
         if (!result.valid[d]) continue;
 
-        const std::size_t at = 3 * d;
+        if (!started) {
+          started = true;
+          const double r0 = std::sqrt(ex*ex + ey*ey + ez*ez);
+          if (r0 == 0.) break;
+          a = internal::Vec3(ex/r0, ey/r0, ez/r0);
+          pixA = internal::vec2pix(pixels.base, a);
+        }
 
-        const double ex = result.tracers[3*i];
-        const double ey = result.tracers[3*i+1];
-        const double ez = result.tracers[3*i+2];
+        const std::size_t at = 3 * d;
 
         const double lx = ex + result.displacement[at];
         const double ly = ey + result.displacement[at+1];
         const double lz = ez + result.displacement[at+2];
 
-        const double r0 = std::sqrt(ex*ex + ey*ey + ez*ez);
         const double r1 = std::sqrt(lx*lx + ly*ly + lz*lz);
-        if (r0 == 0. || r1 == 0.) continue;
+        if (r1 == 0.) continue;
 
-        const internal::Vec3 a(ex/r0, ey/r0, ez/r0);
         const internal::Vec3 b(lx/r1, ly/r1, lz/r1);
 
         if ((a + b).squared_length() == 0. ||
-            internal::arc_longest_unobserved_run(pixels, a, b, maxUnobservedPixelsCrossed, path) >
+            internal::arc_longest_unobserved_run(pixels, a, pixA, b, pixelSize,
+                                                 maxUnobservedPixelsCrossed, path) >
               maxUnobservedPixelsCrossed)
           result.valid[d] = 0;
       }
