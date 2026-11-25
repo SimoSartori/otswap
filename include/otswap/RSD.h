@@ -151,6 +151,30 @@ namespace otswap {
                                      bool weightByRealizations = false);
 
   /**
+   *  @brief neighbourAverage in a periodic box.
+   *
+   *  The neighbours are found on a periodic grid over the limits and their
+   *  distances are minimum-image, so a tracer near a face averages over the
+   *  tracers near the opposite face. With @p periodic false it is the first
+   *  overload, and @p box is not used.
+   *
+   *  @param box the limits of the box; with @p periodic, each side an
+   *  integer multiple of the shortest, as for reconstructBox.
+   *  @param periodic whether the box is periodic. The positions must lie
+   *  inside the limits (closed); wrap them first.
+   *
+   *  @exception Error as the first overload, and if the limits are not a
+   *  valid periodic box or a position lies outside them.
+   */
+  NeighbourAverage neighbourAverage (const std::vector<double>& positions,
+                                     const std::vector<double>& values,
+                                     const std::vector<unsigned>& validRealizations,
+                                     double sigma,
+                                     bool weightByRealizations,
+                                     const BoxLimits& box,
+                                     bool periodic);
+
+  /**
    *  @brief A b(z) table: the linear bias of the tracers at redshift nodes,
    *  interpolated linearly between them and extrapolated linearly beyond
    *  them from the first or last segment. Read one from a file with
@@ -219,7 +243,8 @@ namespace otswap {
 
   /**
    *  @brief Move each position by shift_i along a Cartesian axis. Positions
-   *  are not wrapped: a box is not treated as periodic.
+   *  are not wrapped, whether or not the box is periodic; realSpaceBox wraps
+   *  the corrected coordinate of a periodic result.
    *
    *  @param positions Cartesian, 3 * N, finite.
    *  @param shift N entries; NaN gives NaN along the axis, infinities are
@@ -385,11 +410,13 @@ namespace otswap {
    *  The chain is that of realSpaceLightcone, on result.tracers, with the
    *  projection on the axis, a single factor f / (b + 3 f / 5) at the box's
    *  redshift, and the shift applied along the axis. Positions are not
-   *  wrapped.
+   *  wrapped, except for a periodic result (Result::periodic).
    *
-   *  The box is not periodic, here or in reconstructBox: nothing flows
+   *  Unless the result is periodic, the box is not periodic: nothing flows
    *  through its faces, so modes on the scale of the box itself cannot be
-   *  reconstructed.
+   *  reconstructed. For a periodic result the neighbours are found across
+   *  the faces, with minimum-image distances (see neighbourAverage), and
+   *  the corrected coordinate along the axis is wrapped into the box.
    *
    *  Tracers flagged in result.outsideBox are left out, as in
    *  realSpaceLightcone, with the status LeftOut.

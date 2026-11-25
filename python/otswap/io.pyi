@@ -477,8 +477,10 @@ def write_displacement_complete(
         realization count differs from its configuration's, if its count of
         realizations averaged is 0, or above 1 while it holds several
         realizations, if a box result's box differs from the limits recorded
-        in its selection, if the profile written does not have one mps and one
-        count per redshift, or as ``write``.
+        in its selection, if a periodic result is not a box result, has no
+        recorded limits or flags a tracer in ``outside_box``, if the profile
+        written does not have one mps and one count per redshift, or as
+        ``write``.
 
     Notes
     -----
@@ -493,14 +495,16 @@ def write_displacement_complete(
     averaged (NREC is then 1); SEED (the seed used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE (silent,
     normal or detailed): the configuration; MPS for a box; BOXXLO, BOXXHI,
     BOXYLO, BOXYHI, BOXZLO, BOXZHI, ``Result.box`` when it is set, and
-    BOXLIM = 1 when it holds the limits given to ``reconstruct_box``; ZCUTMIN
+    BOXLIM = 1 when it holds the limits given to ``reconstruct_box``;
+    PERIODIC = 1 when the box is periodic (written with BOXLIM, absent
+    otherwise, as in files of otswap 0.3); ZCUTMIN
     and ZCUTMAX for the finite bounds of a redshift cut, MASK = 1 when a mask
     selected the objects, FILTNSID and MAXPIXCR when a mask filter was
     applied (CFMAXPIX and MAXPIXCR are thresholds of
     ``reject_mask_crossings``: the longest run of unobserved pixels a
     displacement's arc may cross); NTRAC, NTRCUT, NTRMASK, NTRBOTH, NTRBOX,
-    NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NDISPL and NDISPCR, the
-    selection counts, each when it is not 0. Then MPSPART = 1 and DISTPART = 1
+    NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NTRWRAP, NRNWRAP, NDISPL and
+    NDISPCR, the selection counts, each when it is not 0. Then MPSPART = 1 and DISTPART = 1
     when the profile and the table are written.
 
     The profile (redshift, MPS, nTracers, with the keywords ZMIN, ZMAX and

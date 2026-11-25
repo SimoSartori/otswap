@@ -127,6 +127,16 @@ namespace {
     otswap::internal::check_flags(result);
     otswap::internal::check_ids(result.ids, n);
     for (std::size_t i = 0; i < n; ++i) {
+      if (result.periodic)
+        for (std::size_t c = 0; c < 3; ++c) {
+          const double x = result.tracers[3*i+c];
+          if (!(x >= result.box->lower[c] && x <= result.box->upper[c]))
+            throw otswap::Error("the result is malformed: tracer " + std::to_string(i) + " (from 0) lies at " +
+                                std::to_string(x) + " on axis " + std::to_string(c) + ", outside the "
+                                "periodic box [" + std::to_string(result.box->lower[c]) + ", " +
+                                std::to_string(result.box->upper[c]) + "]; the tracers of a periodic "
+                                "result are wrapped into the box");
+        }
       if (otswap::internal::excluded(result, i) && result.validRealizations[i] != 0)
         throw otswap::Error("the result is malformed: object " + std::to_string(i) + " (from 0) took no part "
                             "in the reconstruction (outside the redshift cut, the mask or the box "
@@ -314,10 +324,10 @@ std::vector<double> otswap::axisProjection (const std::vector<double>& displacem
 // ============================================================================
 
 
-double otswap::internal::neighbour_cell (const std::vector<double>& positions)
+double otswap::internal::neighbour_cell (const std::vector<double>& positions, const BoxLimits* periodicBox)
 {
   const std::size_t n = positions.size() / 3;
-  const BoxLimits box = bounding_box(positions);
+  const BoxLimits box = periodicBox ? *periodicBox : bounding_box(positions);
   const double volume = (box.upper[0] - box.lower[0]) * (box.upper[1] - box.lower[1]) *
                         (box.upper[2] - box.lower[2]);
   return kCellInSeparations * det_pow(volume / (double)n, 1./3.);
@@ -334,7 +344,8 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
                                                          const bool weightByRealizations,
                                                          const double cellSize,
                                                          std::vector<unsigned>& nNeighbours,
-                                                         std::vector<unsigned>& nRealizations)
+                                                         std::vector<unsigned>& nRealizations,
+                                                         const BoxLimits* periodicBox)
 {
   const std::size_t n = check_coordinates(positions, "the position array");
 
@@ -366,7 +377,13 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
   }
 
   std::array<std::array<double,2>,3> limits;
+  std::array<double,3> period = {{0., 0., 0.}};
   for (int k = 0; k < 3; ++k) {
+    if (periodicBox) {
+      limits[(std::size_t)k] = {{periodicBox->lower[(std::size_t)k], periodicBox->upper[(std::size_t)k]}};
+      period[(std::size_t)k] = periodicBox->upper[(std::size_t)k] - periodicBox->lower[(std::size_t)k];
+      continue;
+    }
     double lo = positions[(std::size_t)k], hi = lo;
     for (std::size_t i = 1; i < n; ++i) {
       lo = std::min(lo, positions[3*i+k]);
@@ -388,7 +405,7 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
   std::vector<double> average(n, kNaN);
   if (member.empty()) return average;
 
-  const meshsearch::MeshGrid grid = internal::mesh_grid(X, Y, Z, cellSize, limits);
+  const meshsearch::MeshGrid grid = internal::mesh_grid(X, Y, Z, cellSize, limits, periodicBox != nullptr);
 
   const double cutoff = kTruncationInSigma * sigma;
   const double inverse = 1. / (2. * sigma * sigma);
@@ -408,7 +425,12 @@ std::vector<double> otswap::internal::neighbour_average (const std::vector<doubl
       unsigned realizations = 0;
       for (const unsigned int g : found) {
         const std::size_t j = member[g];
-        const double dx = positions[3*j] - x, dy = positions[3*j+1] - y, dz = positions[3*j+2] - z;
+        double dx = positions[3*j] - x, dy = positions[3*j+1] - y, dz = positions[3*j+2] - z;
+        if (periodicBox) {
+          dx = internal::minimum_image(dx, period[0]);
+          dy = internal::minimum_image(dy, period[1]);
+          dz = internal::minimum_image(dz, period[2]);
+        }
         double weight = weightByRealizations ? (double)validRealizations[j] : 1.;
         weight *= det_exp(-(dx*dx + dy*dy + dz*dz) * inverse);
         sum += weight * values[j];
@@ -446,7 +468,39 @@ otswap::NeighbourAverage otswap::neighbourAverage (const std::vector<double>& po
   NeighbourAverage average;
   average.values = internal::neighbour_average(positions, values, validRealizations, sigma,
                                                weightByRealizations, internal::neighbour_cell(positions),
-                                               average.nNeighbours, average.nRealizationsAveraged);
+                                               average.nNeighbours, average.nRealizationsAveraged, nullptr);
+  return average;
+}
+
+
+// ============================================================================
+
+
+otswap::NeighbourAverage otswap::neighbourAverage (const std::vector<double>& positions,
+                                                   const std::vector<double>& values,
+                                                   const std::vector<unsigned>& validRealizations,
+                                                   const double sigma,
+                                                   const bool weightByRealizations,
+                                                   const BoxLimits& box,
+                                                   const bool periodic)
+{
+  if (!periodic)
+    return neighbourAverage(positions, values, validRealizations, sigma, weightByRealizations);
+
+  const std::size_t n = internal::check_coordinates(positions, "the position array");
+  internal::check_box(box);
+  internal::check_periodic_box(box);
+  for (std::size_t i = 0; i < n; ++i)
+    for (std::size_t c = 0; c < 3; ++c)
+      if (!(positions[3*i+c] >= box.lower[c] && positions[3*i+c] <= box.upper[c]))
+        throw Error("position " + std::to_string(i) + " (from 0) lies at " + std::to_string(positions[3*i+c]) +
+                    " on axis " + std::to_string(c) + ", outside the periodic box [" +
+                    std::to_string(box.lower[c]) + ", " + std::to_string(box.upper[c]) +
+                    "]; wrap the positions into the box first");
+  NeighbourAverage average;
+  average.values = internal::neighbour_average(positions, values, validRealizations, sigma,
+                                               weightByRealizations, internal::neighbour_cell(positions, &box),
+                                               average.nNeighbours, average.nRealizationsAveraged, &box);
   return average;
 }
 
@@ -720,8 +774,9 @@ otswap::RealSpaceCatalog otswap::realSpaceBox (const Result& result,
     std::vector<unsigned> valid(m);
     for (std::size_t k = 0; k < m; ++k) valid[k] = result.validRealizations[keep[k]];
     const std::vector<double> projection = axisProjection(rows_of(result.meanDisplacement, keep), axis);
-    const NeighbourAverage averaged =
-      neighbourAverage(positions, projection, valid, sigma, config.weightByRealizations);
+    const NeighbourAverage averaged = result.periodic
+      ? neighbourAverage(positions, projection, valid, sigma, config.weightByRealizations, *result.box, true)
+      : neighbourAverage(positions, projection, valid, sigma, config.weightByRealizations);
 
     for (std::size_t k = 0; k < m; ++k) {
       const std::size_t i = keep[k];
@@ -735,6 +790,9 @@ otswap::RealSpaceCatalog otswap::realSpaceBox (const Result& result,
       catalog.status[i] = valid[k] > 0 ? CorrectionStatus::Corrected : CorrectionStatus::MovedByNeighbours;
       for (unsigned c = 0; c < 3; ++c) catalog.cartesian[3*i+c] = positions[3*k+c];
       catalog.cartesian[3*i+axis] += shift;
+      if (result.periodic)
+        catalog.cartesian[3*i+axis] = internal::wrap_coordinate(catalog.cartesian[3*i+axis],
+                                                                result.box->lower[axis], result.box->upper[axis]);
     }
   }
 

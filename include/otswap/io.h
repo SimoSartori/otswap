@@ -477,6 +477,9 @@ namespace otswap {
      *  result.config.nRealizations differ, if result.nRealizationsMean is 0,
      *  or above 1 while result.nRealizations is not 1, if
      *  selection.boxLimits is set and box is empty or differs from it, if
+     *  the result is periodic and is not a box result, has no
+     *  selection.boxLimits or flags a tracer in outsideBox, if periodic and
+     *  selection.periodic differ, if
      *  the profile written does not have one mps and one count per
      *  redshift; or as io::write.
      */
@@ -563,13 +566,15 @@ namespace otswap {
      *  (silent, normal or detailed): the configuration; MPS for a box;
      *  BOXXLO, BOXXHI, BOXYLO, BOXYHI, BOXZLO, BOXZHI, Result::box when it
      *  is set, and BOXLIM = 1 when it holds the limits given to
-     *  reconstructBox; ZCUTMIN and ZCUTMAX for the finite bounds of a
+     *  reconstructBox; PERIODIC = 1 when the box is periodic (the keyword is
+     *  then written with BOXLIM, and absent otherwise, as in files of
+     *  otswap 0.3); ZCUTMIN and ZCUTMAX for the finite bounds of a
      *  redshift cut, MASK = 1 when a mask selected the objects, FILTNSID and
      *  MAXPIXCR when a mask filter was applied (CFMAXPIX and MAXPIXCR are
      *  thresholds of rejectMaskCrossings: the longest run of unobserved
      *  pixels a displacement's arc may cross); NTRAC, NTRCUT, NTRMASK,
-     *  NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NDISPL and
-     *  NDISPCR, the counts of Result::selection, each when it is not 0.
+     *  NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NTRWRAP,
+     *  NRNWRAP, NDISPL and NDISPCR, the counts of Result::selection, each when it is not 0.
      *  Doubles are written as the shortest decimal that reads back as the
      *  same value. Then MPSPART = 1 and DISTPART = 1 when the profile and
      *  the table are written.
@@ -603,6 +608,9 @@ namespace otswap {
      *  and result.config.nRealizations differ, if result.nRealizationsMean
      *  is 0, or above 1 while result.nRealizations is not 1, if
      *  selection.boxLimits is set and box is empty or differs from it, if
+     *  the result is periodic and is not a box result, has no
+     *  selection.boxLimits or flags a tracer in outsideBox, if periodic and
+     *  selection.periodic differ, if
      *  the profile written does not have one mps and one count per
      *  redshift, or as io::write.
      */

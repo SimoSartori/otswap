@@ -189,6 +189,35 @@ def compute():
         out[f"reconstruct_box.lattice.{label}.displacement"] = digest(tied.displacement)
         out[f"reconstruct_box.lattice.{label}.mean_displacement"] = digest(tied.mean_displacement)
 
+    # A periodic box of side 100: tracers and given randoms are wrapped into
+    # it, distances are minimum-image, and the lattice cases tie across the
+    # faces. The mps is computed from the box volume.
+    cube = ((-10.0, -10.0, -10.0), (90.0, 90.0, 90.0))
+    for label, given in (("generated", None), ("given", randoms)):
+        periodic = otswap.reconstruct_box(tracers, given, box=cube, periodic=True, config=config)
+        key = f"reconstruct_box.periodic.{label}"
+        out[key + ".displacement"] = digest(periodic.displacement)
+        out[key + ".mean_displacement"] = digest(periodic.mean_displacement)
+        out[key + ".lagrangian"] = digest(periodic.lagrangian)
+        out[key + ".tracers"] = digest(periodic.tracers)
+        out[key + ".wrapped"] = digest([periodic.selection.tracers_wrapped,
+                                        periodic.selection.randoms_wrapped])
+    out["reconstruct_box.periodic.mps"] = digest([periodic.mps])
+
+    whole = ((0.0, 0.0, 0.0), (100.0, 100.0, 100.0))
+    for label, given in (("generated", None), ("given", lattice_randoms)):
+        tied = otswap.reconstruct_box(lattice, given, mps=12.5, box=whole, periodic=True, config=config)
+        out[f"reconstruct_box.periodic.lattice.{label}.displacement"] = digest(tied.displacement)
+        out[f"reconstruct_box.periodic.lattice.{label}.lagrangian"] = digest(tied.lagrangian)
+
+    for sigma, weighted in ((8.0, False), (8.0, True)):
+        correction = otswap.CorrectionConfig(weight_by_realizations=weighted, verbosity="silent")
+        c = otswap.real_space_box(periodic, axis=2, redshift=0.5, distances=table, bias=1.5,
+                                  sigma=sigma, correction=correction)
+        key = f"rsd.real_space_box.periodic.{sigma:g}.{'weighted' if weighted else 'plain'}"
+        out[key + ".positions"] = digest(c.cartesian)
+        out[key + ".n_neighbours"] = digest(c.n_neighbours)
+
     def lightcone():
         return otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=900.0,
                                             n_bins=2, distances=lc_table, angle_unit="deg",

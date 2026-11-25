@@ -1158,16 +1158,19 @@ NB_MODULE(_otswap, m)
     .def_ro("mask_applied", &otswap::SelectionCounts::maskApplied)
     .def_prop_ro("box_limits", [] (const otswap::SelectionCounts& c) { return box_or_none(c.boxLimits); },
                  "The box limits given to reconstruct_box, or None when none were.")
+    .def_ro("periodic", &otswap::SelectionCounts::periodic)
     .def_ro("tracers", &otswap::SelectionCounts::tracers)
     .def_ro("tracers_outside_redshift_cut", &otswap::SelectionCounts::tracersOutsideRedshiftCut)
     .def_ro("tracers_outside_mask", &otswap::SelectionCounts::tracersOutsideMask)
     .def_ro("tracers_outside_both", &otswap::SelectionCounts::tracersOutsideBoth)
     .def_ro("tracers_outside_box", &otswap::SelectionCounts::tracersOutsideBox)
+    .def_ro("tracers_wrapped", &otswap::SelectionCounts::tracersWrapped)
     .def_ro("randoms", &otswap::SelectionCounts::randoms)
     .def_ro("randoms_outside_redshift_cut", &otswap::SelectionCounts::randomsOutsideRedshiftCut)
     .def_ro("randoms_outside_mask", &otswap::SelectionCounts::randomsOutsideMask)
     .def_ro("randoms_outside_both", &otswap::SelectionCounts::randomsOutsideBoth)
     .def_ro("randoms_outside_box", &otswap::SelectionCounts::randomsOutsideBox)
+    .def_ro("randoms_wrapped", &otswap::SelectionCounts::randomsWrapped)
     .def_prop_ro("max_unobserved_pixels_crossed", [] (const otswap::SelectionCounts& c) -> nb::object {
         if (!c.maxUnobservedPixelsCrossed) return nb::none();
         return nb::int_(*c.maxUnobservedPixelsCrossed);
@@ -1217,7 +1220,7 @@ NB_MODULE(_otswap, m)
         [] (nb::handle displacement, nb::handle valid, nb::handle tracers,
             nb::handle tracersSky, nb::handle angleUnit, nb::handle distances,
             nb::handle outsideRedshiftCut, nb::handle outsideMask, nb::handle outsideBox,
-            nb::handle ids, nb::handle config) {
+            nb::handle ids, nb::handle config, bool periodic, nb::handle boxArg) {
           const CArray d = as_float64(displacement, "displacement");
           if (d.ndim() != 3 || d.shape(2) != 3 || d.shape(0) == 0 || d.shape(1) == 0)
             throw otswap::Error("displacement must have shape (n_realizations, n_objects, 3), neither "
@@ -1239,6 +1242,22 @@ NB_MODULE(_otswap, m)
           r.outsideBox = outsideBox.is_none()
             ? std::vector<std::uint8_t>(n, 0) : flags(outsideBox, "outside_box", {n});
           r.ids = ids_value(ids, n);
+          if (periodic) {
+            if (!tracersSky.is_none())
+              throw otswap::Error("periodic describes a box result, and tracers_sky a lightcone one; "
+                                  "give periodic without tracers_sky");
+            const std::optional<otswap::BoxLimits> limits = to_box(boxArg);
+            if (!limits)
+              throw otswap::Error("a periodic result needs the limits of its box; give box");
+            otswap::internal::check_box(*limits);
+            otswap::internal::check_periodic_box(*limits);
+            r.box = limits;
+            r.selection.boxLimits = limits;
+            r.selection.periodic = true;
+            r.periodic = true;
+          }
+          else if (!boxArg.is_none())
+            throw otswap::Error("box gives the limits of a periodic box; give it with periodic = True");
           if (config.is_none()) r.config.nRealizations = (unsigned)nRec;
           else {
             r.config = instance<otswap::Config>(config, "config", "Config");
@@ -1266,7 +1285,7 @@ NB_MODULE(_otswap, m)
         nb::kw_only(), "tracers_sky"_a = nb::none(), "angle_unit"_a = nb::none(),
         "distances"_a = nb::none(), "outside_redshift_cut"_a = nb::none(),
         "outside_mask"_a = nb::none(), "outside_box"_a = nb::none(), "ids"_a = nb::none(),
-        "config"_a = nb::none(),
+        "config"_a = nb::none(), "periodic"_a = false, "box"_a = nb::none(),
         "Build a result from its arrays, as read back from a file; the means are recomputed.")
     .def_prop_ro("n_objects", [] (ResultHandle self) { return result_of(self).nObjects; })
     .def_prop_ro("n_realizations", [] (ResultHandle self) { return result_of(self).nRealizations; })
@@ -1354,6 +1373,8 @@ NB_MODULE(_otswap, m)
         if (std::isnan(r.mps)) return nb::none();
         return nb::float_(r.mps);
       }, "Box: the mean particle separation used, in coordinate units; None for a lightcone.")
+    .def_prop_ro("periodic", [] (ResultHandle self) { return result_of(self).periodic; },
+                 "Box: whether the box was periodic; False for a lightcone.")
     .def_prop_ro("box", [] (ResultHandle self) { return box_or_none(result_of(self).box); },
                  "Box: the box of the reconstruction, a copy; None for a lightcone.")
     .def_prop_ro("mps_profile", [] (const otswap::Result& r) -> const otswap::MpsProfile* {
@@ -1514,7 +1535,7 @@ NB_MODULE(_otswap, m)
   // ==========================================================================
 
   m.def("reconstruct_box",
-      [] (nb::handle tracers, nb::handle randoms, nb::handle mps, nb::handle box, nb::handle configArg) {
+      [] (nb::handle tracers, nb::handle randoms, nb::handle mps, nb::handle box, bool periodic, nb::handle configArg) {
         const std::vector<double> t = rows3(tracers, "tracers");
         std::vector<double> r;
         if (!randoms.is_none()) {
@@ -1529,14 +1550,15 @@ NB_MODULE(_otswap, m)
         LiveReport report;
         const otswap::Config config = config_of(configArg, report.log());
         return result_object(report.run([&] {
-          return computed ? otswap::reconstructBox(t, r, config, limits)
-                          : otswap::reconstructBox(t, r, separation, config, limits);
+          return computed ? otswap::reconstructBox(t, r, config, limits, periodic)
+                          : otswap::reconstructBox(t, r, separation, config, limits, periodic);
         }), false);
       },
       "tracers"_a.none(), "randoms"_a = nb::none(), nb::kw_only(), "mps"_a = nb::none(),
-      "box"_a = nb::none(), "config"_a.none() = otswap::Config(),
+      "box"_a = nb::none(), "periodic"_a = false, "config"_a.none() = otswap::Config(),
       "Reconstruct in box geometry, with a constant mean particle separation: the one given, or "
-      "(V/N)^(1/3) of box or, without it, of the bounding box of the tracers and the given randoms.");
+      "(V/N)^(1/3) of box or, without it, of the bounding box of the tracers and the given randoms. "
+      "With periodic, the box is periodic and box is required.");
 
   m.def("reconstruct_lightcone",
       [] (nb::handle tracersSky, nb::handle randomsSky, nb::handle skyAreaDeg2, nb::handle mask,
@@ -1761,16 +1783,22 @@ NB_MODULE(_otswap, m)
 
   m.def("neighbour_average",
       [] (nb::handle positions, nb::handle values, nb::handle validRealizations, nb::handle sigma,
-          nb::handle weightByRealizations) {
+          nb::handle weightByRealizations, nb::handle boxArg, bool periodic) {
         const std::vector<double> p = rows3(positions, "positions");
         const std::vector<double> v = column(values, "values");
         const std::vector<unsigned> r = counts(validRealizations, "valid_realizations");
         const double s = to_double(sigma, "sigma");
         const bool weight = to_bool(weightByRealizations, "weight_by_realizations");
+        const std::optional<otswap::BoxLimits> limits = to_box(boxArg);
+        if (periodic && !limits)
+          throw otswap::Error("a periodic average needs the limits of the box; give box");
+        if (!periodic && limits)
+          throw otswap::Error("box gives the limits of a periodic box; give it with periodic = True");
         otswap::NeighbourAverage average;
         {
           nb::gil_scoped_release released;
-          average = otswap::neighbourAverage(p, v, r, s, weight);
+          average = periodic ? otswap::neighbourAverage(p, v, r, s, weight, *limits, true)
+                             : otswap::neighbourAverage(p, v, r, s, weight);
         }
         const std::size_t n = average.values.size();
         return nb::module_::import_("otswap").attr("NeighbourAverage")(
@@ -1778,7 +1806,8 @@ NB_MODULE(_otswap, m)
           owned(std::move(average.nRealizationsAveraged), {n}));
       },
       "positions"_a.none(), "values"_a.none(), "valid_realizations"_a.none(), nb::kw_only(),
-      "sigma"_a.none(), "weight_by_realizations"_a.none() = false,
+      "sigma"_a.none(), "weight_by_realizations"_a.none() = false, "box"_a = nb::none(),
+      "periodic"_a = false,
       "Gaussian average of values over the valid neighbours of each object.");
 
   m.def("rsd_factor",
