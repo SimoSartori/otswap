@@ -31,10 +31,14 @@
  *                      convergence=X seed=N cell_size=X out=P
  *                      [mask=FITS max_unobserved_pixels_crossed=N]
  *
- *    cpp_reference lightcone tracers_sky=F randoms_sky=F [tracers=F randoms=F]
+ *    cpp_reference lightcone (tracers_sky=F randoms_sky=F | tracers=F randoms=F
+ *                      [distance_cut_min=X distance_cut_max=X])
  *                      [sky_area_deg2=X] n_bins=N omega_m=X h=X z_min=X z_max=X
  *                      n_samples=N n_realizations=N convergence=X seed=N
  *                      cell_size=X out=P [mask=FITS max_unobserved_pixels_crossed=N]
+ *
+ *  With tracers and randoms, the Cartesian overloads are called, with the
+ *  table and the distance cut given.
  *
  *  With write=1, a reconstruction also writes P.displacements.dat,
  *  P.complete.fits, P.complete.dat (with its twins, for a lightcone) and,
@@ -62,9 +66,10 @@
  *
  *  Input files hold native float64 values, flat and row-major; sky angles
  *  are in radians. A reconstruction writes P.displacement and
- *  P.mean_displacement (float64), P.valid and P.outside_mask (uint8) and
- *  P.valid_realizations (uint32), and P.lagrangian_sky (float64) when the
- *  result carries it; cartesian writes P.xyz and sky P.sky (float64). The
+ *  P.mean_displacement (float64), P.valid, P.outside_mask and
+ *  P.outside_distance_cut (uint8) and
+ *  P.valid_realizations (uint32), and P.lagrangian_sky and
+ *  P.lagrangian_distance (float64) when the result carries them; cartesian writes P.xyz and sky P.sky (float64). The
  *  table of a lightcone is DistanceTable(omega_m, h, -1, 0, z_min, z_max,
  *  n_samples).
  */
@@ -78,7 +83,6 @@
 #include <vector>
 
 #include "otswap/OT.h"
-#include "internal.h"
 
 namespace {
 
@@ -157,13 +161,15 @@ namespace {
     write("mean_displacement", result.meanDisplacement);
     write("valid", result.valid);
     write("outside_mask", result.outsideMask);
+    write("outside_distance_cut", result.outsideDistanceCut);
     write("valid_realizations", result.validRealizations);
     if (!result.lagrangianSky.empty()) write("lagrangian_sky", result.lagrangianSky);
+    if (!result.lagrangianDistance.empty()) write("lagrangian_distance", result.lagrangianDistance);
     if (has("write")) {
       otswap::io::writeDisplacementMean(arg("out") + ".displacements.dat", result);
       otswap::io::writeDisplacementComplete(arg("out") + ".complete.fits", result);
       otswap::io::writeDisplacementComplete(arg("out") + ".complete.dat", result);
-      if (!result.mpsProfile.redshift.empty())
+      if (!result.mpsProfile.mps.empty())
         otswap::io::writeMpsProfile(arg("out") + ".mps.dat", result.mpsProfile);
     }
   }
@@ -196,24 +202,32 @@ int main (int argc, char** argv)
     else if (mode == "lightcone") {
       const otswap::DistanceTable distances = table();
       otswap::Result result;
-      if (has("sky_area_deg2")) {
-        result = has("tracers")
-          ? otswap::internal::reconstruct_lightcone_both(read("tracers"), read("randoms"), read("tracers_sky"),
-                                                         read("randoms_sky"), real("sky_area_deg2"), nullptr,
-                                                         integer("n_bins"), distances, config(),
-                                                         otswap::RedshiftCut{})
-          : otswap::reconstructLightcone(read("tracers_sky"), read("randoms_sky"), real("sky_area_deg2"),
-                                         integer("n_bins"), distances, config());
+      if (has("tracers")) {
+        // The Cartesian overloads, with the table and, when its bounds are
+        // given, a distance cut.
+        otswap::DistanceCut cut;
+        if (has("distance_cut_min")) cut = {real("distance_cut_min"), real("distance_cut_max")};
+        if (has("sky_area_deg2")) {
+          result = otswap::reconstructLightcone(read("tracers"), read("randoms"), real("sky_area_deg2"),
+                                                integer("n_bins"), config(), &distances, cut);
+          finish(result, has("mask"));
+        }
+        else {
+          const otswap::Mask mask(arg("mask"));
+          result = otswap::reconstructLightcone(read("tracers"), read("randoms"), mask, integer("n_bins"),
+                                                config(), &distances, cut);
+          finish(result, false);
+        }
+      }
+      else if (has("sky_area_deg2")) {
+        result = otswap::reconstructLightcone(read("tracers_sky"), read("randoms_sky"), real("sky_area_deg2"),
+                                              integer("n_bins"), distances, config());
         finish(result, has("mask"));
       }
       else {
         const otswap::Mask mask(arg("mask"));
-        result = has("tracers")
-          ? otswap::internal::reconstruct_lightcone_both(read("tracers"), read("randoms"), read("tracers_sky"),
-                                                         read("randoms_sky"), 0., &mask, integer("n_bins"),
-                                                         distances, config(), otswap::RedshiftCut{})
-          : otswap::reconstructLightcone(read("tracers_sky"), read("randoms_sky"), mask,
-                                         integer("n_bins"), distances, config());
+        result = otswap::reconstructLightcone(read("tracers_sky"), read("randoms_sky"), mask,
+                                              integer("n_bins"), distances, config());
         finish(result, false);
       }
     }

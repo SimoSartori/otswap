@@ -178,10 +178,14 @@ std::string otswap::internal::selection_name (const SelectionCounts& counts)
       name += (k ? " x [" : "[") + std::to_string(b.lower[k]) + ", " + std::to_string(b.upper[k]) + "]";
     return name;
   }
-  const std::string cut = !counts.redshiftCut ? std::string()
-    : "the redshift cut [" + std::to_string(counts.redshiftCut->min) + ", " +
-      std::to_string(counts.redshiftCut->max) + "]";
-  return !counts.maskApplied ? cut : counts.redshiftCut ? cut + " and the mask" : "the mask";
+  const std::string cut = counts.redshiftCut
+    ? "the redshift cut [" + std::to_string(counts.redshiftCut->min) + ", " +
+      std::to_string(counts.redshiftCut->max) + "]"
+    : counts.distanceCut
+    ? "the distance cut [" + std::to_string(counts.distanceCut->min) + ", " +
+      std::to_string(counts.distanceCut->max) + "] in coordinate units"
+    : std::string();
+  return !counts.maskApplied ? cut : !cut.empty() ? cut + " and the mask" : "the mask";
 }
 
 
@@ -249,6 +253,7 @@ otswap::Result otswap::internal::expand (const Result& kept, const Selection& se
   full.displacement.assign(3 * (std::size_t)nRealizations * nObjects, kNaN);
   full.valid.assign((std::size_t)nRealizations * nObjects, 0);
   full.outsideRedshiftCut = selection.outsideCut;
+  full.outsideDistanceCut.assign(nObjects, 0);
   full.outsideMask = selection.outsideMask;
   full.outsideBox = selection.outsideBox;
   full.filteredNside = kept.filteredNside;

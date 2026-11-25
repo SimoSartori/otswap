@@ -24,6 +24,7 @@ passed as `config=` or `correction=`; a flat
 | `Verbosity` | `"silent"`, `"normal"`, `"detailed"` | the `verbosity` field; the `verbosity` keyword of `measure_mps_profile` |
 | `Config::log`, `CorrectionConfig::log`, the `log` of `measureMpsProfile` | — | Python prints to `sys.stdout` |
 | `RedshiftCut`, `min`, `max` | `RedshiftCut`, `min`, `max`; keyword `redshift_cut` | also a pair `(min, max)` |
+| `DistanceCut`, `min`, `max` | `DistanceCut`, `min`, `max`; keyword `distance_cut` | also a pair `(min, max)`; with `tracers=` only |
 | `BoxLimits`, `lower`, `upper` | `BoxLimits`, `lower`, `upper`; keyword `box` | also a pair `((x0, y0, z0), (x1, y1, z1))` |
 | `Geometry` | `"box"`, `"lightcone"` | the `geometry` property |
 | `PixelOrdering` | keyword `nest` of `Mask.from_array` | |
@@ -38,6 +39,7 @@ passed as `config=` or `correction=`; a flat
 | `hasGrowthRate()`, `minRedshift()`, `maxRedshift()` | `has_growth_rate`, `min_redshift`, `max_redshift` | properties |
 | `redshift()`, `distance()`, `growthRate()` | `redshift`, `distance`, `growth_rate` | read-only views; `growth_rate` None when the table carries none |
 | `toCartesian`, `toSky` | `to_cartesian`, `to_sky` | |
+| `pointToSky` | `point_to_sky` | Python takes an (N, 3) array and returns distance, right ascension, declination per row |
 | `skyToRadians`, `skyToDegrees` | — | Python takes `angle_unit` instead |
 
 ## Mask
@@ -54,8 +56,8 @@ passed as `config=` or `correction=`; a flat
 | C++ | Python | Notes |
 |---|---|---|
 | `reconstructBox`, two overloads | `reconstruct_box` | `mps` omitted to compute it; randoms omitted to draw them; `limits` is `box=` |
-| `reconstructLightcone`, four overloads | `reconstruct_lightcone` | `sky_area_deg2=` or `mask=`; `tracers=` and `randoms=` for the Cartesian overloads |
-| `measureMpsProfile`, two overloads | `measure_mps_profile` | `sky_area_deg2=` or `mask=`; `verbosity` an argument, as no `Config` is taken |
+| `reconstructLightcone`, four overloads | `reconstruct_lightcone` | `sky_area_deg2=` or `mask=`; `tracers_sky` and `randoms_sky`, or `tracers=` and `randoms=` for the Cartesian overloads, whose `distances=` is optional |
+| `measureMpsProfile`, four overloads | `measure_mps_profile` | `sky_area_deg2=` or `mask=`; `tracers_sky`, or `tracers=` for the Cartesian overloads; `verbosity` an argument, as no `Config` is taken |
 | `rejectMaskCrossings` | `reject_mask_crossings` | |
 | `recomputeMeans` | `recompute_means` | |
 
@@ -73,6 +75,8 @@ passed as `config=` or `correction=`; a flat
 | `Result::mps`, NaN in a lightcone | `Result.mps`, None in a lightcone | |
 | `Result::box`, empty in a lightcone | `Result.box`, None in a lightcone | a copy in Python |
 | `Result::outsideBox` | `Result.outside_box` | a bool view in Python, as `outside_mask` |
+| `Result::outsideDistanceCut` | `Result.outside_distance_cut` | a bool view in Python, as `outside_mask` |
+| `Result::lagrangianDistance` | `Result.lagrangian_distance` | None in a box |
 | `SelectionCounts::boxLimits` | `SelectionCounts.box_limits` | None when no limits were given |
 | `MpsProfile`, `at` | `MpsProfile`, `at` | Python's `at` takes arrays |
 | `SelectionCounts`, `message()` | `SelectionCounts`, `repr()` | |

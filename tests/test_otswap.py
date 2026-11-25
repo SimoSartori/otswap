@@ -160,10 +160,14 @@ def lightcone(table):
 
 
 def lightcone_result(table, lightcone, **kwargs):
+    """reconstruct_lightcone on the sky arrays, or on the Cartesian ones when
+    tracers or randoms is given."""
     tracers_sky, randoms_sky = lightcone
     options = dict(sky_area_deg2=patch_area_deg2(), n_bins=3, distances=table,
                    angle_unit="deg", config=otswap.Config(n_realizations=2, seed=5))
     options.update(kwargs)
+    if "tracers" in kwargs or "randoms" in kwargs:
+        tracers_sky = randoms_sky = None
     return otswap.reconstruct_lightcone(tracers_sky, randoms_sky, **options)
 
 
@@ -200,10 +204,10 @@ def pool_index(points, pool, atol=1e-9):
 
 def test_exports():
     assert sorted(otswap.__all__) == sorted([
-        "AngleUnit", "BiasTable", "BoxLimits", "Config", "CorrectionConfig", "CorrectionStatus", "DistanceTable",
+        "AngleUnit", "BiasTable", "BoxLimits", "Config", "CorrectionConfig", "CorrectionStatus", "DistanceCut", "DistanceTable",
         "Error", "ExtrapolationWarning", "Mask", "MpsProfile", "NeighbourAverage", "RealSpaceCatalog",
         "RedshiftCut", "Result", "SelectionCounts",
-        "axis_projection", "measure_mps_profile", "neighbour_average", "openmp_root", "radial_projection",
+        "axis_projection", "measure_mps_profile", "neighbour_average", "openmp_root", "point_to_sky", "radial_projection",
         "real_space_box", "real_space_lightcone", "recompute_means", "reconstruct_box",
         "reconstruct_lightcone", "reject_mask_crossings", "rsd_factor", "rsd_factor_box",
         "shift_along_axis", "shift_radially",
@@ -470,6 +474,58 @@ def test_to_sky_rows_and_the_fold(table):
 def test_to_sky_errors(table, xyz, kwargs):
     with pytest.raises(otswap.Error):
         otswap.to_sky(xyz, table, **kwargs)
+
+
+def test_point_to_sky(table):
+    """The distance and angles of to_sky, bit for bit, in both units, without
+    a table and without raising on a value; NaN rows all NaN."""
+    xyz = np.array([[1000.0, -1e-17, 0.0], [np.nan, 1.0, 1.0], [0.0, 0.0, 0.0], [0.0, 1000.0, 1000.0],
+                    [-1000.0, -1e-3, 0.0], [1.0e5, 0.0, 0.0], [np.inf, 0.0, 0.0]])
+    finite = [0, 2, 3, 4]
+    for unit in ("deg", "rad"):
+        p = otswap.point_to_sky(xyz, angle_unit=unit)
+        s = otswap.to_sky(xyz[finite], table, angle_unit=unit)
+        assert p.shape == (7, 3) and same_bytes(p[finite, 1:], s[:, :2])
+        x, y, z = xyz[finite].T
+        assert same_bytes(p[finite, 0], np.sqrt(x * x + y * y + z * z))
+        assert np.isnan(p[1]).all() and (p[2] == 0.0).all()
+        assert p[5, 0] == 1.0e5 and p[6, 0] == math.inf
+    with pytest.raises(otswap.Error):
+        otswap.point_to_sky(np.zeros((2, 2)), angle_unit="deg")
+    with pytest.raises(otswap.Error):
+        otswap.point_to_sky(xyz, angle_unit="degrees")
+    with pytest.raises(TypeError):
+        otswap.point_to_sky(xyz, "deg")
+
+
+def test_distance_cut_class():
+    whole = otswap.DistanceCut()
+    assert whole.min == -math.inf and whole.max == math.inf and repr(whole) == "DistanceCut(min=-inf, max=inf)"
+    cut = otswap.DistanceCut(800.0, 1200.0)
+    assert eval(repr(cut), {"DistanceCut": otswap.DistanceCut}) == cut
+    assert otswap.DistanceCut((800.0, 1200.0)) == cut and otswap.DistanceCut(800.0).max == math.inf
+    assert cut != otswap.RedshiftCut(800.0, 1200.0)
+    cut.max = 1000.0
+    assert cut == otswap.DistanceCut(800.0, 1000.0)
+    with pytest.raises(TypeError):
+        hash(cut)
+    with pytest.raises(otswap.Error, match="max must be a real number"):
+        cut.max = None
+
+
+def test_from_arrays_outside_distance_cut(table, lightcone):
+    tracers_sky, randoms_sky = lightcone
+    tracers = otswap.to_cartesian(tracers_sky, table, angle_unit="deg")
+    randoms = otswap.to_cartesian(randoms_sky, table, angle_unit="deg")
+    cut = tuple(float(d) for d in table.distance_at([0.0, 0.55]))
+    r = lightcone_result(table, lightcone, tracers=tracers, randoms=randoms, n_bins=2, distance_cut=cut)
+    rebuilt = otswap.Result.from_arrays(r.displacement, r.valid, r.tracers, tracers_sky=r.tracers_sky,
+                                        angle_unit="deg", distances=table,
+                                        outside_distance_cut=r.outside_distance_cut)
+    assert np.array_equal(rebuilt.outside_distance_cut, r.outside_distance_cut) and r.outside_distance_cut.any()
+    assert same_bytes(rebuilt.mean_displacement, r.mean_displacement)
+    plain = otswap.Result.from_arrays(r.displacement, r.valid, r.tracers)
+    assert not plain.outside_distance_cut.any()
 
 
 def test_to_sky_needs_a_table_and_a_keyword_unit(table):
@@ -1333,16 +1389,57 @@ def test_reconstruct_lightcone_deg_and_rad_are_identical(table, lightcone):
 
 
 def test_reconstruct_lightcone_with_cartesian_coordinates(table, lightcone):
+    """From tracers and randoms: a profile in distance, measure_mps_profile's;
+    the table only fills the redshifts; the angles and distances are
+    point_to_sky's."""
     tracers_sky, randoms_sky = lightcone
     tracers = otswap.to_cartesian(tracers_sky, table, angle_unit="deg")
     randoms = otswap.to_cartesian(randoms_sky, table, angle_unit="deg")
-    converted = lightcone_result(table, lightcone)
     given = lightcone_result(table, lightcone, tracers=tracers, randoms=randoms)
-    for name, array in result_arrays(converted).items():
-        assert same_bytes(array, getattr(given, name)), name
+    bare = lightcone_result(table, lightcone, tracers=tracers, randoms=randoms, distances=None)
+    for name, array in result_arrays(given).items():
+        assert same_bytes(array, getattr(bare, name)), name
+    assert same_bytes(given.tracers, tracers)
+    profile = given.mps_profile
+    assert len(profile.distance) == 3 and len(profile.redshift) == 0 and np.isnan(profile.redshift_min)
+    measured = otswap.measure_mps_profile(tracers=tracers, sky_area_deg2=patch_area_deg2(), n_bins=3,
+                                          verbosity="silent")
+    assert same_bytes(measured.mps, profile.mps) and same_bytes(measured.distance, profile.distance)
+    angles = otswap.point_to_sky(tracers, angle_unit="deg")
+    assert same_bytes(given.tracers_sky[:, :2], angles[:, 1:]) and same_bytes(bare.tracers_sky[:, :2], angles[:, 1:])
+    assert np.isnan(bare.tracers_sky[:, 2]).all() and np.isnan(bare.lagrangian_sky[:, 2]).all()
+    assert same_bytes(given.tracers_sky[:, 2], table.redshift_at(angles[:, 0]))
+    assert same_bytes(given.lagrangian_distance, otswap.point_to_sky(given.lagrangian, angle_unit="deg")[:, 0])
+    assert bare.distances is None and given.distances is not None
     # the Cartesian coordinates are used as given
     shifted = lightcone_result(table, lightcone, tracers=tracers + 1.0, randoms=randoms + 1.0)
-    assert not same_bytes(shifted.displacement, converted.displacement)
+    assert not same_bytes(shifted.displacement, given.displacement)
+
+
+@pytest.mark.parametrize("kwargs, text", [
+    (dict(tracers_sky="sky"), "not both"),
+    (dict(randoms=None), "give both tracers and randoms"),
+    (dict(redshift_cut=(0.3, 0.5)), "with tracers and randoms, give distance_cut"),
+    (dict(distance_cut=(1.0, 0.5)), "its lower bound exceeds the upper one"),
+    (dict(distance_cut=(np.nan, 1e4)), "a bound of the distance cut is NaN"),
+    (dict(distance_cut=(1, 2, 3)), "a (min, max) pair"),
+])
+def test_reconstruct_lightcone_cartesian_errors(table, lightcone, kwargs, text):
+    tracers_sky, randoms_sky = lightcone
+    options = dict(tracers=otswap.to_cartesian(tracers_sky, table, angle_unit="deg"),
+                   randoms=otswap.to_cartesian(randoms_sky, table, angle_unit="deg"))
+    if kwargs.get("tracers_sky") == "sky":
+        kwargs = dict(tracers_sky=tracers_sky, randoms_sky=randoms_sky)
+        options = dict(tracers=options["tracers"], randoms=options["randoms"])
+        with pytest.raises(otswap.Error, match=re.escape(text)):
+            otswap.reconstruct_lightcone(**kwargs, **options, sky_area_deg2=patch_area_deg2(), n_bins=3,
+                                         distances=table, angle_unit="deg")
+        return
+    options.update(kwargs)
+    with pytest.raises(otswap.Error, match=re.escape(text)):
+        otswap.reconstruct_lightcone(**options, sky_area_deg2=patch_area_deg2(), n_bins=3, angle_unit="deg")
+    with pytest.raises(otswap.Error, match="with tracers_sky and randoms_sky, give redshift_cut"):
+        lightcone_result(table, lightcone, distance_cut=(1.0, 2.0))
 
 
 def test_lightcone_cell_size_affects_speed_only(table, lightcone):
@@ -1640,18 +1737,34 @@ def test_box_and_correction_reports(table, lightcone, capfd):
 
 
 def test_lightcone_cartesian_with_mask(table, lightcone):
+    """Cartesian tracers with the mask and a distance cut: the flags follow
+    Mask.allows and the distance of point_to_sky; the counts and the report
+    name the distance cut; measure_mps_profile gives the same profile."""
     tracers_sky, randoms_sky = lightcone
     mask = nine_mask()
-    options = dict(mask=mask, n_bins=1, distances=table, angle_unit="deg", redshift_cut=MASK_CUT,
-                   config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
-    sky = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, **options)
-    cartesian = otswap.reconstruct_lightcone(
-        tracers_sky, randoms_sky, tracers=otswap.to_cartesian(tracers_sky, table, angle_unit="deg"),
-        randoms=otswap.to_cartesian(randoms_sky, table, angle_unit="deg"), **options)
-    for name, array in result_arrays(sky).items():
-        assert same_bytes(array, getattr(cartesian, name)), name
-    assert same_bytes(sky.outside_mask, cartesian.outside_mask)
-    assert repr(sky.selection) == repr(cartesian.selection)
+    tracers = otswap.to_cartesian(tracers_sky, table, angle_unit="deg")
+    randoms = otswap.to_cartesian(randoms_sky, table, angle_unit="deg")
+    cut = otswap.DistanceCut(*table.distance_at(list(MASK_CUT)))
+    result = otswap.reconstruct_lightcone(
+        tracers=tracers, randoms=randoms, mask=mask, n_bins=1, angle_unit="deg", distance_cut=cut,
+        config=otswap.Config(n_realizations=2, seed=5, verbosity="silent"))
+    angles = otswap.point_to_sky(tracers, angle_unit="deg")
+    outside_cut = (angles[:, 0] < cut.min) | (angles[:, 0] > cut.max)
+    outside_mask = ~mask.allows(angles[:, 1], angles[:, 2], angle_unit="deg")
+    assert np.array_equal(result.outside_distance_cut, outside_cut) and outside_cut.any()
+    assert np.array_equal(result.outside_mask, outside_mask) and outside_mask.any()
+    assert not result.outside_redshift_cut.any()
+    s = result.selection
+    assert s.distance_cut == cut and s.redshift_cut is None and s.mask_applied
+    assert s.tracers_outside_distance_cut == outside_cut.sum() and s.tracers_outside_redshift_cut == 0
+    assert s.tracers_outside_both == (outside_cut & outside_mask).sum()
+    assert "outside the distance cut [" in repr(s) and "in coordinate units" in repr(s)
+    left_out = outside_cut | outside_mask
+    assert np.isnan(result.mean_displacement[left_out]).all()
+    assert (result.valid_realizations[left_out] == 0).all()
+    profile = otswap.measure_mps_profile(tracers=tracers, mask=mask, n_bins=1, distance_cut=cut,
+                                         verbosity="silent")
+    assert same_bytes(profile.mps, result.mps_profile.mps)
 
 
 @pytest.mark.parametrize("kwargs, text", [
@@ -1766,7 +1879,7 @@ def test_measure_mps_profile_argument_errors(table, lightcone, kwargs, text):
     kwargs = {k: (nine_mask() if v == "mask" else v) for k, v in kwargs.items()}
     with pytest.raises(otswap.Error, match=text):
         otswap.measure_mps_profile(lightcone[0], n_bins=1, distances=table, angle_unit="deg", **kwargs)
-    with pytest.raises(TypeError):
+    with pytest.raises(otswap.Error, match="angle_unit must be"):
         otswap.measure_mps_profile(lightcone[0], sky_area_deg2=900.0, n_bins=1, distances=table)
 
 
@@ -2024,46 +2137,61 @@ def test_box_matches_cpp(tmp_path, with_randoms):
     assert_same_result(result, read_cpp_result(out, 3, len(tracers)))
 
 
+def cartesian_inputs(table, lightcone, cartesian):
+    """The arrays for cpp_reference, and the arrays and cut for the binding:
+    the sky ones, or Cartesian ones with a distance cut."""
+    tracers_sky, randoms_sky = lightcone
+    if not cartesian:
+        return ({"tracers_sky": to_radians(tracers_sky), "randoms_sky": to_radians(randoms_sky)}, {},
+                dict(tracers_sky=tracers_sky, randoms_sky=randoms_sky))
+    tracers = otswap.to_cartesian(tracers_sky, table, angle_unit="deg") * 1.001
+    randoms = otswap.to_cartesian(randoms_sky, table, angle_unit="deg") * 1.001
+    lo, hi = 0.0, float(table.distance_at(0.57))
+    return ({"tracers": tracers, "randoms": randoms}, dict(distance_cut_min=lo, distance_cut_max=hi),
+            dict(tracers=tracers, randoms=randoms, distance_cut=(lo, hi)))
+
+
+def assert_cartesian_extras(result, out, cartesian):
+    if not cartesian:
+        return
+    assert result.outside_distance_cut.any()
+    assert same_bytes(result.outside_distance_cut.view(np.uint8),
+                      np.fromfile(f"{out}.outside_distance_cut", dtype=np.uint8))
+    assert same_bytes(result.lagrangian_distance, np.fromfile(f"{out}.lagrangian_distance", dtype=np.float64))
+
+
 @needs_cpp
 @pytest.mark.parametrize("cartesian", [False, True])
 def test_lightcone_matches_cpp(tmp_path, table, lightcone, holes_mask, cartesian):
-    tracers_sky, randoms_sky = lightcone
-    arrays = {"tracers_sky": to_radians(tracers_sky), "randoms_sky": to_radians(randoms_sky)}
-    extra = {}
-    if cartesian:
-        extra = dict(tracers=otswap.to_cartesian(tracers_sky, table, angle_unit="deg") * 1.001,
-                     randoms=otswap.to_cartesian(randoms_sky, table, angle_unit="deg") * 1.001)
-        arrays.update(extra)
+    arrays, cut, given = cartesian_inputs(table, lightcone, cartesian)
+    bins = 2 if cartesian else 3
     config = dict(n_realizations=2, convergence=1e-3, seed=5, cell_size=4.0)
-    out = run_cpp(tmp_path, "lightcone", arrays, sky_area_deg2=patch_area_deg2(), n_bins=3,
-                  **TABLE_ARGS, **config, mask=holes_mask, max_unobserved_pixels_crossed=1)
-    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, sky_area_deg2=patch_area_deg2(),
-                                          n_bins=3, distances=table, angle_unit="deg",
-                                          config=otswap.Config(**config), **extra)
+    out = run_cpp(tmp_path, "lightcone", arrays, sky_area_deg2=patch_area_deg2(), n_bins=bins,
+                  **TABLE_ARGS, **config, **cut, mask=holes_mask, max_unobserved_pixels_crossed=1)
+    result = otswap.reconstruct_lightcone(**given, sky_area_deg2=patch_area_deg2(),
+                                          n_bins=bins, distances=table, angle_unit="deg",
+                                          config=otswap.Config(**config))
     otswap.reject_mask_crossings(result, otswap.Mask(holes_mask), max_unobserved_pixels_crossed=1)
     assert not result.valid.all()
-    assert_same_result(result, read_cpp_result(out, 2, len(tracers_sky)))
+    assert_same_result(result, read_cpp_result(out, 2, len(lightcone[0])))
+    assert_cartesian_extras(result, out, cartesian)
 
 
 @needs_cpp
 @pytest.mark.parametrize("cartesian", [False, True])
 def test_lightcone_mask_overload_matches_cpp(tmp_path, table, lightcone, holes_mask, cartesian):
-    tracers_sky, randoms_sky = lightcone
-    arrays = {"tracers_sky": to_radians(tracers_sky), "randoms_sky": to_radians(randoms_sky)}
-    extra = {}
-    if cartesian:
-        extra = dict(tracers=otswap.to_cartesian(tracers_sky, table, angle_unit="deg") * 1.001,
-                     randoms=otswap.to_cartesian(randoms_sky, table, angle_unit="deg") * 1.001)
-        arrays.update(extra)
+    arrays, cut, given = cartesian_inputs(table, lightcone, cartesian)
+    bins = 2 if cartesian else 3
     config = dict(n_realizations=2, convergence=1e-3, seed=5, cell_size=4.0)
-    out = run_cpp(tmp_path, "lightcone", arrays, n_bins=3, **TABLE_ARGS, **config,
+    out = run_cpp(tmp_path, "lightcone", arrays, n_bins=bins, **TABLE_ARGS, **config, **cut,
                   mask=holes_mask, max_unobserved_pixels_crossed=1)
-    result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=otswap.Mask(holes_mask),
-                                          n_bins=3, distances=table, angle_unit="deg",
+    result = otswap.reconstruct_lightcone(**given, mask=otswap.Mask(holes_mask),
+                                          n_bins=bins, distances=table, angle_unit="deg",
                                           config=otswap.Config(max_unobserved_pixels_crossed=1,
-                                                               verbosity="silent", **config), **extra)
+                                                               verbosity="silent", **config))
     assert result.outside_mask.any() and not result.valid.all()
-    assert_same_result(result, read_cpp_result(out, 2, len(tracers_sky)))
+    assert_same_result(result, read_cpp_result(out, 2, len(lightcone[0])))
+    assert_cartesian_extras(result, out, cartesian)
     assert same_bytes(result.outside_mask.view(np.uint8),
                       np.fromfile(f"{out}.outside_mask", dtype=np.uint8))
     reference = np.fromfile(f"{out}.lagrangian_sky", dtype=np.float64).reshape(-1, 3)

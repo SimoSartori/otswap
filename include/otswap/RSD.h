@@ -158,6 +158,11 @@ namespace otswap {
    *  tracers near the opposite face. With @p periodic false it is the first
    *  overload, and @p box is not used.
    *
+   *  @param positions as in the first overload.
+   *  @param values as in the first overload.
+   *  @param validRealizations as in the first overload.
+   *  @param sigma as in the first overload.
+   *  @param weightByRealizations as in the first overload.
    *  @param box the limits of the box; with @p periodic, each side an
    *  integer multiple of the shortest, as for reconstructBox.
    *  @param periodic whether the box is periodic. The positions must lie
@@ -278,7 +283,7 @@ namespace otswap {
     Corrected         = 0,  ///< had a valid realization; moved
     MovedByNeighbours = 1,  ///< had no valid realization; moved with its neighbours' average
     NoValidNeighbour  = 2,  ///< no valid tracer within 3 sigma (with sigma = 0: no valid realization); not moved
-    LeftOut           = 3   ///< outside the reconstruction's redshift cut, mask or box limits; not moved
+    LeftOut           = 3   ///< outside the reconstruction's redshift or distance cut, mask or box limits; not moved
   };
 
   /**
@@ -366,9 +371,15 @@ namespace otswap {
    *     factor times the average; its Cartesian position moves by s_i along
    *     its line of sight.
    *
-   *  Tracers flagged in result.outsideRedshiftCut or result.outsideMask are
-   *  left out: they take no part in any average, are not moved, have
-   *  diagnostics 0, and the status LeftOut.
+   *  Tracers flagged in result.outsideRedshiftCut, result.outsideDistanceCut
+   *  or result.outsideMask are left out: they take no part in any average,
+   *  are not moved, have diagnostics 0, and the status LeftOut.
+   *
+   *  For a result of a Cartesian overload of reconstructLightcone, one whose
+   *  mpsProfile is in distance, the observed redshift of each tracer is not
+   *  read from tracersSky: it is the redshift at which @p distances reaches
+   *  the tracer's distance from the origin, which is also the d(z_i) of
+   *  step 4. The right ascension and declination are those of tracersSky.
    *
    *  On a Result read by io::readDisplacementComplete the correction is
    *  that of the reconstruction itself, bit for bit, but for the right
@@ -376,7 +387,8 @@ namespace otswap {
    *  within the rounding of the file's conversion to degrees and back.
    *
    *  @param result a lightcone reconstruction, with its tracers and
-   *  tracersSky, as reconstructLightcone returns it.
+   *  tracersSky, as reconstructLightcone returns it; from a Cartesian
+   *  overload, with or without a distance table.
    *  @param distances a table carrying the growth rate, covering the
    *  corrected distances as well as the observed ones.
    *  @param bias the b(z) table.
@@ -390,10 +402,11 @@ namespace otswap {
    *  lacks its tracers or tracersSky, if its ids are neither empty nor one
    *  per object or hold a value twice, if a tracer kept is not finite or is
    *  at the origin, if the table carries no growth rate, if the bias table
-   *  is malformed or extrapolates to a bias that is not positive, or if a
-   *  corrected comoving distance is not positive or lies outside the
-   *  distance table; the message names the object, and in the last case
-   *  suggests a table covering a wider redshift range.
+   *  is malformed or extrapolates to a bias that is not positive, if the
+   *  distance of a tracer of a Cartesian result lies outside the distance
+   *  table, or if a corrected comoving distance is not positive or lies
+   *  outside the distance table; the message names the object, and in the
+   *  last two cases suggests a table covering a wider redshift range.
    *  @exception Error from the neighbour search, as neighbourAverage, for
    *  the tracers corrected.
    */

@@ -82,6 +82,23 @@ namespace {
     return Column{name, type, description, unit, {}, {}};
   }
 
+  /// Whether the displacement writers write the column outsideDistanceCut:
+  /// for a lightcone result whose profile is in distance, a result of a
+  /// Cartesian overload, or one that flags a tracer in it. Absent
+  /// otherwise, so that the files of a sky or box result are unchanged.
+  bool has_distance_cut (const otswap::Result& r)
+  {
+    if (r.geometry != otswap::Geometry::Lightcone) return false;
+    return !r.mpsProfile.distance.empty() ||
+           std::any_of(r.outsideDistanceCut.begin(), r.outsideDistanceCut.end(),
+                       [] (const std::uint8_t f) { return f != 0; });
+  }
+
+  Column distance_cut_column ()
+  {
+    return column("outsideDistanceCut", 'J', "1 if left out of the reconstruction by the distance cut");
+  }
+
   /// The shortest decimal of up to 17 significant digits that reads back as
   /// value.
   std::string number (const double value)
@@ -161,6 +178,10 @@ namespace {
       k.push_back({"ZCUTMIN", number(s.redshiftCut->min), "lower bound of the redshift cut"});
     if (s.redshiftCut && std::isfinite(s.redshiftCut->max))
       k.push_back({"ZCUTMAX", number(s.redshiftCut->max), "upper bound of the redshift cut"});
+    if (s.distanceCut && std::isfinite(s.distanceCut->min))
+      k.push_back({"DCUTMIN", number(s.distanceCut->min), "lower bound of the distance cut"});
+    if (s.distanceCut && std::isfinite(s.distanceCut->max))
+      k.push_back({"DCUTMAX", number(s.distanceCut->max), "upper bound of the distance cut"});
     if (s.maskApplied) k.push_back({"MASK", "1", "objects selected by a mask"});
     if (r.filteredNside != 0)
       k.push_back({"FILTNSID", integer(r.filteredNside), "NSIDE of the mask filter"});
@@ -170,11 +191,13 @@ namespace {
     const std::pair<const char*, std::pair<std::size_t, const char*>> counts[] = {
       {"NTRAC",   {s.tracers, "tracers given"}},
       {"NTRCUT",  {s.tracersOutsideRedshiftCut, "of them, outside the redshift cut"}},
+      {"NTRDCUT", {s.tracersOutsideDistanceCut, "of them, outside the distance cut"}},
       {"NTRMASK", {s.tracersOutsideMask, "of them, on an unobserved pixel"}},
       {"NTRBOTH", {s.tracersOutsideBoth, "of them, outside both"}},
       {"NTRBOX",  {s.tracersOutsideBox, "of them, outside the box limits"}},
       {"NRAND",   {s.randoms, "randoms given"}},
       {"NRNCUT",  {s.randomsOutsideRedshiftCut, "of them, outside the redshift cut"}},
+      {"NRNDCUT", {s.randomsOutsideDistanceCut, "of them, outside the distance cut"}},
       {"NRNMASK", {s.randomsOutsideMask, "of them, on an unobserved pixel"}},
       {"NRNBOTH", {s.randomsOutsideBoth, "of them, outside both"}},
       {"NRNBOX",  {s.randomsOutsideBox, "of them, outside the box limits"}},
@@ -632,13 +655,18 @@ namespace {
     if (h.find("ZCUTMIN") || h.find("ZCUTMAX"))
       s.redshiftCut = RedshiftCut{h.real("ZCUTMIN", -std::numeric_limits<double>::infinity()),
                                   h.real("ZCUTMAX", std::numeric_limits<double>::infinity())};
+    if (h.find("DCUTMIN") || h.find("DCUTMAX"))
+      s.distanceCut = DistanceCut{h.real("DCUTMIN", -std::numeric_limits<double>::infinity()),
+                                  h.real("DCUTMAX", std::numeric_limits<double>::infinity())};
     s.maskApplied = h.one("MASK");
     r.filteredNside = (int)h.whole("FILTNSID", (std::uint64_t)std::numeric_limits<int>::max(), 0);
     if (h.find("MAXPIXCR")) s.maxUnobservedPixelsCrossed = (unsigned)h.whole("MAXPIXCR", kUnsigned);
     const std::pair<const char*, std::size_t*> counts[] = {
-      {"NTRAC", &s.tracers}, {"NTRCUT", &s.tracersOutsideRedshiftCut}, {"NTRMASK", &s.tracersOutsideMask},
+      {"NTRAC", &s.tracers}, {"NTRCUT", &s.tracersOutsideRedshiftCut},
+      {"NTRDCUT", &s.tracersOutsideDistanceCut}, {"NTRMASK", &s.tracersOutsideMask},
       {"NTRBOTH", &s.tracersOutsideBoth}, {"NTRBOX", &s.tracersOutsideBox}, {"NRAND", &s.randoms},
-      {"NRNCUT", &s.randomsOutsideRedshiftCut}, {"NRNMASK", &s.randomsOutsideMask},
+      {"NRNCUT", &s.randomsOutsideRedshiftCut}, {"NRNDCUT", &s.randomsOutsideDistanceCut},
+      {"NRNMASK", &s.randomsOutsideMask},
       {"NRNBOTH", &s.randomsOutsideBoth}, {"NRNBOX", &s.randomsOutsideBox}, {"NTRWRAP", &s.tracersWrapped},
       {"NRNWRAP", &s.randomsWrapped}, {"NDISPL", &s.displacements},
       {"NDISPCR", &s.displacementsCrossingMask}};
@@ -650,11 +678,12 @@ namespace {
     if (!h.find("NTRAC")) return;
     const otswap::SelectionCounts& s = r.selection;
     const std::size_t n = r.nObjects;
-    std::size_t cut = 0, mask = 0, both = 0, outside = 0;
+    std::size_t cut = 0, distanceCut = 0, mask = 0, both = 0, outside = 0;
     for (std::size_t i = 0; i < n; ++i) {
       cut += r.outsideRedshiftCut[i];
+      distanceCut += r.outsideDistanceCut[i];
       mask += r.outsideMask[i];
-      both += r.outsideRedshiftCut[i] & r.outsideMask[i];
+      both += (r.outsideRedshiftCut[i] | r.outsideDistanceCut[i]) & r.outsideMask[i];
       outside += r.outsideBox[i];
     }
     if (s.tracers != n)
@@ -662,8 +691,10 @@ namespace {
              std::to_string(n) + " is expected");
     const std::tuple<const char*, std::size_t, std::size_t, const char*, bool> agree[] = {
       {"NTRCUT", s.tracersOutsideRedshiftCut, cut, "outsideRedshiftCut flags", selection},
+      {"NTRDCUT", s.tracersOutsideDistanceCut, distanceCut, "outsideDistanceCut flags", selection},
       {"NTRMASK", s.tracersOutsideMask, mask, "outsideMask flags", selection},
-      {"NTRBOTH", s.tracersOutsideBoth, both, "outsideRedshiftCut and outsideMask both flag", selection},
+      {"NTRBOTH", s.tracersOutsideBoth, both, "outsideMask and outsideRedshiftCut or outsideDistanceCut both flag",
+       selection},
       {"NTRBOX", s.tracersOutsideBox, outside, "outsideBox flags", box}};
     for (const auto& a : agree)
       if (std::get<4>(a) && std::get<1>(a) != std::get<2>(a))
@@ -762,6 +793,11 @@ void otswap::io::writeDisplacementMean (const std::string& file, const Result& r
                        values[0] = r->outsideRedshiftCut.empty() ? 0. : (double)r->outsideRedshiftCut[row];
                        values[1] = r->outsideMask.empty() ? 0. : (double)r->outsideMask[row];
                      }});
+      if (has_distance_cut(result))
+        out.push_back({{distance_cut_column()},
+                       [r] (const std::size_t row, double* values, std::int64_t*) {
+                         values[0] = r->outsideDistanceCut.empty() ? 0. : (double)r->outsideDistanceCut[row];
+                       }});
       break;
     }
     case G::OutsideBox: {
@@ -817,6 +853,8 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
   columns.push_back(column("outsideRedshiftCut", 'J', "1 if left out of the reconstruction by the redshift cut"));
   columns.push_back(column("outsideMask", 'J', "1 if left out of the reconstruction by the mask"));
   columns.push_back(column("outsideBox", 'J', "1 if left out of the reconstruction by the box limits"));
+  const bool distanceCut = has_distance_cut(result);
+  if (distanceCut) columns.push_back(distance_cut_column());
 
   internal::TablePart primary;
   primary.extname = kMainExtname;
@@ -827,7 +865,7 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
   const std::vector<internal::TablePart> further =
     lightcone_parts(result, kCompleteProduct, lightconeTables, primary.options.keywords);
   const Result* r = &result;
-  primary.fillRow = [r, n, lightcone, xyz] (const std::size_t row, std::vector<double>& values,
+  primary.fillRow = [r, n, lightcone, xyz, distanceCut] (const std::size_t row, std::vector<double>& values,
                                             std::vector<std::int64_t>& integers) {
     const std::size_t i = row % n;
     values[0] = (double)(row / n);
@@ -845,6 +883,7 @@ void otswap::io::writeDisplacementComplete (const std::string& file, const Resul
     values[xyz+7] = r->outsideRedshiftCut.empty() ? 0. : (double)r->outsideRedshiftCut[i];
     values[xyz+8] = r->outsideMask.empty() ? 0. : (double)r->outsideMask[i];
     values[xyz+9] = r->outsideBox.empty() ? 0. : (double)r->outsideBox[i];
+    if (distanceCut) values[xyz+10] = r->outsideDistanceCut.empty() ? 0. : (double)r->outsideDistanceCut[i];
   };
 
   std::vector<internal::TablePart> parts {primary};
@@ -881,6 +920,15 @@ otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
   std::vector<std::string> integerColumns {"realization", v010 ? "index" : "id", "valid", "outsideRedshiftCut",
                                            "outsideMask"};
   if (!v010) integerColumns.push_back("outsideBox");
+  bool readDistanceCut = false;
+  if (lightcone && !v010) {
+    const bool fits = internal::fits_name(file);
+    for (std::string name : columnNames(file)) {
+      if (fits) for (char& c : name) c = (char)std::toupper((unsigned char)c);
+      readDistanceCut = readDistanceCut || name == (fits ? "OUTSIDEDISTANCECUT" : "outsideDistanceCut");
+    }
+  }
+  if (readDistanceCut) integerColumns.push_back("outsideDistanceCut");
   const internal::NumberedTable numbered = internal::read_numbered(file, "", columns, integerColumns);
   const Table& t = numbered.table;
   if (t.nRows != rows)
@@ -895,6 +943,7 @@ otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
   r.outsideRedshiftCut.resize(n);
   r.outsideMask.resize(n);
   r.outsideBox.assign(n, 0);
+  r.outsideDistanceCut.assign(n, 0);
   r.ids.resize(n);
   for (std::size_t row = 0; row < rows; ++row) {
     const double* v = &t.values[row * t.nColumns];
@@ -914,6 +963,7 @@ otswap::Result otswap::io::readDisplacementComplete (const std::string& file)
     r.outsideRedshiftCut[row] = flag_of(h, k[3], "outsideRedshiftCut", numbered, row);
     r.outsideMask[row] = flag_of(h, k[4], "outsideMask", numbered, row);
     if (!v010) r.outsideBox[row] = flag_of(h, k[5], "outsideBox", numbered, row);
+    if (readDistanceCut) r.outsideDistanceCut[row] = flag_of(h, k[6], "outsideDistanceCut", numbered, row);
   }
 
   bool sequential = true;
@@ -986,6 +1036,7 @@ otswap::Result otswap::io::readDisplacementMean (const std::string& file)
   const bool readId = has("id");
   const bool readSelection = lightcone && any(selection);
   const bool readBox = !lightcone && has("outsideBox");
+  const bool readDistanceCut = lightcone && has("outsideDistanceCut");
   const std::size_t atLagrangian = columns.size();
   if (readLagrangian) columns.insert(columns.end(), lagrangian.begin(), lagrangian.end());
   const std::size_t atLagrangianSky = columns.size();
@@ -996,6 +1047,8 @@ otswap::Result otswap::io::readDisplacementMean (const std::string& file)
   if (readSelection) integerColumns.insert(integerColumns.end(), selection.begin(), selection.end());
   const std::size_t atBox = integerColumns.size();
   if (readBox) integerColumns.push_back("outsideBox");
+  const std::size_t atDistanceCut = integerColumns.size();
+  if (readDistanceCut) integerColumns.push_back("outsideDistanceCut");
 
   const internal::NumberedTable numbered = internal::read_numbered(file, "", columns, integerColumns);
   const Table& t = numbered.table;
@@ -1014,6 +1067,7 @@ otswap::Result otswap::io::readDisplacementMean (const std::string& file)
   r.outsideRedshiftCut.assign(n, 0);
   r.outsideMask.assign(n, 0);
   r.outsideBox.assign(n, 0);
+  r.outsideDistanceCut.assign(n, 0);
   if (readId) r.ids.resize(n);
   for (std::size_t i = 0; i < n; ++i) {
     const double* v = &t.values[i * t.nColumns];
@@ -1037,6 +1091,8 @@ otswap::Result otswap::io::readDisplacementMean (const std::string& file)
       r.outsideMask[i] = flag_of(h, k[atSelection+1], "outsideMask", numbered, i);
     }
     if (readBox) r.outsideBox[i] = flag_of(h, k[atBox], "outsideBox", numbered, i);
+    if (readDistanceCut)
+      r.outsideDistanceCut[i] = flag_of(h, k[atDistanceCut], "outsideDistanceCut", numbered, i);
   }
 
   bool sequential = true;

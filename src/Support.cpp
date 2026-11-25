@@ -154,6 +154,7 @@ void otswap::internal::check_flags (const Result& result)
                   " entries for " + std::to_string(result.nObjects) + " objects");
   };
   check(result.outsideRedshiftCut, "outsideRedshiftCut");
+  check(result.outsideDistanceCut, "outsideDistanceCut");
   check(result.outsideMask, "outsideMask");
   check(result.outsideBox, "outsideBox");
 

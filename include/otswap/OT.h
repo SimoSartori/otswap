@@ -121,8 +121,9 @@ namespace otswap {
    *                                lagrangian, lagrangianSky;
    *                                RealSpaceCatalog::sky, cartesian
    *      [object]                  Result::ids (int64), validRealizations,
-   *                                outsideRedshiftCut, outsideMask, outsideBox
-   *                                (uint8);
+   *                                outsideRedshiftCut, outsideDistanceCut,
+   *                                outsideMask, outsideBox (uint8),
+   *                                lagrangianDistance;
    *                                RealSpaceCatalog::ids (int64), shift,
    *                                factor, status, validRealizations,
    *                                nNeighbours, nRealizationsAveraged
@@ -228,6 +229,17 @@ namespace otswap {
   };
 
   /**
+   *  @brief A closed range of comoving distance from the origin, in
+   *  coordinate units, for the Cartesian overloads of reconstructLightcone
+   *  and measureMpsProfile: the counterpart of RedshiftCut. The default,
+   *  (-inf, +inf), cuts nothing.
+   */
+  struct DistanceCut {
+    double min = -std::numeric_limits<double>::infinity();
+    double max =  std::numeric_limits<double>::infinity();
+  };
+
+  /**
    *  @brief The closed limits of a box for reconstructBox: the points with
    *  lower[k] <= x[k] <= upper[k] on each axis k, in coordinate units.
    *  Each bound must
@@ -253,8 +265,11 @@ namespace otswap {
    *  displacements its mask filter rejected.
    *
    *  In a lightcone result, the tracers removed are
-   *  tracersOutsideRedshiftCut + tracersOutsideMask - tracersOutsideBoth,
-   *  and the same for the randoms. In a box result, the tracers removed are
+   *  tracersOutsideRedshiftCut + tracersOutsideMask - tracersOutsideBoth
+   *  from a sky overload of reconstructLightcone, and
+   *  tracersOutsideDistanceCut + tracersOutsideMask - tracersOutsideBoth
+   *  from a Cartesian one, and the same for the randoms; the counts of the
+   *  other cut are 0. In a box result, the tracers removed are
    *  tracersOutsideBox, and the randoms removed randomsOutsideBox; these
    *  and the counts of what was given are set only when limits were given
    *  to reconstructBox, with randoms 0 when the randoms were drawn. In a
@@ -267,21 +282,24 @@ namespace otswap {
   struct SelectionCounts {
 
     std::optional<RedshiftCut> redshiftCut;  ///< the cut, when a bound was finite
+    std::optional<DistanceCut> distanceCut;  ///< the distance cut, when a bound was finite
     bool maskApplied = false;                ///< a Mask was given
     std::optional<BoxLimits> boxLimits;      ///< the limits, when given to reconstructBox
     bool periodic = false;                   ///< the box of reconstructBox was periodic
 
     std::size_t tracers = 0;                    ///< tracers given
     std::size_t tracersOutsideRedshiftCut = 0;  ///< of them, outside the cut
+    std::size_t tracersOutsideDistanceCut = 0;  ///< of them, outside the distance cut
     std::size_t tracersOutsideMask = 0;         ///< of them, on an unobserved pixel
-    std::size_t tracersOutsideBoth = 0;         ///< counted in both of the above
+    std::size_t tracersOutsideBoth = 0;         ///< outside the cut, redshift or distance, and the mask
     std::size_t tracersOutsideBox = 0;          ///< of them, outside the box limits
     std::size_t tracersWrapped = 0;             ///< of them, wrapped into the periodic box
 
     std::size_t randoms = 0;                    ///< randoms given
     std::size_t randomsOutsideRedshiftCut = 0;  ///< of them, outside the cut
+    std::size_t randomsOutsideDistanceCut = 0;  ///< of them, outside the distance cut
     std::size_t randomsOutsideMask = 0;         ///< of them, on an unobserved pixel
-    std::size_t randomsOutsideBoth = 0;         ///< counted in both of the above
+    std::size_t randomsOutsideBoth = 0;         ///< outside the cut, redshift or distance, and the mask
     std::size_t randomsOutsideBox = 0;          ///< of them, outside the box limits
     std::size_t randomsWrapped = 0;             ///< of them, wrapped into the periodic box
 
@@ -302,6 +320,9 @@ namespace otswap {
      *      otswap: kept <n> of <N> tracers: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
      *      otswap: kept <m> of <M> randoms: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
      *      otswap: rejected <r> of <D> displacements crossing more than <L> unobserved pixels in a row
+     *
+     *  With a distance cut, from a Cartesian overload, the cut reads
+     *  "<a> outside the distance cut [<dmin>, <dmax>] in coordinate units".
      *
      *  For a box with limits, the tracer line, and the random line when
      *  randoms were given:
@@ -429,8 +450,9 @@ namespace otswap {
     /// box, the tracers wrapped into the box: a coordinate outside the
     /// limits is shifted by a whole number of periods, one inside them is
     /// kept as given. A tracer left
-    /// out by the redshift cut or the mask has its conversion when its
-    /// redshift lies in the distance table, NaN otherwise. Flat,
+    /// out by the redshift cut or the mask of a sky overload has its
+    /// conversion when its redshift lies in the distance table, NaN
+    /// otherwise. Flat,
     /// [object][xyz]; size 3 * nObjects.
     std::vector<double> tracers;
 
@@ -486,6 +508,15 @@ namespace otswap {
     /// as all 0.
     std::vector<std::uint8_t> outsideRedshiftCut;
 
+    /// Whether each tracer lay outside the distance cut of a Cartesian
+    /// overload of reconstructLightcone, and so took no part in the
+    /// reconstruction: 1 for such a tracer, 0 otherwise. Flat, [object].
+    /// Size nObjects, all 0 when no cut was given, in a result of a sky
+    /// overload and in a box result. A flagged tracer's rows are as for
+    /// outsideRedshiftCut, and no filter changes the flag. An empty field is
+    /// read as all 0.
+    std::vector<std::uint8_t> outsideDistanceCut;
+
     /// Whether each tracer fell on an unobserved pixel of the Mask given to
     /// reconstructLightcone, and so took no part in the reconstruction: 1
     /// for such a tracer, 0 otherwise. Flat, [object]. Size nObjects, all 0
@@ -523,7 +554,7 @@ namespace otswap {
     /// result included). Recomputed with lagrangian.
     ///
     /// NaN rows where lagrangian is NaN: the tracers flagged in
-    /// outsideRedshiftCut or outsideMask and those with no valid
+    /// outsideRedshiftCut, outsideDistanceCut or outsideMask and those with no valid
     /// realization. A position whose distance falls outside the table,
     /// which a table that does not start at distance 0 allows, has a NaN
     /// redshift and keeps its right ascension and declination. Without a
@@ -1058,7 +1089,6 @@ namespace otswap {
    *  given and tracersSky, lagrangianSky and lagrangianDistance computed
    *  with pointToSky; the redshifts come from @p distances when one is
    *  given and are NaN otherwise, or where a distance lies outside it.
-   *  No redshift cut is taken: select the objects before the call.
    *
    *  @param tracers Cartesian coordinates, 3 * nObjects entries, in
    *  coordinate units.
@@ -1071,19 +1101,30 @@ namespace otswap {
    *  tracersSky and lagrangianSky, and which the result keeps. It plays no
    *  part in the reconstruction: the result is the same with or without
    *  it but for those redshifts and Result::distances.
+   *  @param cut the redshift cut of the sky overload, in comoving distance
+   *  from the origin: tracers and randoms whose distance lies outside
+   *  [cut.min, cut.max] are left out before anything else, the randoms
+   *  dropped and the tracers kept in their row, flagged in
+   *  Result::outsideDistanceCut; mps(d) is measured on the tracers kept.
+   *  The counts are recorded in Result::selection and, with a cut that has
+   *  a finite bound, reported as config.verbosity says. The default cuts
+   *  nothing.
    *
    *  @exception Error if a bin holds too few tracers, if the profile
    *  extrapolates to a mps that is not positive at a tracer's distance, if
    *  every tracer lies at the same distance, if any array is malformed or
    *  holds a non-finite coordinate, or if the randoms are too few; also
-   *  from the neighbour search, as in the sky overload.
+   *  from the neighbour search, as in the sky overload. Also if a bound of
+   *  the cut is NaN or min > max, or if too few tracers or randoms remain
+   *  inside it; the message gives the counts kept and dropped.
    */
   Result reconstructLightcone (const std::vector<double>& tracers,
                                const std::vector<double>& randoms,
                                double skyAreaDeg2,
                                unsigned nBins,
                                const Config& config,
-                               const DistanceTable* distances = nullptr);
+                               const DistanceTable* distances = nullptr,
+                               const DistanceCut& cut = {});
 
   /**
    *  @brief Reconstruct in lightcone geometry, from sky coordinates, within
@@ -1149,16 +1190,20 @@ namespace otswap {
    *  @param nBins as in the Cartesian overload with the sky area.
    *  @param config as in the sky overload with a mask.
    *  @param distances as in the Cartesian overload with the sky area.
+   *  @param cut as in the Cartesian overload with the sky area, evaluated
+   *  with the mask on every object, as in the sky overload with a mask.
    *
    *  @exception Error as the Cartesian overload with the sky area, and if
-   *  too few tracers or randoms remain inside the mask.
+   *  too few tracers or randoms remain inside the mask; the counts in the
+   *  message name the mask as well as the cut.
    */
   Result reconstructLightcone (const std::vector<double>& tracers,
                                const std::vector<double>& randoms,
                                const Mask& mask,
                                unsigned nBins,
                                const Config& config,
-                               const DistanceTable* distances = nullptr);
+                               const DistanceTable* distances = nullptr,
+                               const DistanceCut& cut = {});
 
   /**
    *  @brief The mps(z) profile reconstructLightcone measures, without
@@ -1242,29 +1287,37 @@ namespace otswap {
    *  coordinates, with the sky area given.
    *
    *  The steps of the Cartesian reconstructLightcone that concern the
-   *  tracers, with the same code: the check of the array and the profile
-   *  in distance with its per-bin threshold. The profile equals, bit for
-   *  bit, Result::mpsProfile of the Cartesian reconstructLightcone with the
-   *  same tracers, skyAreaDeg2 and nBins, whatever its randoms, config and
-   *  table.
+   *  tracers, in the same order and with the same code: the checks of the
+   *  array and of the cut, the distance cut, the minimum number of tracers
+   *  kept, and the profile in distance with its per-bin threshold. The
+   *  profile equals, bit for bit, Result::mpsProfile of the Cartesian
+   *  reconstructLightcone with the same tracers, skyAreaDeg2, nBins and
+   *  cut, whatever its randoms, config and table.
    *
    *  @param tracers as in the Cartesian reconstructLightcone.
    *  @param skyAreaDeg2 as in reconstructLightcone.
    *  @param nBins as in the Cartesian reconstructLightcone.
-   *  @param verbosity what the call reports. At Normal,
+   *  @param cut as in the Cartesian reconstructLightcone, applied to the
+   *  tracers.
+   *  @param verbosity what the call reports. At Normal, when the cut has a
+   *  finite bound, the tracer line of the selection report
+   *  (SelectionCounts::message), then
    *
    *      otswap: measureMpsProfile: <B> bins over [<dmin>, <dmax>] in coordinate units
    *
-   *  At Detailed, the mps(d) line of reconstructLightcone before it.
+   *  At Detailed, the mps(d) line of reconstructLightcone before the last.
    *  @param log where the report is written; null writes nothing.
    *
    *  @exception Error as the Cartesian reconstructLightcone, with the same
-   *  messages, if the array is malformed, if every tracer lies at the same
-   *  distance, or if a bin holds too few tracers.
+   *  messages, if the array is malformed, if a bound of the cut is NaN or
+   *  min > max, if a cut with a finite bound keeps too few tracers, if
+   *  every tracer kept lies at the same distance, or if a bin holds too
+   *  few tracers.
    */
   MpsProfile measureMpsProfile (const std::vector<double>& tracers,
                                 double skyAreaDeg2,
                                 unsigned nBins,
+                                const DistanceCut& cut = {},
                                 Verbosity verbosity = Verbosity::Normal,
                                 std::ostream* log = &std::clog);
 
@@ -1277,14 +1330,17 @@ namespace otswap {
    *  left out as the Cartesian reconstructLightcone with a mask leaves them
    *  out; at Normal the tracer line of the selection report comes first.
    *  The profile equals, bit for bit, Result::mpsProfile of that overload
-   *  with the same tracers, mask and nBins.
+   *  with the same tracers, mask, nBins and cut. The cut is evaluated with
+   *  the mask on every tracer.
    *
    *  @exception Error as the Cartesian overload with the sky area, and if
-   *  too few tracers remain inside the mask.
+   *  too few tracers remain inside the mask; the counts in the message
+   *  name the mask as well as the cut.
    */
   MpsProfile measureMpsProfile (const std::vector<double>& tracers,
                                 const Mask& mask,
                                 unsigned nBins,
+                                const DistanceCut& cut = {},
                                 Verbosity verbosity = Verbosity::Normal,
                                 std::ostream* log = &std::clog);
 

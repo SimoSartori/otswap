@@ -28,6 +28,9 @@ Configuration
 .. doxygenstruct:: otswap::RedshiftCut
    :members:
 
+.. doxygenstruct:: otswap::DistanceCut
+   :members:
+
 .. doxygenstruct:: otswap::BoxLimits
    :members:
 
@@ -40,6 +43,8 @@ Distances
 .. doxygenfunction:: otswap::toCartesian
 
 .. doxygenfunction:: otswap::toSky
+
+.. doxygenfunction:: otswap::pointToSky
 
 .. doxygenfunction:: otswap::skyToRadians
 
@@ -56,21 +61,25 @@ Mask
 Reconstruction
 ~~~~~~~~~~~~~~
 
-.. doxygenfunction:: otswap::reconstructBox(const std::vector<double>&, const std::vector<double>&, double, const Config&, const std::optional<BoxLimits>&)
+.. doxygenfunction:: otswap::reconstructBox(const std::vector<double>&, const std::vector<double>&, double, const Config&, const std::optional<BoxLimits>&, bool)
 
-.. doxygenfunction:: otswap::reconstructBox(const std::vector<double>&, const std::vector<double>&, const Config&, const std::optional<BoxLimits>&)
+.. doxygenfunction:: otswap::reconstructBox(const std::vector<double>&, const std::vector<double>&, const Config&, const std::optional<BoxLimits>&, bool)
 
 .. doxygenfunction:: otswap::reconstructLightcone(const std::vector<double>&, const std::vector<double>&, double, unsigned, const DistanceTable&, const Config&, const RedshiftCut&)
 
 .. doxygenfunction:: otswap::reconstructLightcone(const std::vector<double>&, const std::vector<double>&, const Mask&, unsigned, const DistanceTable&, const Config&, const RedshiftCut&)
 
-.. doxygenfunction:: otswap::reconstructLightcone(const std::vector<double>&, const std::vector<double>&, const std::vector<double>&, const std::vector<double>&, double, unsigned, const DistanceTable&, const Config&, const RedshiftCut&)
+.. doxygenfunction:: otswap::reconstructLightcone(const std::vector<double>&, const std::vector<double>&, double, unsigned, const Config&, const DistanceTable*, const DistanceCut&)
 
-.. doxygenfunction:: otswap::reconstructLightcone(const std::vector<double>&, const std::vector<double>&, const std::vector<double>&, const std::vector<double>&, const Mask&, unsigned, const DistanceTable&, const Config&, const RedshiftCut&)
+.. doxygenfunction:: otswap::reconstructLightcone(const std::vector<double>&, const std::vector<double>&, const Mask&, unsigned, const Config&, const DistanceTable*, const DistanceCut&)
 
 .. doxygenfunction:: otswap::measureMpsProfile(const std::vector<double>&, double, unsigned, const DistanceTable&, const RedshiftCut&, Verbosity, std::ostream*)
 
 .. doxygenfunction:: otswap::measureMpsProfile(const std::vector<double>&, const Mask&, unsigned, const DistanceTable&, const RedshiftCut&, Verbosity, std::ostream*)
+
+.. doxygenfunction:: otswap::measureMpsProfile(const std::vector<double>&, double, unsigned, const DistanceCut&, Verbosity, std::ostream*)
+
+.. doxygenfunction:: otswap::measureMpsProfile(const std::vector<double>&, const Mask&, unsigned, const DistanceCut&, Verbosity, std::ostream*)
 
 .. doxygenfunction:: otswap::rejectMaskCrossings
 
@@ -113,7 +122,9 @@ The four steps
 
 .. doxygenfunction:: otswap::axisProjection
 
-.. doxygenfunction:: otswap::neighbourAverage
+.. doxygenfunction:: otswap::neighbourAverage(const std::vector<double>&, const std::vector<double>&, const std::vector<unsigned>&, double, bool)
+
+.. doxygenfunction:: otswap::neighbourAverage(const std::vector<double>&, const std::vector<double>&, const std::vector<unsigned>&, double, bool, const BoxLimits&, bool)
 
 .. doxygenstruct:: otswap::NeighbourAverage
    :members:

@@ -428,7 +428,8 @@ namespace otswap {
       Lagrangian,         ///< lagrX, lagrY, lagrZ: Result::lagrangian
       Displacement,       ///< displX, displY, displZ: Result::meanDisplacement
       ValidRealizations,  ///< nValidRec (J): Result::validRealizations
-      Selection,          ///< outsideRedshiftCut, outsideMask (J, 0 or 1); lightcone only
+      Selection,          ///< outsideRedshiftCut, outsideMask (J, 0 or 1), and outsideDistanceCut for a
+                          ///< result of a Cartesian overload (see writeDisplacementComplete); lightcone only
       OutsideBox          ///< outsideBox (J, 0 or 1): Result::outsideBox; box only
     };
 
@@ -442,7 +443,8 @@ namespace otswap {
      *    columns), and OutsideBox (11) when limits were given to
      *    reconstructBox;
      *  - lightcone: TracerSky, LagrangianSky, Tracer, Lagrangian,
-     *    Displacement, ValidRealizations, Selection (18 columns);
+     *    Displacement, ValidRealizations, Selection (18 columns, 19 with
+     *    outsideDistanceCut);
      *  - Id first (one more column) when Result::ids is not empty.
      *
      *  'D' values are written with 9 significant digits in ASCII, so a
@@ -504,8 +506,8 @@ namespace otswap {
      *  a lightcone tracRA, tracDec and tracRed. The others are read when the
      *  file holds them: id (ids, empty when the IDs are 0..nObjects-1),
      *  lagrX..lagrZ (lagrangian), lagrRA..lagrRed (lagrangianSky, in a
-     *  lightcone), outsideRedshiftCut and outsideMask (lightcone),
-     *  outsideBox (box). Without them a flag is all 0, lagrangian is tracers
+     *  lightcone), outsideRedshiftCut, outsideMask and outsideDistanceCut
+     *  (lightcone), outsideBox (box). Without them a flag is all 0, lagrangian is tracers
      *  + meanDisplacement, and lagrangianSky is computed from tracers +
      *  meanDisplacement with the distance table, as recomputeMeans does, or
      *  is empty without the table. The profile and the table are read when the main table
@@ -549,8 +551,11 @@ namespace otswap {
      *  tracRed (Result::tracersSky, the right ascension as given, not folded
      *  into [0, 360)); tracX..tracZ (Result::tracers); displX..displZ
      *  (Result::displacement); valid (J); outsideRedshiftCut, outsideMask,
-     *  outsideBox (J, 0 or 1, in both geometries). The columns of the
-     *  tracer, id and flags are repeated in every realization.
+     *  outsideBox (J, 0 or 1, in both geometries); outsideDistanceCut (J, 0
+     *  or 1) last, for a lightcone result whose mpsProfile is in distance or
+     *  that flags a tracer in outsideDistanceCut, and absent otherwise. The
+     *  columns of the tracer, id and flags are repeated in every
+     *  realization.
      *
      *  'D' values are written with 17 significant digits in ASCII, and as
      *  they are in FITS, so every double reads back identical, NaN rows as
@@ -569,11 +574,12 @@ namespace otswap {
      *  reconstructBox; PERIODIC = 1 when the box is periodic (the keyword is
      *  then written with BOXLIM, and absent otherwise, as in files of
      *  otswap 0.3); ZCUTMIN and ZCUTMAX for the finite bounds of a
-     *  redshift cut, MASK = 1 when a mask selected the objects, FILTNSID and
+     *  redshift cut, DCUTMIN and DCUTMAX for those of a distance cut, MASK = 1 when a mask selected the objects, FILTNSID and
      *  MAXPIXCR when a mask filter was applied (CFMAXPIX and MAXPIXCR are
      *  thresholds of rejectMaskCrossings: the longest run of unobserved
-     *  pixels a displacement's arc may cross); NTRAC, NTRCUT, NTRMASK,
-     *  NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NTRWRAP,
+     *  pixels a displacement's arc may cross); NTRAC, NTRCUT, NTRDCUT,
+     *  NTRMASK, NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNDCUT, NRNMASK, NRNBOTH,
+     *  NRNBOX, NTRWRAP,
      *  NRNWRAP, NDISPL and NDISPCR, the counts of Result::selection, each when it is not 0.
      *  Doubles are written as the shortest decimal that reads back as the
      *  same value. Then MPSPART = 1 and DISTPART = 1 when the profile and
@@ -623,7 +629,8 @@ namespace otswap {
      *
      *  Read as written: the geometry, ids, nRealizationsMean (NRECMEAN, 1
      *  when absent), config (but log, which is &std::clog), tracers, tracersSky (degrees to radians), displacement,
-     *  valid, the three flags, filteredNside, selection, mps,
+     *  valid, the flags (outsideDistanceCut all 0 when its column is
+     *  absent), filteredNside, selection, mps,
      *  box, mpsProfile, and the distance table, as a new table equal to the
      *  one written. Recomputed with recomputeMeans: validRealizations,
      *  meanDisplacement, lagrangian and lagrangianSky. elapsedSeconds is 0.
