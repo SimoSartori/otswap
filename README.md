@@ -53,8 +53,8 @@ with the requirements below.
 ## Build from source
 
 Needs CMake 3.16 or later, GCC or Clang (C, and C++17) and cfitsio; OpenMP
-when found. meshsearch 0.2.1 or a later 0.2.x is used when installed, and
-0.2.1 is fetched from GitHub otherwise.
+when found. meshsearch 0.3 or a later 0.3.x is used when installed, and
+0.3.0 is fetched from GitHub otherwise.
 
 ```
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
