@@ -139,8 +139,8 @@ namespace {
         }
       if (otswap::internal::excluded(result, i) && result.validRealizations[i] != 0)
         throw otswap::Error("the result is malformed: object " + std::to_string(i) + " (from 0) took no part "
-                            "in the reconstruction (outside the redshift cut, the mask or the box "
-                            "limits) but has valid realizations");
+                            "in the reconstruction (outside the redshift or distance cut, the mask or "
+                            "the box limits) but has valid realizations");
       if (result.validRealizations[i] > 0)
         for (std::size_t c = 0; c < 3; ++c)
           if (!std::isfinite(result.meanDisplacement[3*i+c]))
@@ -150,7 +150,8 @@ namespace {
   }
 
   /// Indices, increasing, of the tracers the correction works on: all but
-  /// those outside the result's redshift cut, mask or box limits.
+  /// those outside the result's redshift or distance cut, mask or box
+  /// limits.
   std::vector<std::size_t> kept_tracers (const otswap::Result& result, const std::size_t n)
   {
     std::vector<std::size_t> keep;
@@ -651,19 +652,38 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
     return catalog;
   }
 
-  const std::vector<double>& sky = result.tracersSky;
-  internal::check_sky(rows_of(sky, keep), "the tracer sky array of the result");
-
+  // A result of a Cartesian overload, whose profile is in distance: each
+  // tracer's redshift comes from its distance, by the table given here; its
+  // right ascension and declination are those of tracersSky.
+  const bool cartesian = !result.mpsProfile.distance.empty();
+  std::vector<double> sky = result.tracersSky;
   const std::vector<double> positions = rows_of(result.tracers, keep);
+  if (cartesian) internal::check_coordinates(positions, "the tracer array of the result");
+  else internal::check_sky(rows_of(sky, keep), "the tracer sky array of the result");
+
   std::vector<double> distance(m), factor(m);
   for (std::size_t k = 0; k < m; ++k) {
     const std::size_t i = keep[k];
     const std::string who = "object " + std::to_string(i) + " (from 0)";
-    try {
-      distance[k] = distances.distanceAt(sky[3*i+2]);
+    if (cartesian) {
+      double ra = 0., dec = 0.;
+      pointToSky(positions[3*k], positions[3*k+1], positions[3*k+2], distance[k], ra, dec);
+      try {
+        sky[3*i+2] = distances.redshiftAt(distance[k]);
+      }
+      catch (const Error& e) {
+        throw Error(who + " of the tracer array of the result: " + e.what() + "; use a distance table "
+                    "covering a wider redshift range than [" + std::to_string(distances.minRedshift()) +
+                    ", " + std::to_string(distances.maxRedshift()) + "]");
+      }
     }
-    catch (const Error& e) {
-      throw Error(who + " of the tracer sky array of the result: " + e.what());
+    else {
+      try {
+        distance[k] = distances.distanceAt(sky[3*i+2]);
+      }
+      catch (const Error& e) {
+        throw Error(who + " of the tracer sky array of the result: " + e.what());
+      }
     }
     if (!(distance[k] > 0.))
       throw Error(who + " is at zero distance; its line of sight is undefined");

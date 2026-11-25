@@ -462,6 +462,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
 
   result.valid.assign((std::size_t)nRealizations * nObjects, 1);
   result.outsideRedshiftCut.assign(nObjects, 0);
+  result.outsideDistanceCut.assign(nObjects, 0);
   result.outsideMask.assign(nObjects, 0);
   result.outsideBox.assign(nObjects, 0);
   result.config = config;

@@ -88,7 +88,7 @@ namespace otswap {
                            bool allowEmpty = false);
 
     /// Checks that each flag array of @p result, outsideRedshiftCut,
-    /// outsideMask and outsideBox, is empty or holds nObjects entries, and that tracers,
+    /// outsideDistanceCut, outsideMask and outsideBox, is empty or holds nObjects entries, and that tracers,
     /// tracersSky, lagrangian and lagrangianSky are each empty or hold
     /// 3 * nObjects, and lagrangianDistance empty or nObjects.
     void check_flags (const Result& result);
@@ -98,11 +98,12 @@ namespace otswap {
     void check_ids (const std::vector<std::int64_t>& ids, std::size_t nObjects);
 
     /// True when tracer @p i of @p result took no part in the
-    /// reconstruction: flagged in outsideRedshiftCut, outsideMask or
-    /// outsideBox. The flags must have passed check_flags.
+    /// reconstruction: flagged in outsideRedshiftCut, outsideDistanceCut,
+    /// outsideMask or outsideBox. The flags must have passed check_flags.
     inline bool excluded (const Result& result, const std::size_t i)
     {
       return (!result.outsideRedshiftCut.empty() && result.outsideRedshiftCut[i] != 0) ||
+             (!result.outsideDistanceCut.empty() && result.outsideDistanceCut[i] != 0) ||
              (!result.outsideMask.empty() && result.outsideMask[i] != 0) ||
              (!result.outsideBox.empty() && result.outsideBox[i] != 0);
     }
@@ -242,19 +243,6 @@ namespace otswap {
     /// with the same threshold; a profile in distance.
     MpsProfile mps_profile_distance (const std::vector<double>& distance,
                                      double skyAreaDeg2, unsigned nBins);
-
-    /// reconstructLightcone from Cartesian and sky arrays of the same
-    /// objects, the Cartesian ones used for the reconstruction and the sky
-    /// ones for the profile in redshift, the cut and the mask (null for the
-    /// sky area). No check that the two agree. Serves the tracers= and
-    /// randoms= of the Python binding's reconstruct_lightcone.
-    Result reconstruct_lightcone_both (const std::vector<double>& tracers,
-                                       const std::vector<double>& randoms,
-                                       const std::vector<double>& tracersSky,
-                                       const std::vector<double>& randomsSky,
-                                       double skyAreaDeg2, const Mask* mask,
-                                       unsigned nBins, const DistanceTable& distances,
-                                       const Config& config, const RedshiftCut& cut);
 
     /// Piecewise linear function through the nodes (x, y), x strictly
     /// increasing, extrapolated linearly beyond the terminal nodes along

@@ -392,7 +392,9 @@ def write_displacement_mean(
     - ``"lagrangian"``: lagrX, lagrY, lagrZ, ``Result.lagrangian``;
     - ``"displacement"``: displX, displY, displZ, ``Result.mean_displacement``;
     - ``"valid_realizations"``: nValidRec;
-    - ``"selection"``: outsideRedshiftCut, outsideMask (0 or 1); lightcone only;
+    - ``"selection"``: outsideRedshiftCut, outsideMask (0 or 1), and
+      outsideDistanceCut for a result of Cartesian tracers (as in
+      ``write_displacement_complete``); lightcone only;
     - ``"outside_box"``: outsideBox (0 or 1), ``Result.outside_box``; box only.
 
     Parameters
@@ -459,8 +461,10 @@ def write_displacement_complete(
     the right ascension as given, not folded into [0, 360)) and tracRed;
     tracX..tracZ (``Result.tracers``); displX..displZ
     (``Result.displacement``); valid; outsideRedshiftCut, outsideMask,
-    outsideBox (0 or 1, in both geometries). The columns of the tracer, id and
-    flags are repeated in every realization.
+    outsideBox (0 or 1, in both geometries); outsideDistanceCut (0 or 1)
+    last, for a lightcone result whose ``mps_profile`` is in distance or
+    that flags a tracer in ``outside_distance_cut``, absent otherwise. The
+    columns of the tracer, id and flags are repeated in every realization.
 
     Parameters
     ----------
@@ -498,12 +502,13 @@ def write_displacement_complete(
     BOXLIM = 1 when it holds the limits given to ``reconstruct_box``;
     PERIODIC = 1 when the box is periodic (written with BOXLIM, absent
     otherwise, as in files of otswap 0.3); ZCUTMIN
-    and ZCUTMAX for the finite bounds of a redshift cut, MASK = 1 when a mask
+    and ZCUTMAX for the finite bounds of a redshift cut, DCUTMIN and DCUTMAX
+    for those of a distance cut, MASK = 1 when a mask
     selected the objects, FILTNSID and MAXPIXCR when a mask filter was
     applied (CFMAXPIX and MAXPIXCR are thresholds of
     ``reject_mask_crossings``: the longest run of unobserved pixels a
-    displacement's arc may cross); NTRAC, NTRCUT, NTRMASK, NTRBOTH, NTRBOX,
-    NRAND, NRNCUT, NRNMASK, NRNBOTH, NRNBOX, NTRWRAP, NRNWRAP, NDISPL and
+    displacement's arc may cross); NTRAC, NTRCUT, NTRDCUT, NTRMASK, NTRBOTH,
+    NTRBOX, NRAND, NRNCUT, NRNDCUT, NRNMASK, NRNBOTH, NRNBOX, NTRWRAP, NRNWRAP, NDISPL and
     NDISPCR, the selection counts, each when it is not 0. Then MPSPART = 1 and DISTPART = 1
     when the profile and the table are written.
 
@@ -607,8 +612,8 @@ def read_displacement_mean(file: Path, *, angle_unit: AngleUnit) -> Result:
     lightcone tracRA, tracDec and tracRed. The others are read when the file
     holds them: id (``ids``, as having no IDs when they are
     0..n_objects-1), lagrX..lagrZ (``lagrangian``), lagrRA..lagrRed
-    (``lagrangian_sky``, in a lightcone), outsideRedshiftCut and outsideMask
-    (lightcone), outsideBox (box). Without them a flag is all false,
+    (``lagrangian_sky``, in a lightcone), outsideRedshiftCut, outsideMask and
+    outsideDistanceCut (lightcone), outsideBox (box). Without them a flag is all false,
     ``lagrangian`` is ``tracers`` + ``mean_displacement``, and
     ``lagrangian_sky`` is computed from them with the distance table, as
     ``recompute_means`` does, or is None without the table. The mps(z)

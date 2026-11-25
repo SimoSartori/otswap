@@ -190,6 +190,31 @@ class RedshiftCut:
     __hash__: ClassVar[None]  # type: ignore[assignment]
 
 
+class DistanceCut:
+    """A closed range of comoving distance from the origin, in coordinate
+    units, for ``reconstruct_lightcone`` and ``measure_mps_profile`` given
+    Cartesian ``tracers``, as ``otswap::DistanceCut``: the counterpart of
+    ``RedshiftCut``. The default, (-inf, +inf), cuts nothing. Wherever a
+    DistanceCut is taken, a ``(min, max)`` pair is accepted too.
+
+    ``min`` and ``max`` are read/write; the call that reads the cut checks
+    them (neither NaN, ``min`` not above ``max``). ``repr`` and equality as
+    ``Config``.
+    """
+
+    def __init__(self, min: float = -inf, max: float = inf) -> None: ...
+
+    min: float
+    """The shortest distance kept, in coordinate units."""
+
+    max: float
+    """The longest distance kept, in coordinate units."""
+
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    __hash__: ClassVar[None]  # type: ignore[assignment]
+
+
 # ---------------------------------------------------------------------------
 # Result
 # ---------------------------------------------------------------------------
@@ -237,6 +262,7 @@ class Result:
         config: Optional[Config] = None,
         periodic: bool = False,
         box: Optional[Union["BoxLimits", tuple[ArrayLike, ArrayLike]]] = None,
+        outside_distance_cut: Optional[ArrayLike] = None,
     ) -> "Result":
         """Build a result from its arrays, as read back from a file.
 
@@ -252,7 +278,7 @@ class Result:
             ``distances`` table of the reconstruction, from which
             ``lagrangian_sky`` is computed. Without it the result is a box
             result, and neither may be given.
-        outside_redshift_cut, outside_mask : array_like, shape (n_objects,), optional
+        outside_redshift_cut, outside_mask, outside_distance_cut : array_like, shape (n_objects,), optional
             0 or 1; all 0 when omitted.
         outside_box : array_like, shape (n_objects,), optional
             0 or 1; all 0 when omitted. For a box result only: raises with
@@ -388,9 +414,9 @@ class Result:
 
     @property
     def mps_profile(self) -> Optional["MpsProfile"]:
-        """Lightcone: the mean particle separation as a function of redshift,
-        measured on the tracers kept. None for a box. Keeps this result
-        alive."""
+        """Lightcone: the mean particle separation as a function of redshift
+        or, for Cartesian ``tracers``, of comoving distance, measured on the
+        tracers kept. None for a box. Keeps this result alive."""
 
     @property
     def elapsed_seconds(self) -> float:
@@ -427,11 +453,20 @@ class Result:
         displacements, no valid realization and a NaN mean displacement."""
 
     @property
+    def outside_distance_cut(self) -> NDArray[np.bool_]:
+        """Whether each tracer lay outside the ``distance_cut`` of
+        ``reconstruct_lightcone``, given Cartesian ``tracers``, and took no
+        part in the reconstruction, shape (n_objects,). All false without a
+        cut, and for sky tracers or a box. A flagged tracer's rows are as for
+        a cut one."""
+
+    @property
     def outside_mask(self) -> NDArray[np.bool_]:
         """Whether each tracer fell on an unobserved pixel of the ``mask`` of
         ``reconstruct_lightcone`` and took no part in the reconstruction,
         shape (n_objects,). All false without a mask. Independent of
-        ``outside_redshift_cut``: a tracer may carry both flags. A flagged
+        ``outside_redshift_cut`` and ``outside_distance_cut``: a tracer may
+        carry both flags. A flagged
         tracer's rows are as for a cut one."""
 
     @property
@@ -454,8 +489,17 @@ class Result:
         redshift, as ``to_sky`` computes them with the reconstruction's
         distance table. NaN rows where ``lagrangian`` is NaN: the tracers left
         out by a selection and those with no valid realization; a position
-        whose distance falls outside the table has a NaN redshift. None for a
+        whose distance falls outside the table has a NaN redshift. For
+        Cartesian ``tracers`` the angles are those of ``point_to_sky``, and
+        every redshift is NaN when no ``distances`` were given. None for a
         box. Recomputed by ``reject_mask_crossings``."""
+
+    @property
+    def lagrangian_distance(self) -> Optional[NDArray[np.float64]]:
+        """Distance from the origin of each tracer's mean Lagrangian
+        position, ``lagrangian``, as ``point_to_sky`` computes it, in
+        coordinate units, shape (n_objects,). NaN where ``lagrangian`` is NaN.
+        None for a box. Recomputed by ``reject_mask_crossings``."""
 
 
 class MpsProfile:
@@ -464,11 +508,23 @@ class MpsProfile:
     ``measure_mps_profile``: the tracers kept in
     ``n_bins`` uniform redshift bins over [``redshift_min``,
     ``redshift_max``], mps = (N / V)^(-1/3) in each, joined linearly and
-    extrapolated linearly beyond the outermost bins. Read-only."""
+    extrapolated linearly beyond the outermost bins. Read-only.
+
+    For Cartesian ``tracers``, a profile in comoving distance from the
+    origin: the bins are uniform in distance over [``distance_min``,
+    ``distance_max``], ``distance`` holds their centres, ``redshift`` is
+    empty, and ``redshift_min`` and ``redshift_max`` are NaN; the other way
+    round for a profile in redshift."""
 
     @property
     def redshift(self) -> NDArray[np.float64]:
-        """Bin centres, shape (n_bins,)."""
+        """Bin centres of a profile in redshift, shape (n_bins,); empty in a
+        profile in distance."""
+
+    @property
+    def distance(self) -> NDArray[np.float64]:
+        """Bin centres of a profile in distance, in coordinate units, shape
+        (n_bins,); empty in a profile in redshift."""
 
     @property
     def mps(self) -> NDArray[np.float64]:
@@ -486,14 +542,24 @@ class MpsProfile:
     def redshift_max(self) -> float: ...
 
     @property
+    def distance_min(self) -> float:
+        """The smallest distance binned, in coordinate units; NaN in a
+        profile in redshift."""
+
+    @property
+    def distance_max(self) -> float:
+        """The largest distance binned, in coordinate units; NaN in a
+        profile in redshift."""
+
+    @property
     def representative(self) -> float:
         """The count-weighted median of ``mps``, which sizes the grids of the
         reconstruction."""
 
     def at(self, z: ArrayLike) -> NDArray[np.float64]:
-        """The mps at each redshift, in coordinate units, the shape of ``z``
-        kept: the value
-        the reconstruction used at a tracer of that redshift. Raises if the
+        """The mps at each redshift, or at each distance of a profile in
+        distance, in coordinate units, the shape of ``z`` kept: the value
+        the reconstruction used at a tracer of that redshift or distance. Raises if the
         profile is empty, or where the extrapolation is not positive."""
 
 
@@ -502,7 +568,10 @@ class SelectionCounts:
 
     For ``reconstruct_lightcone``, the tracers removed are
     ``tracers_outside_redshift_cut + tracers_outside_mask -
-    tracers_outside_both``, and the same for the randoms. For
+    tracers_outside_both`` from sky tracers, and
+    ``tracers_outside_distance_cut + tracers_outside_mask -
+    tracers_outside_both`` from Cartesian ones, and the same for the
+    randoms; the counts of the other cut are 0. For
     ``reconstruct_box``, the tracers removed are ``tracers_outside_box``, and
     the randoms removed ``randoms_outside_box``; these, ``tracers`` and
     ``randoms`` are set only when a ``box`` was given, ``randoms`` 0 when the
@@ -515,6 +584,11 @@ class SelectionCounts:
     @property
     def redshift_cut(self) -> Optional[RedshiftCut]:
         """The redshift cut applied, a new ``RedshiftCut`` on each access;
+        None when no cut was applied."""
+
+    @property
+    def distance_cut(self) -> Optional[DistanceCut]:
+        """The distance cut applied, a new ``DistanceCut`` on each access;
         None when no cut was applied."""
 
     @property
@@ -542,11 +616,14 @@ class SelectionCounts:
     def tracers_outside_redshift_cut(self) -> int: ...
 
     @property
+    def tracers_outside_distance_cut(self) -> int: ...
+
+    @property
     def tracers_outside_mask(self) -> int: ...
 
     @property
     def tracers_outside_both(self) -> int:
-        """Tracers counted in both of the two above."""
+        """Tracers outside the cut, redshift or distance, and the mask."""
 
     @property
     def tracers_outside_box(self) -> int:
@@ -564,11 +641,14 @@ class SelectionCounts:
     def randoms_outside_redshift_cut(self) -> int: ...
 
     @property
+    def randoms_outside_distance_cut(self) -> int: ...
+
+    @property
     def randoms_outside_mask(self) -> int: ...
 
     @property
     def randoms_outside_both(self) -> int:
-        """Randoms counted in both of the two above."""
+        """Randoms outside the cut, redshift or distance, and the mask."""
 
     @property
     def randoms_outside_box(self) -> int:
@@ -716,6 +796,38 @@ def to_sky(
     infinite, or if a distance falls outside the table; the message names the
     object and, for the distance, suggests a table covering a wider redshift
     range."""
+
+
+def point_to_sky(
+    cartesian: ArrayLike,
+    *,
+    angle_unit: AngleUnit,
+) -> NDArray[np.float64]:
+    """Distance from the origin, right ascension and declination of
+    Cartesian points, shape (N, 3) each way, without a distance table.
+
+    Parameters
+    ----------
+    cartesian : array_like, shape (N, 3)
+        x, y, z, in coordinate units.
+    angle_unit : {"deg", "rad"}
+        The unit of the angles returned.
+
+    Returns
+    -------
+    ndarray, shape (N, 3)
+        Per point: the distance, in coordinate units; the right ascension
+        in [0, 360) degrees ([0, 2 pi) radians); the declination. The angles
+        and distance of ``to_sky``, bit for bit, in the same unit; the origin
+        gets right ascension and declination 0.
+
+    Notes
+    -----
+    Never raises on a value: a row holding a NaN gives NaN in all three,
+    and an infinite coordinate an infinite distance. Raises only if the
+    array is not of shape (N, 3) or ``angle_unit`` is invalid. As
+    ``otswap::pointToSky``, one point at a time.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -925,20 +1037,22 @@ def reconstruct_box(
 
 
 def reconstruct_lightcone(
-    tracers_sky: ArrayLike,
-    randoms_sky: ArrayLike,
+    tracers_sky: Optional[ArrayLike] = None,
+    randoms_sky: Optional[ArrayLike] = None,
     *,
     sky_area_deg2: Optional[float] = None,
     mask: Optional[Mask] = None,
     n_bins: int,
-    distances: DistanceTable,
+    distances: Optional[DistanceTable] = None,
     angle_unit: AngleUnit,
     tracers: Optional[ArrayLike] = None,
     randoms: Optional[ArrayLike] = None,
     redshift_cut: Optional[Union[RedshiftCut, tuple[float, float]]] = None,
+    distance_cut: Optional[Union[DistanceCut, tuple[float, float]]] = None,
     config: Config = Config(),
 ) -> Result:
-    """Reconstruct in lightcone geometry.
+    """Reconstruct in lightcone geometry, from sky coordinates or from
+    Cartesian ones.
 
     The mean particle separation is measured from the tracers: n_bins
     uniform redshift bins over the observed range, mps = (N / V)^(-1/3) in
@@ -947,16 +1061,26 @@ def reconstruct_lightcone(
     outermost bins. Raises if a bin holds too few tracers for a 2% accuracy
     on its mps.
 
+    Give either ``tracers_sky`` and ``randoms_sky``, or ``tracers`` and
+    ``randoms``, Cartesian comoving coordinates with the observer at the
+    origin. From Cartesian coordinates no cosmology is needed: the bins are
+    uniform in comoving distance from the origin, ``Result.mps_profile`` is
+    a profile in distance, the objects are selected on the angles and
+    distance of ``point_to_sky``, ``distance_cut`` takes the place of
+    ``redshift_cut``, and ``distances`` is optional: it only fills the
+    redshifts of ``Result.tracers_sky`` and ``Result.lagrangian_sky``, NaN
+    without it, and the result is otherwise the same with or without it.
+
     Randoms are required: they carry the survey geometry, the selection
     function and the completeness.
 
     Parameters
     ----------
-    tracers_sky : array_like, shape (N, 3)
+    tracers_sky : array_like, shape (N, 3), optional
         Sky coordinates of the tracers.
-    randoms_sky : array_like, shape (M, 3)
+    randoms_sky : array_like, shape (M, 3), optional
         Sky coordinates of the randoms. Their number is checked after the
-        redshift cut and the mask: the randoms kept must number at least
+        redshift cut (the distance cut for ``randoms``) and the mask: the randoms kept must number at least
         ``config.n_realizations`` times the tracers kept, which is
         M >= R * N, with R ``config.n_realizations``, when nothing is left
         out.
@@ -973,26 +1097,34 @@ def reconstruct_lightcone(
         ``config.max_unobserved_pixels_crossed``. The mask and the redshift
         cut are both evaluated on every object; the objects kept pass both.
     n_bins : int
-        Redshift bins used to measure mps(z).
-    distances : DistanceTable
+        Redshift bins used to measure mps(z), or distance bins for mps(d).
+    distances : DistanceTable, optional
         The redshift to distance relation, with which the sky coordinates
         are converted and the shell volumes computed; it must cover the
-        redshifts of the objects kept.
+        redshifts of the objects kept. Required with ``tracers_sky``;
+        optional with ``tracers``, as above.
     angle_unit : AngleUnit
-        Unit of right ascension and declination. A declination outside
-        [-90, 90] degrees ([-pi/2, pi/2] radians) raises, the message giving
-        it in this unit.
+        Unit of right ascension and declination, of the sky arrays given and
+        of those of the result. A declination outside [-90, 90] degrees
+        ([-pi/2, pi/2] radians) raises, the message giving it in this unit.
     tracers, randoms : array_like, optional
-        Cartesian coordinates already computed, shape (N, 3) and (M, 3). Give
-        both or neither; when given, the conversion is skipped, and their
-        agreement with the sky coordinates is not checked.
+        Cartesian coordinates of the tracers and the randoms, shape (N, 3)
+        and (M, 3), in coordinate units, in place of ``tracers_sky`` and
+        ``randoms_sky``. Give both.
     redshift_cut : RedshiftCut or (min, max), optional
-        Tracers and randoms whose redshift lies outside this closed range
-        are left out of the reconstruction, before anything else: the
-        randoms are dropped, and the tracers keep their row, flagged in
-        ``Result.outside_redshift_cut``. mps(z) is measured on the tracers
-        kept, and only their redshifts need lie in the distance table. None,
-        the default, and ``RedshiftCut()`` cut nothing.
+        With ``tracers_sky``: tracers and randoms whose redshift lies outside
+        this closed range are left out of the reconstruction, before
+        anything else: the randoms are dropped, and the tracers keep their
+        row, flagged in ``Result.outside_redshift_cut``. mps(z) is measured
+        on the tracers kept, and only their redshifts need lie in the
+        distance table. None, the default, and ``RedshiftCut()`` cut
+        nothing.
+    distance_cut : DistanceCut or (min, max), optional
+        With ``tracers``: the redshift cut in comoving distance from the
+        origin, in coordinate units. The objects outside it are left out as
+        by ``redshift_cut``, the tracers flagged in
+        ``Result.outside_distance_cut``, and mps(d) is measured on the
+        tracers kept. None, the default, and ``DistanceCut()`` cut nothing.
     config : Config, optional
         Every field; ``reject_crossings`` and
         ``max_unobserved_pixels_crossed`` are read only with a mask.
@@ -1007,25 +1139,33 @@ def reconstruct_lightcone(
             otswap: rejected <r> of <D> displacements crossing more than <L> unobserved pixels in a row
             otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
 
-        ``"detailed"`` adds the mps(z) profile before the last line.
+        ``"detailed"`` adds the mps(z) profile before the last line. With
+        a distance cut, the cut reads ``<a> outside the distance cut
+        [<dmin>, <dmax>] in coordinate units``, and ``"detailed"`` adds
+        mps(d).
 
     Raises
     ------
     Error
-        If an array is not of shape (N, 3), if ``tracers`` is given without
-        ``randoms``, or if they describe a different number of objects than
-        the sky arrays; if a declination is out of range, or a redshift falls
+        If both or neither of the sky pair and the Cartesian pair are given,
+        or one array of a pair alone; if ``redshift_cut`` is given with
+        ``tracers``, or ``distance_cut`` with ``tracers_sky``; if
+        ``distances`` is missing with ``tracers_sky``.
+    Error
+        If an array is not of shape (N, 3), or a Cartesian coordinate is not
+        finite; if a declination is out of range, or a redshift falls
         outside the distance table; if the randoms are too few; if both or
         neither of ``sky_area_deg2`` and ``mask`` are given.
     Error
-        If a bound of ``redshift_cut`` is NaN or its minimum exceeds its
-        maximum, or if too few tracers or randoms remain inside the cut and
-        the mask; the message gives the counts kept and dropped.
+        If a bound of the cut is NaN or its minimum exceeds its maximum, or
+        if too few tracers or randoms remain inside the cut and the mask;
+        the message gives the counts kept and dropped.
     Error
         If a bin holds too few tracers for its density to be meaningful, the
         message reporting how many bins the catalogue supports, or if the
         profile extrapolates to an mps that is not positive at a tracer's
-        redshift.
+        redshift or distance, or, with ``tracers``, if every tracer kept lies
+        at the same distance.
     Error
         If a field of ``config`` is out of range, as in ``reconstruct_box``.
     Error
@@ -1035,17 +1175,27 @@ def reconstruct_lightcone(
 
 
 def measure_mps_profile(
-    tracers_sky: ArrayLike,
+    tracers_sky: Optional[ArrayLike] = None,
     *,
     sky_area_deg2: Optional[float] = None,
     mask: Optional[Mask] = None,
     n_bins: int,
-    distances: DistanceTable,
+    distances: Optional[DistanceTable] = None,
     redshift_cut: Optional[Union[RedshiftCut, tuple[float, float]]] = None,
-    angle_unit: AngleUnit,
+    angle_unit: Optional[AngleUnit] = None,
     verbosity: Verbosity = "normal",
+    tracers: Optional[ArrayLike] = None,
+    distance_cut: Optional[Union[DistanceCut, tuple[float, float]]] = None,
 ) -> MpsProfile:
-    """Measure the mps(z) profile of a lightcone without reconstructing.
+    """Measure the mps(z) profile of a lightcone without reconstructing,
+    or the mps(d) profile of Cartesian tracers.
+
+    Give either ``tracers_sky``, with ``distances``, ``angle_unit`` and
+    optionally ``redshift_cut``, or ``tracers``, Cartesian, with
+    optionally ``distance_cut`` and neither ``distances`` nor
+    ``angle_unit``: the profile in distance ``reconstruct_lightcone``
+    measures from ``tracers``, bit for bit, with the same tracers, sky area
+    or mask, ``n_bins`` and ``distance_cut``.
 
     The steps of ``reconstruct_lightcone`` that concern the tracers, in the
     same order and with the same code: the checks of the sky coordinates
@@ -1059,7 +1209,7 @@ def measure_mps_profile(
 
     Parameters
     ----------
-    tracers_sky : array_like, shape (N, 3)
+    tracers_sky : array_like, shape (N, 3), optional
         Sky coordinates of the tracers.
     sky_area_deg2 : float, optional
         Effective survey area, when no mask is given, as in
@@ -1070,18 +1220,18 @@ def measure_mps_profile(
         the tracers on unobserved pixels are left out, as
         ``reconstruct_lightcone`` leaves them out.
     n_bins : int
-        Redshift bins used to measure mps(z).
-    distances : DistanceTable
-        The redshift to distance relation; it must cover the redshifts of
-        the tracers kept.
+        Redshift bins used to measure mps(z), or distance bins for mps(d).
+    distances : DistanceTable, optional
+        With ``tracers_sky``, required: the redshift to distance relation;
+        it must cover the redshifts of the tracers kept.
     redshift_cut : RedshiftCut or (min, max), optional
         As in ``reconstruct_lightcone``: the tracers whose redshift lies
         outside this closed range are left out. None, the default, cuts
         nothing.
-    angle_unit : AngleUnit
-        Unit of right ascension and declination. A declination outside
-        [-90, 90] degrees ([-pi/2, pi/2] radians) raises, the message giving
-        it in this unit.
+    angle_unit : AngleUnit, optional
+        With ``tracers_sky``, required: the unit of right ascension and
+        declination. A declination outside [-90, 90] degrees ([-pi/2, pi/2]
+        radians) raises, the message giving it in this unit.
     verbosity : Verbosity, optional
         What the call prints; see ``Verbosity``. With ``"normal"``, when a
         mask or a cut with a finite bound is applied, the tracer line of the
@@ -1091,7 +1241,14 @@ def measure_mps_profile(
             otswap: kept <n> of <N> tracers: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
             otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
 
-        ``"detailed"`` adds the mps(z) profile before the last line.
+        ``"detailed"`` adds the mps(z) profile before the last line. With
+        ``tracers``, the last line reads ``otswap: measureMpsProfile: <B>
+        bins over [<dmin>, <dmax>] in coordinate units``, the cut as in
+        ``reconstruct_lightcone``.
+    tracers : array_like, shape (N, 3), optional
+        Cartesian coordinates of the tracers, in place of ``tracers_sky``.
+    distance_cut : DistanceCut or (min, max), optional
+        With ``tracers``: as in ``reconstruct_lightcone``.
 
     Returns
     -------
@@ -1106,7 +1263,11 @@ def measure_mps_profile(
         the cut is NaN or its minimum exceeds its maximum, if a cut or the
         mask keeps too few tracers, if a bin holds too few tracers, or if a
         redshift kept falls outside the distance table; also if both or
-        neither of ``sky_area_deg2`` and ``mask`` are given.
+        neither of ``sky_area_deg2`` and ``mask`` are given, if both or
+        neither of ``tracers_sky`` and ``tracers`` are given, or if
+        ``tracers`` comes with ``distances``, ``angle_unit`` or
+        ``redshift_cut``, or ``tracers_sky`` with ``distance_cut``. With
+        ``tracers``, also if every tracer kept lies at the same distance.
     """
 
 
@@ -1135,8 +1296,8 @@ def reject_mask_crossings(
     ``tracers`` array without N rows, a flag, ``tracers_sky``,
     ``lagrangian`` or ``lagrangian_sky`` array whose size is neither 0 nor
     the one of its layout, or an entry of ``valid`` neither 0 nor 1. Tracers
-    flagged in ``outside_redshift_cut`` or ``outside_mask`` are left as they
-    are. ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
+    flagged in ``outside_redshift_cut``, ``outside_distance_cut`` or
+    ``outside_mask`` are left as they are. ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
     ``lagrangian_sky`` are recomputed, and ``result.selection`` records the
     filter. On a result holding a mean (``n_realizations_mean`` above 1, one
     realization), ``valid_realizations`` keeps the counts of the tracers kept,
@@ -1470,6 +1631,11 @@ def real_space_lightcone(
     and moves to the redshift of comoving distance d(z) + shift. A tracer
     without a valid realization still moves with the average of its
     neighbours; only one with no valid tracer within 3 sigma is not moved.
+
+    For a result of Cartesian ``tracers`` (its ``mps_profile`` in distance),
+    the observed redshift of each tracer is the redshift at which
+    ``distances`` reaches the tracer's distance from the origin, whether or
+    not the reconstruction was given a table.
 
     Parameters
     ----------

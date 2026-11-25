@@ -182,6 +182,11 @@ namespace {
     return a.redshiftCut.has_value() == b.redshiftCut.has_value() &&
            (!a.redshiftCut || (a.redshiftCut->min == b.redshiftCut->min &&
                                a.redshiftCut->max == b.redshiftCut->max)) &&
+           a.distanceCut.has_value() == b.distanceCut.has_value() &&
+           (!a.distanceCut || (a.distanceCut->min == b.distanceCut->min &&
+                               a.distanceCut->max == b.distanceCut->max)) &&
+           a.tracersOutsideDistanceCut == b.tracersOutsideDistanceCut &&
+           a.randomsOutsideDistanceCut == b.randomsOutsideDistanceCut &&
            a.maskApplied == b.maskApplied && same_box(a.boxLimits, b.boxLimits) &&
            a.periodic == b.periodic && a.tracersWrapped == b.tracersWrapped &&
            a.randomsWrapped == b.randomsWrapped &&
@@ -221,7 +226,8 @@ namespace {
     if (read.validRealizations != expected.validRealizations) return "validRealizations";
     if (read.filteredNside != expected.filteredNside) return "filteredNside";
     if (read.outsideRedshiftCut != expected.outsideRedshiftCut || read.outsideMask != expected.outsideMask ||
-        read.outsideBox != expected.outsideBox) return "the flags";
+        read.outsideBox != expected.outsideBox || read.outsideDistanceCut != expected.outsideDistanceCut)
+      return "the flags";
     if (!same_selection(read.selection, expected.selection)) return "selection";
     if (!same_bits(read.lagrangian, expected.lagrangian)) return "lagrangian";
     if (!same_bits(read.lagrangianSky, expected.lagrangianSky)) return "lagrangianSky";
@@ -820,6 +826,8 @@ int main ()
     const std::vector<double> cart = toCartesian(sky, table), cartRandoms = toCartesian(randomsSky, table);
     const Result cartBare = reconstructLightcone(cart, cartRandoms, 2000., 1, config);
     const Result cartTabled = reconstructLightcone(cart, cartRandoms, 2000., 1, config, &table);
+    const DistanceCut dcut {table.distanceAt(0.3), table.distanceAt(0.6)};
+    const Result cartCut = reconstructLightcone(cart, cartRandoms, mask, 1, config, &table, dcut);
     Result lcIds = lc;
     Result boxIds = limited;
     lcIds.ids.resize(n);
@@ -831,7 +839,8 @@ int main ()
     const std::pair<const char*, const Result*> cases[] = {
       {"lightcone with mask, cut and filter", &lc}, {"lightcone with IDs", &lcIds},
       {"lightcone with the sky area", &plain}, {"Cartesian lightcone, no table", &cartBare},
-      {"Cartesian lightcone with a table", &cartTabled}, {"box", &box}, {"box with limits", &limited},
+      {"Cartesian lightcone with a table", &cartTabled},
+      {"Cartesian lightcone with mask, distance cut and filter", &cartCut}, {"box", &box}, {"box with limits", &limited},
       {"box with limits and IDs", &boxIds}, {"periodic box", &periodicBox}};
     for (const auto& c : cases)
       for (const std::string ext : {".dat", ".fits"}) {
@@ -843,6 +852,34 @@ int main ()
       }
     check(!cartBare.mpsProfile.distance.empty() && !cartBare.distances && cartTabled.distances,
           "the Cartesian cases hold a profile in distance, with and without a table");
+    check(cartCut.selection.distanceCut && cartCut.selection.tracersOutsideDistanceCut > 0 &&
+          cartCut.selection.randomsOutsideDistanceCut > 0 && cartCut.selection.tracersOutsideBoth > 0 &&
+          cartCut.selection.displacementsCrossingMask > 0,
+          "the distance cut case flags tracers in both and rejects crossings");
+    for (const std::string ext : {".dat", ".fits"}) {
+      const std::string file = temporary("dcut" + ext);
+      remove_with_twins(file);
+      io::writeDisplacementMean(file, cartCut);
+      const std::vector<io::Keyword> k = internal::read_keywords(file);
+      const std::vector<std::string> names = io::columnNames(file);
+      const Result back = io::readDisplacementMean(file);
+      check(value_of(k, "DCUTMIN") != "missing" && value_of(k, "NTRDCUT") != "missing" &&
+            value_of(k, "NRNDCUT") != "missing" && value_of(k, "ZCUTMIN") == "missing" &&
+            names.size() == 19 && back.outsideDistanceCut == cartCut.outsideDistanceCut &&
+            same_selection(back.selection, cartCut.selection),
+            ext + ": writeDisplacementMean writes the distance cut, its counts and the column outsideDistanceCut, "
+                  "and readDisplacementMean reads them back");
+      remove_with_twins(file);
+      for (const Result* r : {&lc, &box}) {
+        io::writeDisplacementComplete(file, *r);
+        const std::vector<std::string> plain = io::columnNames(file);
+        const std::vector<io::Keyword> kp = internal::read_keywords(file);
+        check(std::find(plain.begin(), plain.end(), "outsideDistanceCut") == plain.end() &&
+              value_of(kp, "NTRDCUT") == "missing" && value_of(kp, "DCUTMIN") == "missing",
+              ext + ": no distance-cut column or keyword in the file of a sky or box result");
+        remove_with_twins(file);
+      }
+    }
     for (const std::string ext : {".dat", ".fits"}) {
       const std::string file = temporary("profile" + ext);
       io::writeMpsProfile(file, cartBare.mpsProfile);

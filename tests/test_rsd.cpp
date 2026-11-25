@@ -590,7 +590,7 @@ int main ()
     while (!r.outsideBox[anOutside]) ++anOutside;
     notLeftOut.validRealizations[anOutside] = 1;
     check(throws_naming([&] { realSpaceBox(notLeftOut, 2, 0.5, table, 1.5, 10., quiet); },
-                        "outside the redshift cut, the mask or the box limits"),
+                        "outside the redshift or distance cut, the mask or the box limits"),
           "a tracer outside the box with valid realizations is malformed");
   }
 
@@ -841,12 +841,85 @@ int main ()
     check(keptSame, "the kept tracers' rows are, bit for bit, those of the catalogue cut beforehand");
     check(cutNaN, "a cut tracer has NaN rows, no valid realization and a NaN mean");
 
-    const std::vector<double> cart = toCartesian(sky, table), randoms = toCartesian(randomsSky, table);
-    const Result cartesian =
-      internal::reconstruct_lightcone_both(cart, randoms, sky, randomsSky, 800., nullptr, 1, table, config, cut);
-    check(same_bits(cartesian.displacement, withCut.displacement) &&
-          cartesian.outsideRedshiftCut == withCut.outsideRedshiftCut,
-          "with Cartesian and sky arrays together, the same rows are cut and the result is the same");
+    group("distance cut, in the Cartesian overloads: as the redshift cut, on the distance from the origin");
+    {
+      const std::vector<double> cart = toCartesian(sky, table), cartRandoms = toCartesian(randomsSky, table);
+      const DistanceCut dcut {table.distanceAt(0.3), table.distanceAt(0.6)};
+      auto within = [&dcut] (const std::vector<double>& p) {
+        std::vector<std::size_t> in;
+        for (std::size_t i = 0; 3*i < p.size(); ++i) {
+          double d, ra, dec;
+          pointToSky(p[3*i], p[3*i+1], p[3*i+2], d, ra, dec);
+          if (d >= dcut.min && d <= dcut.max) in.push_back(i);
+        }
+        return in;
+      };
+      const std::vector<std::size_t> in = within(cart), inRandoms = within(cartRandoms);
+      const Result cc = reconstructLightcone(cart, cartRandoms, 800., 1, config, nullptr, dcut);
+      const Result ccKept = reconstructLightcone(rows(cart, in), rows(cartRandoms, inRandoms), 800., 1, config);
+      std::vector<std::uint8_t> expected(n, 1);
+      for (const std::size_t i : in) expected[i] = 0;
+      check(in.size() > 300 && in.size() < 700 && cc.outsideDistanceCut == expected &&
+            cc.outsideRedshiftCut == std::vector<std::uint8_t>(n, 0),
+            "the flag marks exactly the tracers whose pointToSky distance lies outside the cut; no redshift flag");
+      bool same = true, nan = true;
+      for (std::size_t k2 = 0, i = 0; i < n; ++i) {
+        const bool isKept = k2 < in.size() && in[k2] == i;
+        for (int c = 0; c < 3; ++c) {
+          if (isKept) same = same && same_double(cc.meanDisplacement[3*i+c], ccKept.meanDisplacement[3*k2+c]);
+          else nan = nan && std::isnan(cc.meanDisplacement[3*i+c]);
+        }
+        if (isKept) ++k2;
+        else nan = nan && cc.validRealizations[i] == 0;
+      }
+      check(same && nan, "the kept rows bit for bit as the catalogue cut beforehand; NaN rows for the others");
+      check(same_bits(cc.mpsProfile.mps, ccKept.mpsProfile.mps) &&
+            same_bits(cc.mpsProfile.mps, measureMpsProfile(cart, 800., 1, dcut, Verbosity::Silent).mps),
+            "mps(d) of the kept tracers, as measureMpsProfile with the cut gives it");
+      const SelectionCounts& s = cc.selection;
+      check(s.distanceCut && s.distanceCut->min == dcut.min && !s.redshiftCut &&
+            s.tracersOutsideDistanceCut == n - in.size() &&
+            s.randomsOutsideDistanceCut == cartRandoms.size() / 3 - inRandoms.size() &&
+            s.tracersOutsideRedshiftCut == 0 && s.randomsOutsideRedshiftCut == 0 && !s.maskApplied,
+            "the counts");
+      check(s.message().find("outside the distance cut [") != std::string::npos &&
+            s.message().find("] in coordinate units\n") != std::string::npos,
+            "the report names the distance cut: " + s.message());
+      const Result open = reconstructLightcone(cart, cartRandoms, 800., 1, config, nullptr, DistanceCut{});
+      const Result none = reconstructLightcone(cart, cartRandoms, 800., 1, config);
+      check(same_bits(open.displacement, none.displacement) && !open.selection.distanceCut &&
+            open.outsideDistanceCut == std::vector<std::uint8_t>(n, 0) && open.selection.message().empty(),
+            "the default cuts nothing, flags nothing, reports nothing");
+      check(throws_naming([&] { reconstructLightcone(cart, cartRandoms, 800., 1, config, nullptr,
+                                                     DistanceCut{kNaN, 1.}); }, "a bound of the distance cut is NaN"),
+            "a NaN bound raises");
+      check(throws_naming([&] { reconstructLightcone(cart, cartRandoms, 800., 1, config, nullptr,
+                                                     DistanceCut{dcut.max, dcut.min}); },
+                          "its lower bound exceeds the upper one"), "min > max raises");
+      check(throws_naming([&] { measureMpsProfile(cart, 800., 1, DistanceCut{dcut.max, dcut.min}, Verbosity::Silent); },
+                          "its lower bound exceeds the upper one"), "and in measureMpsProfile");
+      check(throws_naming([&] { reconstructLightcone(cart, cartRandoms, 800., 1, config, nullptr,
+                                                     DistanceCut{dcut.min, dcut.min + 1.}); },
+                          "the distance cut ["), "a cut keeping too few tracers raises, naming the cut");
+      check(throws_naming([&] { measureMpsProfile(cart, 800., 1, DistanceCut{dcut.min, dcut.min + 1.},
+                                                  Verbosity::Silent); }, "the distance cut ["),
+            "and in measureMpsProfile");
+      CorrectionConfig quietCorrection;
+      quietCorrection.verbosity = Verbosity::Silent;
+      const RealSpaceCatalog moved = realSpaceLightcone(cc, table, BiasTable{{0.3, 0.6}, {1.2, 1.6}}, 10.,
+                                                        quietCorrection);
+      bool leftOut = true;
+      for (std::size_t i = 0; i < n; ++i)
+        leftOut = leftOut && ((moved.status[i] == CorrectionStatus::LeftOut) == (expected[i] == 1));
+      check(leftOut, "realSpaceLightcone leaves the tracers outside the distance cut out");
+      const Result tabled = reconstructLightcone(cart, cartRandoms, 800., 1, config, &table, dcut);
+      const RealSpaceCatalog movedTabled = realSpaceLightcone(tabled, table, BiasTable{{0.3, 0.6}, {1.2, 1.6}}, 10.,
+                                                              quietCorrection);
+      check(same_bits(moved.sky, movedTabled.sky) && same_bits(moved.cartesian, movedTabled.cartesian) &&
+            moved.status == movedTabled.status,
+            "on a Cartesian result, the redshifts come from the distances and the table given to it: the same "
+            "catalogue whether the reconstruction had a table or not");
+    }
 
     const Result none = reconstructLightcone(sky, randomsSky, 800., 1, table, config);
     const Result open = reconstructLightcone(sky, randomsSky, 800., 1, table, config, RedshiftCut{});
@@ -1129,16 +1202,6 @@ int main ()
     check(later.selection.tracers == n && later.selection.redshiftCut && later.selection.maskApplied,
           "the selection counts are kept");
 
-    group("Cartesian and sky arrays together, with the mask: the same rows dropped, the same result");
-    const Result cartesian =
-      internal::reconstruct_lightcone_both(toCartesian(sky, table), toCartesian(randomsSky, table), sky,
-                                           randomsSky, 0., &mask, 1, table, config, cut);
-    check(same_bits(cartesian.displacement, masked.displacement) && cartesian.valid == masked.valid &&
-          cartesian.outsideMask == masked.outsideMask &&
-          cartesian.outsideRedshiftCut == masked.outsideRedshiftCut &&
-          cartesian.selection.message() == masked.selection.message(),
-          "bit for bit, flags and counts included");
-
     group("the Cartesian mask overload: the objects on unobserved pixels by pointToSky's angles dropped, "
           "the kept ones as the Cartesian area overload on them, the filter applied");
     {
@@ -1178,7 +1241,7 @@ int main ()
                                 "the others");
       check(same_bits(cm.mpsProfile.mps, cmKept.mpsProfile.mps) && cm.mpsProfile.distance == cmKept.mpsProfile.distance,
             "the profile in distance of the kept tracers, with the mask's area");
-      check(same_bits(cm.mpsProfile.mps, measureMpsProfile(cart, mask, 1, Verbosity::Silent).mps),
+      check(same_bits(cm.mpsProfile.mps, measureMpsProfile(cart, mask, 1, {}, Verbosity::Silent).mps),
             "measureMpsProfile with the mask gives it too");
       check(cmFiltered.filteredNside == mask.nside() && cmFiltered.selection.maxUnobservedPixelsCrossed &&
             same_bits(cmFiltered.displacement, cm.displacement),
@@ -1376,8 +1439,7 @@ int main ()
                        reconstructLightcone(sky, randomsSky, mask, 2, table, config).mpsProfile),
           "the mask, no cut");
     const MpsProfile maskCut = measureMpsProfile(sky, mask, 1, table, cut, Verbosity::Silent);
-    check(same_profile(maskCut, masked.mpsProfile) && same_profile(maskCut, cartesian.mpsProfile),
-          "the mask and the cut, against the sky and the Cartesian overloads");
+    check(same_profile(maskCut, masked.mpsProfile), "the mask and the cut");
     check(same_profile(measureMpsProfile(rows(sky, keep), mask.skyAreaDeg2(), 1, table, none, Verbosity::Silent),
                        maskCut),
           "the mask and the cut: the profile of the catalogue selected beforehand, with the mask's area");
@@ -1451,7 +1513,7 @@ int main ()
       if (expectMask[i] && !expectCut[i]) aMasked = i;
     Result validMasked = masked;
     validMasked.valid[aMasked] = 1;
-    check(throws_naming([&] { rejectMaskCrossings(validMasked, mask); }, "outside the redshift cut, the mask or the box limits"),
+    check(throws_naming([&] { rejectMaskCrossings(validMasked, mask); }, "outside the redshift or distance cut, the mask or the box limits"),
           "a masked tracer with a valid entry is malformed");
     Result badMask = masked;
     badMask.outsideMask.pop_back();
@@ -1479,7 +1541,7 @@ int main ()
     Result maskedHasValid = plain;
     maskedHasValid.validRealizations[aMasked] = 1;
     check(throws_naming([&] { realSpaceLightcone(maskedHasValid, table, BiasTable{zb, b}, 10.); },
-                        "outside the redshift cut, the mask or the box limits"),
+                        "outside the redshift or distance cut, the mask or the box limits"),
           "a masked tracer with valid realizations is malformed");
 
     group("lagrangianSky: toSky of the tracer plus meanDisplacement, NaN rows for the flagged and those "
@@ -1508,8 +1570,6 @@ int main ()
     }
     check(rowsRight && someNaN, "NaN rows exactly for the flagged tracers and those the filter left "
           "without a valid realization; finite rows elsewhere, right ascension in [0, 2 pi)");
-    check(same_bits(cartesian.lagrangianSky, masked.lagrangianSky),
-          "the Cartesian mask overload gives the same coordinates");
     check(box.lagrangianSky.empty(), "a box result has none");
     Result refiltered = plain;
     rejectMaskCrossings(refiltered, mask, 0);
@@ -1546,7 +1606,6 @@ int main ()
     check(masked.tracersSky == sky && box.tracersSky.empty(), "tracersSky as given; none in a box");
     check(same_bits(masked.tracers, converted) && same_bits(plain.tracers, converted),
           "tracers: toCartesian of the sky array, the rows left out included");
-    check(same_bits(cartesian.tracers, converted), "the Cartesian overload keeps the array given");
     double zLo = kInf, zHi = -kInf;
     for (const std::size_t i : keep) {
       zLo = std::min(zLo, sky[3*i+2]);
@@ -1638,7 +1697,7 @@ int main ()
     group("IDs: the reconstructions set none; realSpaceLightcone and realSpaceBox copy them, compute the "
           "same, and refuse malformed ones");
     {
-      check(masked.ids.empty() && plain.ids.empty() && cartesian.ids.empty() && box.ids.empty(),
+      check(masked.ids.empty() && plain.ids.empty() && box.ids.empty(),
             "the reconstruction functions leave ids empty");
       std::vector<std::int64_t> ids(n);
       for (std::size_t i = 0; i < n; ++i) ids[i] = 1000 - 3 * (std::int64_t)i;
@@ -1752,23 +1811,14 @@ int main ()
     bad[3*7+1] = above;
     std::vector<double> badRandoms = randomsSky;
     badRandoms[3*9+1] = -above;
-    const std::vector<double> cart = toCartesian(sky, table), cartRandoms = toCartesian(randomsSky, table);
     check(throws_naming([&] { reconstructLightcone(bad, randomsSky, 800., 1, table, config); },
                         "the tracer sky array holds a declination of 1.570796 at object 7 (from 0), outside [-pi/2, pi/2]"),
           "the sky overload, tracers");
     check(throws_naming([&] { reconstructLightcone(sky, badRandoms, 800., 1, table, config); },
                         "the random sky array holds a declination of -1.570796 at object 9 (from 0)"),
           "the sky overload, randoms");
-    check(throws_naming([&] {
-            internal::reconstruct_lightcone_both(cart, cartRandoms, bad, randomsSky, 800., nullptr, 1, table,
-                                                 config, RedshiftCut{}); },
-                        "the tracer sky array holds a declination"), "Cartesian and sky arrays together");
     check(throws_naming([&] { reconstructLightcone(sky, badRandoms, mask, 1, table, config); },
                         "the random sky array holds a declination"), "the sky mask overload");
-    check(throws_naming([&] {
-            internal::reconstruct_lightcone_both(cart, cartRandoms, sky, badRandoms, 0., &mask, 1, table, config,
-                                                 RedshiftCut{}); },
-                        "the random sky array holds a declination"), "Cartesian and sky arrays together, a mask");
     check(throws_naming([&] { toCartesian(bad, table); }, "the sky array holds a declination"), "toCartesian");
     const std::vector<double> poles {1., kPi / 2., 0.5, 2., -kPi / 2., 0.5};
     bool accepted = true;

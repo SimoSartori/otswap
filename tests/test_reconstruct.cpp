@@ -571,10 +571,7 @@ int main ()
     check(fromSky.nObjects == nLc, "the sky overload reports the object count");
     check(fromSky.displacement.size() == 3 * nLc, "and returns a field of the right size");
 
-    // The same run with the Cartesian coordinates supplied beside the sky
-    // ones, as the Python binding's tracers= gives them, must give the same
-    // answer: it only skips the conversion, and toCartesian is the
-    // conversion the sky overload performs.
+    // toCartesian is the conversion the sky overload performs.
     const std::vector<double> cart = toCartesian(sky, distances);
     const std::vector<double> randomCart = toCartesian(randomSky, distances);
 
@@ -585,13 +582,6 @@ int main ()
       if (x != cart[3*i] || y != cart[3*i+1] || z != cart[3*i+2]) sameConversion = false;
     }
     check(sameConversion, "toCartesian is the per-object conversion, bit for bit");
-
-    const Result fromBoth =
-      internal::reconstruct_lightcone_both(cart, randomCart, sky, randomSky, skyAreaDeg2, nullptr, nBins,
-                                           distances, c, RedshiftCut{});
-
-    check(fromSky.displacement == fromBoth.displacement,
-          "Cartesian and sky arrays together produce the sky overload's field, bit for bit");
 
     // Exactly a permutation: the seeding pass pairs every tracer.
     std::set<std::array<double, 3>> used;
@@ -623,12 +613,6 @@ int main ()
       wideRan = false;
     }
     check(wideRan, "a lightcone with randoms outside the bounding box of the tracers runs");
-
-    std::vector<double> shortSky(sky.begin(), sky.end() - 3);
-    check_throws([&] {
-      internal::reconstruct_lightcone_both(cart, randomCart, shortSky, randomSky, skyAreaDeg2, nullptr,
-                                           nBins, distances, c, RedshiftCut{});
-    }, "Cartesian and sky arrays of different length raise");
 
     const DistanceTable narrow(0.3, 0.7, -1., 0., 0.6, 0.8, 500);
     check_throws([&] {
@@ -666,7 +650,7 @@ int main ()
       check(cartUsed.size() == nLc && bare.geometry == Geometry::Lightcone && bare.tracers == cart,
             "a lightcone result, the tracers as given, the matching a permutation");
 
-      const MpsProfile measured = measureMpsProfile(cart, skyAreaDeg2, nBins, Verbosity::Silent);
+      const MpsProfile measured = measureMpsProfile(cart, skyAreaDeg2, nBins, {}, Verbosity::Silent);
       const MpsProfile& p = bare.mpsProfile;
       check(p.redshift.empty() && p.distance.size() == nBins && std::isnan(p.redshiftMin) &&
             bits(p.distance, measured.distance) && bits(p.mps, measured.mps) && p.count == measured.count &&
@@ -708,11 +692,11 @@ int main ()
 
       throws_with([&] { reconstructLightcone(cart, randomCart, skyAreaDeg2, 0, c); },
                   "the number of distance bins is 0; it must be at least 1", "zero bins raise");
-      check(message_contains([&] { measureMpsProfile(cart, skyAreaDeg2, 20, Verbosity::Silent); },
+      check(message_contains([&] { measureMpsProfile(cart, skyAreaDeg2, 20, {}, Verbosity::Silent); },
                              "distance bin 0 (from 0) of 20"), "a thin bin raises, named as a distance bin");
       std::vector<double> flat(3 * nLc, 0.);
       for (std::size_t i = 0; i < nLc; ++i) flat[3*i] = 1000.;
-      check(message_contains([&] { measureMpsProfile(flat, skyAreaDeg2, 1, Verbosity::Silent); },
+      check(message_contains([&] { measureMpsProfile(flat, skyAreaDeg2, 1, {}, Verbosity::Silent); },
                              "every tracer is at distance 1000"), "a single distance raises");
     }
 

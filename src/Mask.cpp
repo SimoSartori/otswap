@@ -480,7 +480,7 @@ void otswap::rejectMaskCrossings (Result& result, const Mask& mask,
     if (internal::excluded(result, i)) {
       if (result.valid[k] != 0)
         throw Error("the result is malformed: object " + std::to_string(i) + " (from 0) took no part in the "
-                    "reconstruction (outside the redshift cut, the mask or the box limits) but "
+                    "reconstruction (outside the redshift or distance cut, the mask or the box limits) but "
                     "has a valid displacement at entry " + std::to_string(k) + " (from 0)");
       continue;
     }

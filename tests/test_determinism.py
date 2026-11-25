@@ -284,6 +284,29 @@ def compute():
             out[f"reconstruct_lightcone.{label}.outside_mask"] = digest(masked.outside_mask)
             out[f"reconstruct_lightcone.{label}.lagrangian_sky"] = digest(masked.lagrangian_sky)
 
+        # From Cartesian coordinates: the profile in distance, the table
+        # only filling the redshifts; alone, with a distance cut, and with the
+        # mask and a distance cut.
+        xyz_tracers = otswap.to_cartesian(tracers_sky, lc_table, angle_unit="deg")
+        xyz_randoms = otswap.to_cartesian(randoms_sky, lc_table, angle_unit="deg")
+        out["point_to_sky.deg"] = digest(otswap.point_to_sky(xyz, angle_unit="deg"))
+        out["point_to_sky.rad"] = digest(otswap.point_to_sky(xyz, angle_unit="rad"))
+        distance_cut = (900.0, 1500.0)
+        for label, options in (("plain", dict(sky_area_deg2=900.0)),
+                               ("table", dict(sky_area_deg2=900.0, distances=lc_table)),
+                               ("cut", dict(sky_area_deg2=900.0, distance_cut=distance_cut)),
+                               ("mask_cut", dict(mask=mask, distance_cut=distance_cut, distances=lc_table))):
+            c = otswap.reconstruct_lightcone(tracers=xyz_tracers, randoms=xyz_randoms, n_bins=2,
+                                             angle_unit="deg", config=lc_config, **options)
+            key = f"reconstruct_lightcone.cartesian.{label}"
+            out[key + ".displacement"] = digest(c.displacement)
+            out[key + ".valid"] = digest(c.valid)
+            out[key + ".mean_displacement"] = digest(c.mean_displacement)
+            out[key + ".lagrangian_sky"] = digest(c.lagrangian_sky)
+            out[key + ".lagrangian_distance"] = digest(c.lagrangian_distance)
+            out[key + ".outside_distance_cut"] = digest(c.outside_distance_cut)
+            out[key + ".mps_profile"] = digest(np.concatenate([c.mps_profile.distance, c.mps_profile.mps]))
+
     # The redshift-space correction, on the lightcone filtered at limit 0,
     # whose tracers without a valid realization exercise the NaN paths, and
     # on the box reconstructed from given randoms. The bias table is
