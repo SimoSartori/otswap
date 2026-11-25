@@ -101,8 +101,8 @@ int main (int argc, char** argv)
     config.seed = 12345;
 
     // The grid cell, in units of mps, affects the speed only, never the
-    // result; the default is 3; this example uses 4
-    config.cellSize = 4.;
+    // result; the default is 3
+    config.cellSize = 3.;
 
     // What the reconstruction reports, and where: Detailed adds, before the
     // line of the call, a line with the mean particle separation and its

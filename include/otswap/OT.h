@@ -330,22 +330,27 @@ namespace otswap {
 
   /**
    *  @brief The mean particle separation of a lightcone as a function of
-   *  redshift, measured by reconstructLightcone, or alone by
-   *  measureMpsProfile.
+   *  redshift or of comoving distance, measured by reconstructLightcone, or
+   *  alone by measureMpsProfile.
    *
-   *  The tracers kept are binned in nBins uniform redshift bins over
-   *  [redshiftMin, redshiftMax], and mps = (N / V)^(-1/3) in each, V the
-   *  shell volume implied by the sky area. The bin values are the nodes of
-   *  a piecewise linear profile, extrapolated linearly beyond the terminal
-   *  ones; at() evaluates it. Empty in a box result.
+   *  The overloads that take sky coordinates bin the tracers kept in nBins
+   *  uniform redshift bins over [redshiftMin, redshiftMax]: a profile in
+   *  redshift, with redshift filled and distance empty. The overloads that
+   *  take Cartesian coordinates bin them in nBins uniform bins of comoving
+   *  distance from the origin over [distanceMin, distanceMax]: a profile in
+   *  distance, with distance filled and redshift empty. In each bin
+   *  mps = (N / V)^(-1/3), V the shell volume implied by the sky area. The
+   *  bin values are the nodes of a piecewise linear profile, extrapolated
+   *  linearly beyond the terminal ones; at() evaluates it. Empty in a box
+   *  result.
    */
   struct MpsProfile {
-    std::vector<double>      redshift;   ///< bin centres
+    std::vector<double>      redshift;   ///< bin centres of a profile in redshift
     std::vector<double>      mps;        ///< in coordinate units, at each centre
     std::vector<std::size_t> count;      ///< tracers in each bin
 
-    /// The binned range: the smallest and largest redshift of the tracers
-    /// kept.
+    /// The binned range of a profile in redshift: the smallest and largest
+    /// redshift of the tracers kept. NaN in a profile in distance.
     double redshiftMin = std::numeric_limits<double>::quiet_NaN();
     double redshiftMax = std::numeric_limits<double>::quiet_NaN();
 
@@ -353,16 +358,27 @@ namespace otswap {
     /// reconstruction.
     double representative = std::numeric_limits<double>::quiet_NaN();
 
+    /// Bin centres of a profile in distance, in coordinate units.
+    std::vector<double>      distance;
+
+    /// The binned range of a profile in distance: the smallest and largest
+    /// distance of the tracers kept, in coordinate units. NaN in a profile
+    /// in redshift.
+    double distanceMin = std::numeric_limits<double>::quiet_NaN();
+    double distanceMax = std::numeric_limits<double>::quiet_NaN();
+
     /**
-     *  @brief The mps at redshift z, in coordinate units: linear between the nodes,
-     *  extrapolated linearly beyond the terminal ones along the terminal
-     *  segment, constant with a single node. This is the value the
-     *  reconstruction used at each tracer.
+     *  @brief The mps at x, in coordinate units: x a redshift for a profile
+     *  in redshift, a comoving distance for a profile in distance. Linear
+     *  between the nodes, extrapolated linearly beyond the terminal ones
+     *  along the terminal segment, constant with a single node. This is the
+     *  value the reconstruction used at each tracer.
      *
-     *  @exception Error if the profile is empty, or if the value is not
-     *  positive, which only an extrapolation can give.
+     *  @exception Error if the profile is empty or holds both redshift and
+     *  distance nodes, or if the value is not positive, which only an
+     *  extrapolation can give.
      */
-    double at (double z) const;
+    double at (double x) const;
   };
 
   /**
@@ -408,7 +424,8 @@ namespace otswap {
 
     /// Cartesian position of each tracer, the start of its displacements:
     /// the array given to reconstructBox or to a Cartesian overload of
-    /// reconstructLightcone, or toCartesian of the sky array. In a periodic
+    /// reconstructLightcone, or toCartesian of the sky array given to a sky
+    /// overload. In a periodic
     /// box, the tracers wrapped into the box: a coordinate outside the
     /// limits is shifted by a whole number of periods, one inside them is
     /// kept as given. A tracer left
@@ -417,9 +434,13 @@ namespace otswap {
     /// [object][xyz]; size 3 * nObjects.
     std::vector<double> tracers;
 
-    /// Sky coordinates of each tracer, as given to reconstructLightcone:
-    /// right ascension, declination, redshift; radians. Flat, [object][3];
-    /// size 3 * nObjects in a lightcone result, empty in a box result.
+    /// Sky coordinates of each tracer: right ascension, declination,
+    /// redshift; radians. As given to a sky overload of
+    /// reconstructLightcone; for a Cartesian overload, the right ascension
+    /// and declination of pointToSky, and the redshift of the distance
+    /// table given, NaN without one or where the distance lies outside it.
+    /// Flat, [object][3]; size 3 * nObjects in a lightcone result, empty in
+    /// a box result.
     std::vector<double> tracersSky;
 
     /// Displacements: the random matched to each object in each
@@ -497,15 +518,25 @@ namespace otswap {
     /// Sky coordinates of each tracer's mean Lagrangian position, as toSky
     /// computes them from lagrangian with the reconstruction's distance
     /// table: right ascension in [0, 2 pi), declination, redshift; radians.
-    /// Flat, [object][3]; size 3 * nObjects in a lightcone result, empty in a
-    /// box result. Recomputed with lagrangian.
+    /// Flat, [object][3]; size 3 * nObjects in a lightcone result with a
+    /// distance table or a profile in distance, empty otherwise (a box
+    /// result included). Recomputed with lagrangian.
     ///
     /// NaN rows where lagrangian is NaN: the tracers flagged in
     /// outsideRedshiftCut or outsideMask and those with no valid
     /// realization. A position whose distance falls outside the table,
     /// which a table that does not start at distance 0 allows, has a NaN
-    /// redshift and keeps its right ascension and declination.
+    /// redshift and keeps its right ascension and declination. Without a
+    /// table, as a Cartesian overload of reconstructLightcone given none
+    /// returns it, every redshift is NaN and the angles are filled.
     std::vector<double> lagrangianSky;
+
+    /// Comoving distance from the origin of each tracer's mean Lagrangian
+    /// position, as pointToSky computes it from lagrangian, in coordinate
+    /// units. Flat, [object]; size nObjects when lagrangianSky is filled,
+    /// empty otherwise; NaN where lagrangian is NaN. Recomputed with
+    /// lagrangian.
+    std::vector<double> lagrangianDistance;
 
     /// Box: the mean particle separation used, given or computed, in
     /// coordinate units.
@@ -526,12 +557,16 @@ namespace otswap {
     bool periodic = false;
 
     /// Lightcone: the mean particle separation profile measured on the
-    /// tracers kept. Empty in a box result.
+    /// tracers kept: in redshift for a sky overload of
+    /// reconstructLightcone, in distance for a Cartesian one. Empty in a
+    /// box result.
     MpsProfile mpsProfile;
 
     /// Lightcone: the distance table of the reconstruction, shared by the
     /// copies of this result, with which rejectMaskCrossings and
-    /// recomputeMeans recompute lagrangianSky. Null in a box result.
+    /// recomputeMeans recompute lagrangianSky. Null in a box result, and in
+    /// the result of a Cartesian overload of reconstructLightcone given no
+    /// table.
     std::shared_ptr<const DistanceTable> distances;
 
     /// Wall time of the call that made the result, in seconds. Two runs
@@ -892,6 +927,24 @@ namespace otswap {
                              const DistanceTable& distances);
 
   /**
+   *  @brief Comoving distance, right ascension and declination of one
+   *  Cartesian point, the observer at the origin; no distance table.
+   *
+   *  The geometric part of toSky, bit for bit: distance = |(x, y, z)|, the
+   *  right ascension atan2(y, x) folded into [0, 2 pi), the declination
+   *  asin(z / distance), the ratio clamped to [-1, 1]. The origin gets
+   *  right ascension and declination 0. A NaN coordinate gives NaN in all
+   *  three, as a NaN row of toSky does; an infinite one gives an infinite
+   *  distance. Never throws.
+   *
+   *  @param x, y, z the point, in coordinate units.
+   *  @param[out] distance the distance from the origin, in coordinate units.
+   *  @param[out] ra the right ascension, radians.
+   *  @param[out] dec the declination, radians.
+   */
+  void pointToSky (double x, double y, double z, double& distance, double& ra, double& dec) noexcept;
+
+  /**
    *  @brief Right ascension and declination of a sky array from degrees to
    *  radians, multiplied by pi/180; redshifts unchanged.
    *
@@ -990,43 +1043,47 @@ namespace otswap {
                                const RedshiftCut& cut = {});
 
   /**
-   *  @brief Reconstruct in lightcone geometry, with the Cartesian
-   *  coordinates already computed.
+   *  @brief Reconstruct in lightcone geometry, from Cartesian comoving
+   *  coordinates, the observer at the origin; no cosmology.
    *
-   *  Identical to the overload above, except that the conversion is
-   *  skipped. The sky coordinates are still required: the tracers'
-   *  redshifts drive mps(z), and the sky random array must describe the
-   *  same objects as the Cartesian one.
+   *  As the overload from sky coordinates, with the mean particle
+   *  separation measured in distance rather than redshift: nBins uniform
+   *  bins of comoving distance from the origin over the range of the
+   *  tracers, mps = (N / V)^(-1/3) per bin, V the shell volume implied by
+   *  skyAreaDeg2, with the same per-bin threshold. Result::mpsProfile is a
+   *  profile in distance, and each tracer's mps is its value at the
+   *  tracer's distance.
    *
-   *  @param tracers Cartesian coordinates, 3 * nObjects entries.
-   *  @param randoms Cartesian coordinates of the randoms.
-   *  @param tracersSky as above.
-   *  @param randomsSky as above.
-   *  @param skyAreaDeg2 as above.
-   *  @param nBins as above.
-   *  @param distances as above.
-   *  @param config as above.
+   *  The result is filled as by the sky overload, with tracers the array
+   *  given and tracersSky, lagrangianSky and lagrangianDistance computed
+   *  with pointToSky; the redshifts come from @p distances when one is
+   *  given and are NaN otherwise, or where a distance lies outside it.
+   *  No redshift cut is taken: select the objects before the call.
    *
-   *  @param cut as above, decided on the sky redshifts; the same rows are
-   *  dropped from the Cartesian arrays.
+   *  @param tracers Cartesian coordinates, 3 * nObjects entries, in
+   *  coordinate units.
+   *  @param randoms Cartesian coordinates of the randoms, required, as in
+   *  the sky overload, in the same units.
+   *  @param skyAreaDeg2 as in the sky overload.
+   *  @param nBins distance bins used to measure mps(d).
+   *  @param config as in the sky overload.
+   *  @param distances optional; the table whose redshifts fill those of
+   *  tracersSky and lagrangianSky, and which the result keeps. It plays no
+   *  part in the reconstruction: the result is the same with or without
+   *  it but for those redshifts and Result::distances.
    *
-   *  @exception Error as above, from the neighbour search included, and if
-   *  the Cartesian and sky arrays describe a different number of objects.
-   *
-   *  @warning No check verifies that the Cartesian coordinates agree with
-   *  the sky ones under the given cosmology; disagreement is silent.
-   *  Arrays made with toCartesian and the same distance table agree
-   *  exactly, and give the same result as the sky overload.
+   *  @exception Error if a bin holds too few tracers, if the profile
+   *  extrapolates to a mps that is not positive at a tracer's distance, if
+   *  every tracer lies at the same distance, if any array is malformed or
+   *  holds a non-finite coordinate, or if the randoms are too few; also
+   *  from the neighbour search, as in the sky overload.
    */
   Result reconstructLightcone (const std::vector<double>& tracers,
                                const std::vector<double>& randoms,
-                               const std::vector<double>& tracersSky,
-                               const std::vector<double>& randomsSky,
                                double skyAreaDeg2,
                                unsigned nBins,
-                               const DistanceTable& distances,
                                const Config& config,
-                               const RedshiftCut& cut = {});
+                               const DistanceTable* distances = nullptr);
 
   /**
    *  @brief Reconstruct in lightcone geometry, from sky coordinates, within
@@ -1076,28 +1133,32 @@ namespace otswap {
                                const RedshiftCut& cut = {});
 
   /**
-   *  @brief Reconstruct in lightcone geometry, with the Cartesian
-   *  coordinates already computed, within the observed pixels of a mask.
+   *  @brief Reconstruct in lightcone geometry, from Cartesian comoving
+   *  coordinates, within the observed pixels of a mask; no cosmology.
    *
-   *  The overload above with the conversion skipped, as for the overloads
-   *  with the sky area. The mask is applied on the sky coordinates; the
-   *  same rows are dropped from the Cartesian arrays.
+   *  The Cartesian overload with the sky area, with the area taken from the
+   *  mask and the mask applied as by the sky overload with a mask: the
+   *  objects on unobserved pixels, decided on the right ascension and
+   *  declination pointToSky gives, are left out before the reconstruction,
+   *  and, when config.rejectCrossings is set, the displacements crossing
+   *  unobserved pixels are rejected after it.
    *
-   *  @exception Error as above, from the neighbour search included, and if
-   *  the Cartesian and sky arrays describe a different number of objects.
+   *  @param tracers as in the Cartesian overload with the sky area.
+   *  @param randoms as in the Cartesian overload with the sky area.
+   *  @param mask the survey's veto mask; borrowed for the call only.
+   *  @param nBins as in the Cartesian overload with the sky area.
+   *  @param config as in the sky overload with a mask.
+   *  @param distances as in the Cartesian overload with the sky area.
    *
-   *  @warning No check verifies that the Cartesian coordinates agree with
-   *  the sky ones under the given cosmology; disagreement is silent.
+   *  @exception Error as the Cartesian overload with the sky area, and if
+   *  too few tracers or randoms remain inside the mask.
    */
   Result reconstructLightcone (const std::vector<double>& tracers,
                                const std::vector<double>& randoms,
-                               const std::vector<double>& tracersSky,
-                               const std::vector<double>& randomsSky,
                                const Mask& mask,
                                unsigned nBins,
-                               const DistanceTable& distances,
                                const Config& config,
-                               const RedshiftCut& cut = {});
+                               const DistanceTable* distances = nullptr);
 
   /**
    *  @brief The mps(z) profile reconstructLightcone measures, without
@@ -1172,6 +1233,58 @@ namespace otswap {
                                 unsigned nBins,
                                 const DistanceTable& distances,
                                 const RedshiftCut& cut = {},
+                                Verbosity verbosity = Verbosity::Normal,
+                                std::ostream* log = &std::clog);
+
+  /**
+   *  @brief The mps(d) profile the Cartesian overloads of
+   *  reconstructLightcone measure, without reconstructing: from Cartesian
+   *  coordinates, with the sky area given.
+   *
+   *  The steps of the Cartesian reconstructLightcone that concern the
+   *  tracers, with the same code: the check of the array and the profile
+   *  in distance with its per-bin threshold. The profile equals, bit for
+   *  bit, Result::mpsProfile of the Cartesian reconstructLightcone with the
+   *  same tracers, skyAreaDeg2 and nBins, whatever its randoms, config and
+   *  table.
+   *
+   *  @param tracers as in the Cartesian reconstructLightcone.
+   *  @param skyAreaDeg2 as in reconstructLightcone.
+   *  @param nBins as in the Cartesian reconstructLightcone.
+   *  @param verbosity what the call reports. At Normal,
+   *
+   *      otswap: measureMpsProfile: <B> bins over [<dmin>, <dmax>] in coordinate units
+   *
+   *  At Detailed, the mps(d) line of reconstructLightcone before it.
+   *  @param log where the report is written; null writes nothing.
+   *
+   *  @exception Error as the Cartesian reconstructLightcone, with the same
+   *  messages, if the array is malformed, if every tracer lies at the same
+   *  distance, or if a bin holds too few tracers.
+   */
+  MpsProfile measureMpsProfile (const std::vector<double>& tracers,
+                                double skyAreaDeg2,
+                                unsigned nBins,
+                                Verbosity verbosity = Verbosity::Normal,
+                                std::ostream* log = &std::clog);
+
+  /**
+   *  @brief The mps(d) profile of the Cartesian reconstructLightcone with a
+   *  mask, without reconstructing.
+   *
+   *  As the Cartesian overload with the sky area, with the area taken from
+   *  the mask, mask.skyAreaDeg2(), and the tracers on unobserved pixels
+   *  left out as the Cartesian reconstructLightcone with a mask leaves them
+   *  out; at Normal the tracer line of the selection report comes first.
+   *  The profile equals, bit for bit, Result::mpsProfile of that overload
+   *  with the same tracers, mask and nBins.
+   *
+   *  @exception Error as the Cartesian overload with the sky area, and if
+   *  too few tracers remain inside the mask.
+   */
+  MpsProfile measureMpsProfile (const std::vector<double>& tracers,
+                                const Mask& mask,
+                                unsigned nBins,
                                 Verbosity verbosity = Verbosity::Normal,
                                 std::ostream* log = &std::clog);
 

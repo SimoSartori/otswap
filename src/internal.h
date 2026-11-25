@@ -90,7 +90,7 @@ namespace otswap {
     /// Checks that each flag array of @p result, outsideRedshiftCut,
     /// outsideMask and outsideBox, is empty or holds nObjects entries, and that tracers,
     /// tracersSky, lagrangian and lagrangianSky are each empty or hold
-    /// 3 * nObjects.
+    /// 3 * nObjects, and lagrangianDistance empty or nObjects.
     void check_flags (const Result& result);
 
     /// Checks that @p ids is empty or holds @p nObjects entries, and that no
@@ -180,8 +180,9 @@ namespace otswap {
     /// meanDisplacement (the count of valid realizations per object, and
     /// the mean over them, summed in realization order; NaN where there are
     /// none), lagrangian = tracers + meanDisplacement when tracers holds
-    /// 3 * nObjects entries (empty otherwise), and lagrangianSky from
-    /// lagrangian with result.distances in a lightcone result (empty
+    /// 3 * nObjects entries (empty otherwise), and lagrangianSky and
+    /// lagrangianDistance from lagrangian, with result.distances, in a
+    /// lightcone result that has a table or a profile in distance (empty
     /// otherwise). In a periodic result, lagrangian is wrapped into box. An array that already has its size is overwritten in
     /// place, so its data pointer does not change.
     void summarize (Result& result);
@@ -197,12 +198,15 @@ namespace otswap {
     void write_lines (std::ostream& log, const std::string& text);
 
     /// Sky coordinates of Cartesian positions, as toSky gives them, except
-    /// that a distance outside the table gives a NaN redshift, the right
-    /// ascension and declination kept, rather than an error. Written into
-    /// @p sky, resized to the size of @p cartesian.
+    /// that a distance outside the table, or a null table, gives a NaN
+    /// redshift, the right ascension and declination kept, rather than an
+    /// error. Written into @p sky, resized to the size of @p cartesian, and
+    /// the distances into @p distance, one per position, when it is not
+    /// null.
     void sky_of_positions (const std::vector<double>& cartesian,
-                           const DistanceTable& distances,
-                           std::vector<double>& sky);
+                           const DistanceTable* distances,
+                           std::vector<double>& sky,
+                           std::vector<double>* distance = nullptr);
 
     /// The bounding box of positions (3*N, finite, N > 0): the smallest and
     /// largest coordinate on each axis.
@@ -232,6 +236,25 @@ namespace otswap {
     MpsProfile mps_profile (const std::vector<double>& tracersSky,
                             double skyAreaDeg2, unsigned nBins,
                             const DistanceTable& distances);
+
+    /// The same in distance: the profile of the tracers' comoving
+    /// distances, one per tracer, in uniform bins over the observed range,
+    /// with the same threshold; a profile in distance.
+    MpsProfile mps_profile_distance (const std::vector<double>& distance,
+                                     double skyAreaDeg2, unsigned nBins);
+
+    /// reconstructLightcone from Cartesian and sky arrays of the same
+    /// objects, the Cartesian ones used for the reconstruction and the sky
+    /// ones for the profile in redshift, the cut and the mask (null for the
+    /// sky area). No check that the two agree. Serves the tracers= and
+    /// randoms= of the Python binding's reconstruct_lightcone.
+    Result reconstruct_lightcone_both (const std::vector<double>& tracers,
+                                       const std::vector<double>& randoms,
+                                       const std::vector<double>& tracersSky,
+                                       const std::vector<double>& randomsSky,
+                                       double skyAreaDeg2, const Mask* mask,
+                                       unsigned nBins, const DistanceTable& distances,
+                                       const Config& config, const RedshiftCut& cut);
 
     /// Piecewise linear function through the nodes (x, y), x strictly
     /// increasing, extrapolated linearly beyond the terminal nodes along

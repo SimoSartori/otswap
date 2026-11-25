@@ -842,10 +842,11 @@ int main ()
     check(cutNaN, "a cut tracer has NaN rows, no valid realization and a NaN mean");
 
     const std::vector<double> cart = toCartesian(sky, table), randoms = toCartesian(randomsSky, table);
-    const Result cartesian = reconstructLightcone(cart, randoms, sky, randomsSky, 800., 1, table, config, cut);
+    const Result cartesian =
+      internal::reconstruct_lightcone_both(cart, randoms, sky, randomsSky, 800., nullptr, 1, table, config, cut);
     check(same_bits(cartesian.displacement, withCut.displacement) &&
           cartesian.outsideRedshiftCut == withCut.outsideRedshiftCut,
-          "the Cartesian overload cuts the same rows and gives the same result");
+          "with Cartesian and sky arrays together, the same rows are cut and the result is the same");
 
     const Result none = reconstructLightcone(sky, randomsSky, 800., 1, table, config);
     const Result open = reconstructLightcone(sky, randomsSky, 800., 1, table, config, RedshiftCut{});
@@ -1128,14 +1129,61 @@ int main ()
     check(later.selection.tracers == n && later.selection.redshiftCut && later.selection.maskApplied,
           "the selection counts are kept");
 
-    group("the Cartesian mask overload drops the same rows and gives the same result");
-    const Result cartesian = reconstructLightcone(toCartesian(sky, table), toCartesian(randomsSky, table),
-                                                  sky, randomsSky, mask, 1, table, config, cut);
+    group("Cartesian and sky arrays together, with the mask: the same rows dropped, the same result");
+    const Result cartesian =
+      internal::reconstruct_lightcone_both(toCartesian(sky, table), toCartesian(randomsSky, table), sky,
+                                           randomsSky, 0., &mask, 1, table, config, cut);
     check(same_bits(cartesian.displacement, masked.displacement) && cartesian.valid == masked.valid &&
           cartesian.outsideMask == masked.outsideMask &&
           cartesian.outsideRedshiftCut == masked.outsideRedshiftCut &&
           cartesian.selection.message() == masked.selection.message(),
           "bit for bit, flags and counts included");
+
+    group("the Cartesian mask overload: the objects on unobserved pixels by pointToSky's angles dropped, "
+          "the kept ones as the Cartesian area overload on them, the filter applied");
+    {
+      const std::vector<double> cart = toCartesian(sky, table), cartRandoms = toCartesian(randomsSky, table);
+      std::vector<std::size_t> in, inRandoms;
+      std::vector<std::uint8_t> outside(n);
+      for (std::size_t i = 0; i < n; ++i) {
+        double d, ra, dec;
+        pointToSky(cart[3*i], cart[3*i+1], cart[3*i+2], d, ra, dec);
+        outside[i] = !mask.allows(ra, dec);
+        if (!outside[i]) in.push_back(i);
+      }
+      for (std::size_t i = 0; i < cartRandoms.size() / 3; ++i) {
+        double d, ra, dec;
+        pointToSky(cartRandoms[3*i], cartRandoms[3*i+1], cartRandoms[3*i+2], d, ra, dec);
+        if (mask.allows(ra, dec)) inRandoms.push_back(i);
+      }
+      const Result cm = reconstructLightcone(cart, cartRandoms, mask, 1, unfiltered);
+      const Result cmFiltered = reconstructLightcone(cart, cartRandoms, mask, 1, config);
+      const Result cmKept = reconstructLightcone(rows(cart, in), rows(cartRandoms, inRandoms), mask.skyAreaDeg2(),
+                                                 1, unfiltered);
+      check(cm.outsideMask == outside && in.size() < n && in.size() > n / 2 &&
+            cm.selection.tracersOutsideMask == n - in.size() &&
+            cm.selection.randomsOutsideMask == cartRandoms.size() / 3 - inRandoms.size() &&
+            !cm.selection.redshiftCut && cm.outsideRedshiftCut == std::vector<std::uint8_t>(n, 0),
+            "the flags and counts follow Mask::allows on pointToSky's angles; no redshift cut");
+      bool keptSame = true, outNaN = true;
+      for (std::size_t k = 0, i = 0; i < n; ++i) {
+        const bool isKept = k < in.size() && in[k] == i;
+        for (int c = 0; c < 3; ++c) {
+          if (isKept) keptSame = keptSame && same_double(cm.meanDisplacement[3*i+c], cmKept.meanDisplacement[3*k+c]);
+          else outNaN = outNaN && std::isnan(cm.meanDisplacement[3*i+c]);
+        }
+        if (isKept) ++k;
+      }
+      check(keptSame && outNaN, "the kept rows bit for bit as the catalogue selected beforehand; NaN rows for "
+                                "the others");
+      check(same_bits(cm.mpsProfile.mps, cmKept.mpsProfile.mps) && cm.mpsProfile.distance == cmKept.mpsProfile.distance,
+            "the profile in distance of the kept tracers, with the mask's area");
+      check(same_bits(cm.mpsProfile.mps, measureMpsProfile(cart, mask, 1, Verbosity::Silent).mps),
+            "measureMpsProfile with the mask gives it too");
+      check(cmFiltered.filteredNside == mask.nside() && cmFiltered.selection.maxUnobservedPixelsCrossed &&
+            same_bits(cmFiltered.displacement, cm.displacement),
+            "with rejectCrossings, the filter is applied to the same field");
+    }
 
     group("the report: Normal writes the selection report, then the line of the call, to Config::log; "
           "Detailed adds mps(z); Silent and a null log write nothing");
@@ -1711,12 +1759,16 @@ int main ()
     check(throws_naming([&] { reconstructLightcone(sky, badRandoms, 800., 1, table, config); },
                         "the random sky array holds a declination of -1.570796 at object 9 (from 0)"),
           "the sky overload, randoms");
-    check(throws_naming([&] { reconstructLightcone(cart, cartRandoms, bad, randomsSky, 800., 1, table, config); },
-                        "the tracer sky array holds a declination"), "the Cartesian overload");
+    check(throws_naming([&] {
+            internal::reconstruct_lightcone_both(cart, cartRandoms, bad, randomsSky, 800., nullptr, 1, table,
+                                                 config, RedshiftCut{}); },
+                        "the tracer sky array holds a declination"), "Cartesian and sky arrays together");
     check(throws_naming([&] { reconstructLightcone(sky, badRandoms, mask, 1, table, config); },
                         "the random sky array holds a declination"), "the sky mask overload");
-    check(throws_naming([&] { reconstructLightcone(cart, cartRandoms, sky, badRandoms, mask, 1, table, config); },
-                        "the random sky array holds a declination"), "the Cartesian mask overload");
+    check(throws_naming([&] {
+            internal::reconstruct_lightcone_both(cart, cartRandoms, sky, badRandoms, 0., &mask, 1, table, config,
+                                                 RedshiftCut{}); },
+                        "the random sky array holds a declination"), "Cartesian and sky arrays together, a mask");
     check(throws_naming([&] { toCartesian(bad, table); }, "the sky array holds a declination"), "toCartesian");
     const std::vector<double> poles {1., kPi / 2., 0.5, 2., -kPi / 2., 0.5};
     bool accepted = true;

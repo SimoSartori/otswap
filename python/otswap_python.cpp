@@ -1592,8 +1592,8 @@ NB_MODULE(_otswap, m)
           if (tracers.is_none())
             return footprint ? otswap::reconstructLightcone(ts, rs, *footprint, bins, table, config, cut)
                              : otswap::reconstructLightcone(ts, rs, area, bins, table, config, cut);
-          return footprint ? otswap::reconstructLightcone(t, r, ts, rs, *footprint, bins, table, config, cut)
-                           : otswap::reconstructLightcone(t, r, ts, rs, area, bins, table, config, cut);
+          return otswap::internal::reconstruct_lightcone_both(t, r, ts, rs, area, footprint, bins, table,
+                                                              config, cut);
         }), degrees);
       },
       "tracers_sky"_a.none(), "randoms_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(),
