@@ -27,6 +27,7 @@
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -108,6 +109,47 @@ void otswap::internal::check_box (const BoxLimits& limits)
       throw Error("the box limits are [" + std::to_string(limits.lower[k]) + ", " +
                   std::to_string(limits.upper[k]) + "] on axis " + kAxes[k] +
                   "; the lower bound must be below the upper one");
+}
+
+
+// ============================================================================
+
+
+void otswap::internal::check_periodic_box (const BoxLimits& limits)
+{
+  double side[3];
+  for (std::size_t k = 0; k < 3; ++k) side[k] = limits.upper[k] - limits.lower[k];
+  const double shortest = std::min(side[0], std::min(side[1], side[2]));
+
+  for (std::size_t k = 0; k < 3; ++k) {
+    const double ratio = std::nearbyint(side[k] / shortest);
+    if (!(ratio >= 1.) || !(std::fabs(side[k] - ratio * shortest) <= 1.e-12 * side[k]))
+      throw Error("the periodic box has sides " + std::to_string(side[0]) + ", " +
+                  std::to_string(side[1]) + ", " + std::to_string(side[2]) + "; the side on axis " +
+                  kAxes[k] + " is not an integer multiple of the shortest one, which every side "
+                  "of a periodic box must be");
+  }
+}
+
+
+// ============================================================================
+
+
+std::size_t otswap::internal::wrap_into (std::vector<double>& positions, const BoxLimits& box)
+{
+  std::size_t wrapped = 0;
+  for (std::size_t i = 0; i < positions.size() / 3; ++i) {
+    bool changed = false;
+    for (std::size_t k = 0; k < 3; ++k) {
+      double& x = positions[3*i+k];
+      if (std::isnan(x)) continue;
+      const double w = wrap_coordinate(x, box.lower[k], box.upper[k]);
+      changed = changed || w != x;
+      x = w;
+    }
+    wrapped += changed ? 1 : 0;
+  }
+  return wrapped;
 }
 
 

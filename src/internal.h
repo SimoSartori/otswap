@@ -31,6 +31,7 @@
 #define OTSWAP_INTERNAL_H
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -129,13 +130,14 @@ namespace otswap {
                                int line = __builtin_LINE());
 
     /// meshsearch::MeshGrid's constructor, a meshsearch::Error rethrown as
-    /// rethrow does, with the location of the call. Not for use inside a
-    /// parallel region.
+    /// rethrow does, with the location of the call; periodic on every axis
+    /// when @p periodic. Not for use inside a parallel region.
     meshsearch::MeshGrid mesh_grid (const std::vector<double>& X,
                                     const std::vector<double>& Y,
                                     const std::vector<double>& Z,
                                     double cellsize,
                                     const std::array<std::array<double,2>,3>& limits,
+                                    bool periodic = false,
                                     const char* file = __builtin_FILE(),
                                     const char* function = __builtin_FUNCTION(),
                                     int line = __builtin_LINE());
@@ -153,6 +155,10 @@ namespace otswap {
     ///   randoms are drawn in it, and the grid extent starts from it
     /// @param sweepCosts if given, receives the mean squared cost after
     ///   each sweep, per realization; its length is the sweep count
+    /// @param periodic whether @p box, then required, is periodic: the
+    ///   tracers and randoms lie inside it, the grids span it exactly and
+    ///   wrap, the costs and displacements are minimum images, and the
+    ///   result carries box, periodic and the wrapped lagrangian
     ///
     /// The grids span the union of the tracers' (or the box's) and the
     /// given randoms' extents, so a random may lie outside the tracers'
@@ -164,7 +170,8 @@ namespace otswap {
                         const Config& config,
                         unsigned seed,
                         const BoxLimits* box = nullptr,
-                        std::vector<std::vector<double>>* sweepCosts = nullptr);
+                        std::vector<std::vector<double>>* sweepCosts = nullptr,
+                        bool periodic = false);
 
     /// Set the fields that follow from valid: validRealizations and
     /// meanDisplacement (the count of valid realizations per object, and
@@ -172,7 +179,7 @@ namespace otswap {
     /// none), lagrangian = tracers + meanDisplacement when tracers holds
     /// 3 * nObjects entries (empty otherwise), and lagrangianSky from
     /// lagrangian with result.distances in a lightcone result (empty
-    /// otherwise). An array that already has its size is overwritten in
+    /// otherwise). In a periodic result, lagrangian is wrapped into box. An array that already has its size is overwritten in
     /// place, so its data pointer does not change.
     void summarize (Result& result);
 
@@ -271,6 +278,34 @@ namespace otswap {
     /// Check the limits: every bound finite, and lower below upper on each
     /// axis.
     void check_box (const BoxLimits& limits);
+
+    /// Check the limits of a periodic box, after check_box: every side an
+    /// integer multiple of the shortest, within a relative 1e-12, the rule
+    /// of the periodic neighbour grids.
+    void check_periodic_box (const BoxLimits& limits);
+
+    /// x wrapped into [lo, hi]: unchanged when inside, else shifted by a
+    /// whole number of periods hi - lo, a rounding past either bound
+    /// brought back to it. x finite, lo < hi.
+    inline double wrap_coordinate (const double x, const double lo, const double hi)
+    {
+      if (x >= lo && x <= hi) return x;
+      const double period = hi - lo;
+      const double w = x - period * std::floor((x - lo) / period);
+      return w < lo ? lo : w > hi ? hi : w;
+    }
+
+    /// Wrap every row of a flat 3-column array into the box, in place, as
+    /// wrap_coordinate does each coordinate; NaN rows are left as they are.
+    /// @return the rows changed.
+    std::size_t wrap_into (std::vector<double>& positions, const BoxLimits& box);
+
+    /// The minimum image of a difference d on an axis of the given period:
+    /// d - period floor(d / period + 1/2).
+    inline double minimum_image (const double d, const double period)
+    {
+      return d - period * std::floor(d / period + 0.5);
+    }
 
     /// The rows of a flat 3-column array named by keep, in that order.
     std::vector<double> rows (const std::vector<double>& a, const std::vector<std::size_t>& keep);

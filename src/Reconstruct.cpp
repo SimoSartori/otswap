@@ -85,6 +85,124 @@ namespace {
     {3,0,1,2}, {3,0,2,1}, {3,1,0,2}, {3,1,2,0}, {3,2,0,1}, {3,2,1,0}
   };
 
+  /// The periods of a periodic box and their halves, per axis.
+  struct Periods {
+    double period[3];
+    double half[3];
+  };
+
+  /// The squared distance from a tracer to a random; in a periodic box,
+  /// of the minimum image, each difference of at most one period in
+  /// magnitude brought into [-L/2, L/2).
+  template <bool Periodic>
+  inline double squared_distance (const double tx, const double ty, const double tz,
+                                  const double rx, const double ry, const double rz,
+                                  const Periods& periods)
+  {
+    double dx = tx - rx;
+    double dy = ty - ry;
+    double dz = tz - rz;
+    if constexpr (Periodic) {
+      double* d[3] = {&dx, &dy, &dz};
+      for (int k = 0; k < 3; ++k) {
+        if (*d[k] >= periods.half[k]) *d[k] -= periods.period[k];
+        else if (*d[k] < -periods.half[k]) *d[k] += periods.period[k];
+      }
+    }
+    return dx*dx + dy*dy + dz*dz;
+  }
+
+  /// The local search of one realization, from the first guess in
+  /// partner: sweeps of 4-opt moves over every tracer until the fraction
+  /// of successful moves no longer exceeds the convergence threshold.
+  /// @return the mean squared cost after each sweep, when @p trace is set.
+  template <bool Periodic>
+  __attribute__((always_inline)) inline void swap_loop (const std::vector<double>& tracerX, const std::vector<double>& tracerY,
+                  const std::vector<double>& tracerZ, const std::vector<double>& randomX,
+                  const std::vector<double>& randomY, const std::vector<double>& randomZ,
+                  const std::vector<std::vector<unsigned>>& neighbours, const Periods& periods,
+                  const double convergence, std::mt19937 engine, std::vector<unsigned>& partner,
+                  std::vector<double>* trace)
+  {
+    const std::size_t nObjects = tracerX.size();
+    const double* const tX = tracerX.data();
+    const double* const tY = tracerY.data();
+    const double* const tZ = tracerZ.data();
+    const double* const rX = randomX.data();
+    const double* const rY = randomY.data();
+    const double* const rZ = randomZ.data();
+    const std::vector<unsigned>* const near = neighbours.data();
+    unsigned* const match = partner.data();
+    const Periods p = periods;
+
+    std::vector<double> costs(nObjects);
+    double* const cost = costs.data();
+    for (std::size_t i = 0; i < nObjects; ++i)
+      cost[i] = squared_distance<Periodic>(tX[i], tY[i], tZ[i], rX[match[i]], rY[match[i]],
+                                           rZ[match[i]], p);
+
+    std::vector<unsigned> order(nObjects);
+    std::iota(order.begin(), order.end(), 0u);
+
+    unsigned H[4], R[4];
+    double ratio = 1.;
+
+    while (ratio > convergence) {
+
+      otswap::shuffle(order, engine);
+      unsigned changed = 0;
+
+      for (const unsigned i : order) {
+        H[0] = i;
+        unsigned r1 = otswap::uniformInt(engine, kNeighbours);
+        unsigned r2 = otswap::uniformInt(engine, kNeighbours);
+        unsigned r3 = otswap::uniformInt(engine, kNeighbours);
+        while (r1 == r2) r2 = otswap::uniformInt(engine, kNeighbours);
+        while (r3 == r1 || r3 == r2) r3 = otswap::uniformInt(engine, kNeighbours);
+
+        const unsigned* const list = near[i].data();
+        H[1] = list[r1];
+        H[2] = list[r2];
+        H[3] = list[r3];
+
+        for (int k = 0; k < 4; ++k) R[k] = match[H[k]];
+
+        double matrix[4][4];
+        for (int k = 0; k < 4; ++k) {
+          const double tx = tX[H[k]], ty = tY[H[k]], tz = tZ[H[k]];
+          for (int m = 0; m < 4; ++m)
+            matrix[k][m] = squared_distance<Periodic>(tx, ty, tz, rX[R[m]], rY[R[m]], rZ[R[m]], p);
+        }
+
+        const double current = cost[H[0]] + cost[H[1]] + cost[H[2]] + cost[H[3]];
+        double best = current;
+        int chosen = -1;
+
+        for (int j = 0; j < 24; ++j) {
+          if (kPermutations[j][0] == 0 && kPermutations[j][1] == 1 &&
+              kPermutations[j][2] == 2 && kPermutations[j][3] == 3) continue;
+
+          const double trial = matrix[0][kPermutations[j][0]] + matrix[1][kPermutations[j][1]] +
+                               matrix[2][kPermutations[j][2]] + matrix[3][kPermutations[j][3]];
+
+          if (trial < best) { best = trial; chosen = j; }
+        }
+
+        if (chosen >= 0) {
+          ++changed;
+          for (int k = 0; k < 4; ++k) {
+            match[H[k]] = R[kPermutations[chosen][k]];
+            cost[H[k]] = matrix[k][kPermutations[chosen][k]];
+          }
+        }
+      }
+
+      ratio = (double)changed / (double)nObjects;
+      if (trace != nullptr)
+        trace->push_back(std::accumulate(costs.begin(), costs.end(), 0.) / (double)nObjects);
+    }
+  }
+
 }
 
 
@@ -107,9 +225,13 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
                                               const Config& config,
                                               const unsigned seed,
                                               const BoxLimits* box,
-                                              std::vector<std::vector<double>>* sweepCosts)
+                                              std::vector<std::vector<double>>* sweepCosts,
+                                              const bool periodic)
 {
   const std::size_t nObjects = tracers.size() / 3;
+
+  if (periodic && box == nullptr)
+    throw Error("a periodic reconstruction needs the limits of its box");
   const unsigned nRealizations = config.nRealizations;
   const bool generate = randoms.empty();
 
@@ -147,13 +269,22 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
   }
 
   std::array<std::array<double,2>,3> extent {{{minX, maxX}, {minY, maxY}, {minZ, maxZ}}};
-  for (std::size_t i = 0; i < randoms.size(); ++i) {
-    std::array<double,2>& axis = extent[i % 3];
-    axis[0] = std::min(axis[0], randoms[i]);
-    axis[1] = std::max(axis[1], randoms[i]);
-  }
+  if (!periodic)
+    for (std::size_t i = 0; i < randoms.size(); ++i) {
+      std::array<double,2>& axis = extent[i % 3];
+      axis[0] = std::min(axis[0], randoms[i]);
+      axis[1] = std::max(axis[1], randoms[i]);
+    }
 
-  const meshsearch::MeshGrid tracerGrid = mesh_grid(tracerX, tracerY, tracerZ, cellsize, extent);
+  Periods periods {};
+  if (periodic)
+    for (int k = 0; k < 3; ++k) {
+      periods.period[k] = box->upper[k] - box->lower[k];
+      periods.half[k] = 0.5 * periods.period[k];
+    }
+
+  const meshsearch::MeshGrid tracerGrid =
+    mesh_grid(tracerX, tracerY, tracerZ, cellsize, extent, periodic);
   const std::array<std::array<double,2>,3> lims = tracerGrid.get_lims();
 
   std::vector<std::vector<unsigned>> neighbours(nObjects);
@@ -221,6 +352,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
 
       meshsearch::MeshGrid::Options randomOptions;
       randomOptions.limits = lims;
+      randomOptions.periodic = {periodic, periodic, periodic};
       const meshsearch::MeshGrid randomGrid(randomX, randomY, randomZ, cellsize, randomOptions);
 
       std::mt19937 seeding = stream(seed, rec, Stream::Seeding);
@@ -292,80 +424,15 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
       tracerCopy = {};
       randomCopy = {};
 
-      std::vector<double> cost(nObjects);
-      for (std::size_t i = 0; i < nObjects; ++i) {
-        const double dx = tracerX[i] - randomX[partner[i]];
-        const double dy = tracerY[i] - randomY[partner[i]];
-        const double dz = tracerZ[i] - randomZ[partner[i]];
-        cost[i] = dx*dx + dy*dy + dz*dz;
-      }
-
-      std::mt19937 engine = stream(seed, rec, Stream::Swap);
-
-      std::vector<unsigned> order(nObjects);
-      std::iota(order.begin(), order.end(), 0u);
-
-      unsigned H[4], R[4];
-      double ratio = 1.;
+      const std::mt19937 engine = stream(seed, rec, Stream::Swap);
       std::vector<double> trace;
-
-      while (ratio > config.convergence) {
-
-        shuffle(order, engine);
-        unsigned changed = 0;
-
-        for (const unsigned i : order) {
-          H[0] = i;
-          unsigned r1 = uniformInt(engine, kNeighbours);
-          unsigned r2 = uniformInt(engine, kNeighbours);
-          unsigned r3 = uniformInt(engine, kNeighbours);
-          while (r1 == r2) r2 = uniformInt(engine, kNeighbours);
-          while (r3 == r1 || r3 == r2) r3 = uniformInt(engine, kNeighbours);
-
-          H[1] = neighbours[i][r1];
-          H[2] = neighbours[i][r2];
-          H[3] = neighbours[i][r3];
-
-          for (int k = 0; k < 4; ++k) R[k] = partner[H[k]];
-
-          double matrix[4][4];
-          for (int k = 0; k < 4; ++k) {
-            const double tx = tracerX[H[k]], ty = tracerY[H[k]], tz = tracerZ[H[k]];
-            for (int m = 0; m < 4; ++m) {
-              const double dx = tx - randomX[R[m]];
-              const double dy = ty - randomY[R[m]];
-              const double dz = tz - randomZ[R[m]];
-              matrix[k][m] = dx*dx + dy*dy + dz*dz;
-            }
-          }
-
-          const double current = cost[H[0]] + cost[H[1]] + cost[H[2]] + cost[H[3]];
-          double best = current;
-          int chosen = -1;
-
-          for (int j = 0; j < 24; ++j) {
-            if (kPermutations[j][0] == 0 && kPermutations[j][1] == 1 &&
-                kPermutations[j][2] == 2 && kPermutations[j][3] == 3) continue;
-
-            const double trial = matrix[0][kPermutations[j][0]] + matrix[1][kPermutations[j][1]] +
-                                 matrix[2][kPermutations[j][2]] + matrix[3][kPermutations[j][3]];
-
-            if (trial < best) { best = trial; chosen = j; }
-          }
-
-          if (chosen >= 0) {
-            ++changed;
-            for (int k = 0; k < 4; ++k) {
-              partner[H[k]] = R[kPermutations[chosen][k]];
-              cost[H[k]] = matrix[k][kPermutations[chosen][k]];
-            }
-          }
-        }
-
-        ratio = (double)changed / (double)nObjects;
-        if (sweepCosts != nullptr)
-          trace.push_back(std::accumulate(cost.begin(), cost.end(), 0.) / (double)nObjects);
-      }
+      std::vector<double>* traced = sweepCosts != nullptr ? &trace : nullptr;
+      if (periodic)
+        swap_loop<true>(tracerX, tracerY, tracerZ, randomX, randomY, randomZ, neighbours, periods,
+                        config.convergence, engine, partner, traced);
+      else
+        swap_loop<false>(tracerX, tracerY, tracerZ, randomX, randomY, randomZ, neighbours, periods,
+                         config.convergence, engine, partner, traced);
 
       if (sweepCosts != nullptr) (*sweepCosts)[rec] = trace;
 
@@ -376,6 +443,10 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
         result.displacement[base + 3*i+1] = randomY[p] - tracerY[i];
         result.displacement[base + 3*i+2] = randomZ[p] - tracerZ[i];
       }
+      if (periodic)
+        for (std::size_t i = 0; i < 3 * nObjects; ++i)
+          result.displacement[base + i] = minimum_image(result.displacement[base + i],
+                                                        periods.period[i % 3]);
 
     }
     catch (...) {
@@ -393,6 +464,10 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
   result.config = config;
   result.config.seed = seed;
   result.tracers = tracers;
+  if (periodic) {
+    result.box = *box;
+    result.periodic = true;
+  }
   summarize(result);
 
   return result;
@@ -469,6 +544,7 @@ void otswap::internal::summarize (Result& result)
     result.lagrangian.resize(3 * nObjects);
     for (std::size_t k = 0; k < 3 * nObjects; ++k)
       result.lagrangian[k] = result.tracers[k] + result.meanDisplacement[k];
+    if (result.periodic) wrap_into(result.lagrangian, *result.box);
   }
   else result.lagrangian.clear();
 
@@ -510,10 +586,11 @@ namespace {
   /// Both box overloads; a null mps is computed from the box: the limits
   /// when given, the bounding box of the tracers and the given randoms
   /// otherwise. With limits, the tracers and randoms outside them are left
-  /// out before anything else is computed.
+  /// out before anything else is computed; in a periodic box they are
+  /// wrapped into the limits instead, and every one is kept.
   otswap::Result box (const std::vector<double>& tracers, const std::vector<double>& randoms,
                       const double* givenMps, const otswap::Config& config,
-                      const std::optional<otswap::BoxLimits>& limits)
+                      const std::optional<otswap::BoxLimits>& limits, const bool periodic)
   {
     using namespace otswap;
 
@@ -528,9 +605,25 @@ namespace {
 
     const bool reporting = config.log != nullptr && config.verbosity != Verbosity::Silent;
 
+    if (periodic && !limits)
+      throw Error("a periodic box needs its limits; give them");
+
     SelectionCounts counts;
     internal::Selection tracerSelection, randomSelection;
-    if (limits) {
+    std::vector<double> wrappedTracers, wrappedRandoms;
+    if (periodic) {
+      internal::check_box(*limits);
+      internal::check_periodic_box(*limits);
+      wrappedTracers = tracers;
+      wrappedRandoms = randoms;
+      counts.boxLimits = *limits;
+      counts.periodic = true;
+      counts.tracers = nObjects;
+      counts.tracersWrapped = internal::wrap_into(wrappedTracers, *limits);
+      counts.randoms = nRandoms;
+      counts.randomsWrapped = internal::wrap_into(wrappedRandoms, *limits);
+    }
+    else if (limits) {
       internal::check_box(*limits);
       tracerSelection = internal::select(tracers, *limits);
       randomSelection = internal::select(randoms, *limits);
@@ -545,14 +638,14 @@ namespace {
     }
     if (reporting) internal::write_lines(*config.log, counts.message());
 
-    const bool dropTracers = limits && tracerSelection.keep.size() != nObjects;
-    const bool dropRandoms = limits && randomSelection.keep.size() != nRandoms;
+    const bool dropTracers = limits && !periodic && tracerSelection.keep.size() != nObjects;
+    const bool dropRandoms = limits && !periodic && randomSelection.keep.size() != nRandoms;
     const std::vector<double> keptTracers = dropTracers ? internal::rows(tracers, tracerSelection.keep)
                                                         : std::vector<double>();
     const std::vector<double> keptRandoms = dropRandoms ? internal::rows(randoms, randomSelection.keep)
                                                         : std::vector<double>();
-    const std::vector<double>& t = dropTracers ? keptTracers : tracers;
-    const std::vector<double>& r = dropRandoms ? keptRandoms : randoms;
+    const std::vector<double>& t = periodic ? wrappedTracers : dropTracers ? keptTracers : tracers;
+    const std::vector<double>& r = periodic ? wrappedRandoms : dropRandoms ? keptRandoms : randoms;
     const std::size_t nKept = t.size() / 3;
 
     BoxLimits span = limits ? *limits : internal::bounding_box(tracers);
@@ -580,7 +673,7 @@ namespace {
       throw Error("the mean particle separation is " + std::to_string(mps) +
                   "; it must be positive");
 
-    if (!limits && !randoms.empty())
+    if ((!limits || periodic) && !randoms.empty())
       internal::check_random_supply(nRandoms, nObjects, config.nRealizations);
 
     if (reporting && config.verbosity == Verbosity::Detailed) {
@@ -588,6 +681,7 @@ namespace {
       out.imbue(std::locale::classic());
       out << "otswap: mean particle separation " << mps << " in coordinate units ("
           << (givenMps != nullptr ? "given"
+              : periodic ? "from the periodic box"
               : limits ? "from the box limits"
               : randoms.empty() ? "from the bounding box of the tracers"
               : "from the bounding box of the tracers and the given randoms") << ")\n";
@@ -597,7 +691,7 @@ namespace {
     const std::vector<double> perObject(nKept, mps);
 
     Result result = internal::reconstruct(t, r, perObject, mps, config, seed,
-                                          limits ? &*limits : nullptr);
+                                          limits ? &*limits : nullptr, nullptr, periodic);
     if (dropTracers) {
       result = internal::expand(result, tracerSelection, nObjects);
       result.tracers = tracers;
@@ -624,9 +718,10 @@ otswap::Result otswap::reconstructBox (const std::vector<double>& tracers,
                                        const std::vector<double>& randoms,
                                        const double mps,
                                        const Config& config,
-                                       const std::optional<BoxLimits>& limits)
+                                       const std::optional<BoxLimits>& limits,
+                                       const bool periodic)
 {
-  return box(tracers, randoms, &mps, config, limits);
+  return box(tracers, randoms, &mps, config, limits, periodic);
 }
 
 
@@ -636,7 +731,8 @@ otswap::Result otswap::reconstructBox (const std::vector<double>& tracers,
 otswap::Result otswap::reconstructBox (const std::vector<double>& tracers,
                                        const std::vector<double>& randoms,
                                        const Config& config,
-                                       const std::optional<BoxLimits>& limits)
+                                       const std::optional<BoxLimits>& limits,
+                                       const bool periodic)
 {
-  return box(tracers, randoms, nullptr, config, limits);
+  return box(tracers, randoms, nullptr, config, limits, periodic);
 }
