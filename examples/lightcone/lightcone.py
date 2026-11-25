@@ -107,7 +107,7 @@ def main():
     # is the same whatever the number of threads.
     #
     # cell_size: the grid cell, in units of the mean particle separation,
-    # affects the speed only, never the result; the default is 4.
+    # affects the speed only, never the result; the default is 3; this example uses 4.
     #
     # reject_crossings, max_unobserved_pixels_crossed: after the
     # reconstruction, a displacement whose path on the sky (the great-circle

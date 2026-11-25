@@ -85,7 +85,7 @@ def main():
     # is the same whatever the number of threads.
     #
     # cell_size: the grid cell, in units of mps, affects the speed only,
-    # never the result; the default is 4.
+    # never the result; the default is 3; this example uses 4.
     #
     # verbosity: what the reconstruction prints; "detailed" adds, before the
     # line of the call, a line with the mean particle separation and its

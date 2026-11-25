@@ -195,7 +195,7 @@ namespace otswap {
 
     /// Grid cell size, in units of the representative mean particle
     /// separation. Affects speed only, never the result.
-    double cellSize = 4.;
+    double cellSize = 3.;
 
     /// With a Mask given to reconstructLightcone, apply rejectMaskCrossings
     /// to the result, with maxUnobservedPixelsCrossed, before returning it.
