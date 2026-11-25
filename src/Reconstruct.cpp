@@ -120,7 +120,7 @@ namespace {
   __attribute__((always_inline)) inline void swap_loop (const std::vector<double>& tracerX, const std::vector<double>& tracerY,
                   const std::vector<double>& tracerZ, const std::vector<double>& randomX,
                   const std::vector<double>& randomY, const std::vector<double>& randomZ,
-                  const std::vector<std::vector<unsigned>>& neighbours, const Periods& periods,
+                  const std::vector<unsigned>& neighbours, const Periods& periods,
                   const double convergence, std::mt19937 engine, std::vector<unsigned>& partner,
                   std::vector<double>* trace)
   {
@@ -131,7 +131,7 @@ namespace {
     const double* const rX = randomX.data();
     const double* const rY = randomY.data();
     const double* const rZ = randomZ.data();
-    const std::vector<unsigned>* const near = neighbours.data();
+    const unsigned* const near = neighbours.data();
     unsigned* const match = partner.data();
     const Periods p = periods;
 
@@ -160,7 +160,7 @@ namespace {
         while (r1 == r2) r2 = otswap::uniformInt(engine, kNeighbours);
         while (r3 == r1 || r3 == r2) r3 = otswap::uniformInt(engine, kNeighbours);
 
-        const unsigned* const list = near[i].data();
+        const unsigned* const list = near + (std::size_t)i * kNeighbours;
         H[1] = list[r1];
         H[2] = list[r2];
         H[3] = list[r3];
@@ -226,7 +226,8 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
                                               const unsigned seed,
                                               const BoxLimits* box,
                                               std::vector<std::vector<double>>* sweepCosts,
-                                              const bool periodic)
+                                              const bool periodic,
+                                              const bool means)
 {
   const std::size_t nObjects = tracers.size() / 3;
 
@@ -287,13 +288,17 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
     mesh_grid(tracerX, tracerY, tracerZ, cellsize, extent, periodic);
   const std::array<std::array<double,2>,3> lims = tracerGrid.get_lims();
 
-  std::vector<std::vector<unsigned>> neighbours(nObjects);
+  std::vector<unsigned> neighbours((std::size_t)nObjects * kNeighbours);
   {
     std::exception_ptr failure;
 #pragma omp parallel for schedule(static)
     for (std::size_t i = 0; i < nObjects; ++i) {
       try {
-        neighbours[i] = tracerGrid.nearestObjects(kNeighbours, (unsigned)i);
+        const std::vector<unsigned> found = tracerGrid.nearestObjects(kNeighbours, (unsigned)i);
+        if (found.size() != kNeighbours)
+          throw Error("a tracer has " + std::to_string(found.size()) + " neighbours; " +
+                      std::to_string(kNeighbours) + " are required");
+        std::copy(found.begin(), found.end(), neighbours.begin() + (std::ptrdiff_t)(i * kNeighbours));
       }
       catch (...) {
 #pragma omp critical
@@ -353,7 +358,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
       meshsearch::MeshGrid::Options randomOptions;
       randomOptions.limits = lims;
       randomOptions.periodic = {periodic, periodic, periodic};
-      const meshsearch::MeshGrid randomGrid(randomX, randomY, randomZ, cellsize, randomOptions);
+      meshsearch::MeshGrid randomGrid(randomX, randomY, randomZ, cellsize, randomOptions);
 
       std::mt19937 seeding = stream(seed, rec, Stream::Seeding);
 
@@ -362,7 +367,6 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
       shuffle(partner, seeding);
 
       meshsearch::MeshGrid tracerCopy = tracerGrid;
-      meshsearch::MeshGrid randomCopy = randomGrid;
 
       std::vector<unsigned> starters(nObjects);
       std::iota(starters.begin(), starters.end(), 0u);
@@ -382,9 +386,9 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
         if (toRemove == 0) continue;
 
         const unsigned wanted =
-          std::min((unsigned)close.size(), randomCopy.get_nObjects());
+          std::min((unsigned)close.size(), randomGrid.get_nObjects());
         std::vector<unsigned> closeRandom =
-          randomCopy.nearestObjects(wanted, tracerX[i], tracerY[i], tracerZ[i]);
+          randomGrid.nearestObjects(wanted, tracerX[i], tracerY[i], tracerZ[i]);
 
         const auto self = std::find(close.begin(), close.end(), i);
         if (self != close.end() && !closeRandom.empty()) {
@@ -394,7 +398,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
           paired[i] = 1;
 
           tracerCopy.removeObject(i);
-          randomCopy.removeObject(r);
+          randomGrid.removeObject(r);
 
           close.erase(self);
           closeRandom.erase(closeRandom.begin());
@@ -412,7 +416,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
           paired[t] = 1;
 
           tracerCopy.removeObject(t);
-          randomCopy.removeObject(r);
+          randomGrid.removeObject(r);
 
           close.erase(close.begin() + it);
           closeRandom.erase(closeRandom.begin() + ir);
@@ -422,7 +426,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
       }
 
       tracerCopy = {};
-      randomCopy = {};
+      randomGrid = {};
 
       const std::mt19937 engine = stream(seed, rec, Stream::Swap);
       std::vector<double> trace;
@@ -468,7 +472,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
     result.box = *box;
     result.periodic = true;
   }
-  summarize(result);
+  if (means) summarize(result);
 
   return result;
 }
@@ -691,7 +695,7 @@ namespace {
     const std::vector<double> perObject(nKept, mps);
 
     Result result = internal::reconstruct(t, r, perObject, mps, config, seed,
-                                          limits ? &*limits : nullptr, nullptr, periodic);
+                                          limits ? &*limits : nullptr, nullptr, periodic, !dropTracers);
     if (dropTracers) {
       result = internal::expand(result, tracerSelection, nObjects);
       result.tracers = tracers;

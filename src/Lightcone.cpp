@@ -486,7 +486,8 @@ namespace {
     for (std::size_t i = 0; i < nKept; ++i)
       mps[i] = profile.at(ts[3*i+2]);
 
-    Result result = internal::reconstruct(t, r, mps, profile.representative, config, seed);
+    Result result = internal::reconstruct(t, r, mps, profile.representative, config, seed,
+                                          nullptr, nullptr, false, false);
     if (dropTracers) result = internal::expand(result, tracerSelection, nObjects);
 
     if (tracers != nullptr) result.tracers = *tracers;

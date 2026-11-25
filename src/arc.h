@@ -89,6 +89,16 @@ namespace otswap {
                                             const Vec3& a, const Vec3& b,
                                             unsigned limit, std::vector<std::int64_t>& path);
 
+    /// The side of a pixel of @p mask: sqrt(4 pi / npix).
+    double arc_pixel_size (const PixelMask& mask);
+
+    /// As above, for the pixel of @p a and the pixel size already known:
+    /// @p pixA is vec2pix(mask.base, a) and @p pixelSize is arc_pixel_size(mask).
+    std::size_t arc_longest_unobserved_run (const PixelMask& mask,
+                                            const Vec3& a, std::int64_t pixA, const Vec3& b,
+                                            double pixelSize, unsigned limit,
+                                            std::vector<std::int64_t>& path);
+
   }
 
 }
