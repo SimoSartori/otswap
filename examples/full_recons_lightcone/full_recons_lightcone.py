@@ -85,7 +85,10 @@ def main():
     # As in the lightcone example, without a redshift cut: 8 realizations,
     # a convergence threshold of 1e-2, a fixed seed, 30 redshift bins for
     # the mean particle separation, and the displacements crossing an
-    # unobserved pixel of the mask rejected
+    # unobserved pixel of the mask rejected. 8 realizations, which the
+    # example randoms are enough for, and 1e-2 keep the example fast; for an
+    # analysis, start from the defaults, 30 and 1e-3 (the guide's section
+    # "Choosing the parameters")
     config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, reject_crossings=True,
                            max_unobserved_pixels_crossed=0, verbosity="normal")
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, n_bins=30,
@@ -106,8 +109,8 @@ def main():
     # ----------------------------------------------------------------
 
     # sigma, the width of the gaussian average in Mpc/h: 10 Mpc/h is a
-    # reasonable starting value, but the best value depends on the sample
-    # and should be checked in each analysis. The options are an
+    # reasonable starting value, to be checked in each analysis (the
+    # guide's section "Choosing the parameters"). The options are an
     # otswap.CorrectionConfig: with weight_by_realizations=True, each
     # neighbour would be weighted by its number of valid realizations.
     # "detailed" prints, besides the line of the call, how many tracers
@@ -141,7 +144,8 @@ def main():
     # ------------------------------------------
 
     # One row per tracer, in the order of the input: the right ascension and
-    # declination, unchanged, and the corrected redshift; the corrected
+    # declination, unchanged within the rounding of the file, and the
+    # corrected redshift; the corrected
     # Cartesian position; the number of valid realizations, the two
     # diagnostics of the average and the status of the tracer; NaN positions
     # for an uncorrected tracer. The writer is the C++ library's, so the file

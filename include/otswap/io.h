@@ -114,6 +114,8 @@ namespace otswap {
      *  vector is ignored.
      */
     struct Column {
+      /// The column name. To be read back by name, it holds no blank or tab
+      /// and is not made of digits alone, which io::read takes as an index.
       std::string name;
       char        type = 'D';                ///< 'D', 'J' or 'K'
       /// ASCII header comment; FITS TCOMMn. At most 68 characters, an
@@ -126,7 +128,7 @@ namespace otswap {
 
     /// A table read from file.
     struct Table {
-      std::size_t nRows = 0;
+      std::size_t nRows = 0;                 ///< the data rows read
       std::size_t nColumns = 0;              ///< the columns read as double
       std::vector<double> values;            ///< flat, row-major [row][column]
       std::size_t nIntegerColumns = 0;       ///< the columns read as 64-bit integers
@@ -138,15 +140,13 @@ namespace otswap {
     /// of A-Z, 0-9, '-' and '_'. The value is at most 68 characters, and
     /// neither value nor comment holds a line break. In FITS a value that
     /// reads entirely as an integer or a finite number is written as one,
-    /// anything else as a string. The comment fits what a FITS card leaves
-    /// after the value: 47 characters after a value within 20 columns, fewer
-    /// after a longer one (a string takes its length plus its two quotes, an
-    /// apostrophe counting twice; a number its length), the card holding
-    /// 80 columns of which the name takes 10 and " / " 3.
+    /// anything else as a string. The comment holds up to 47 characters
+    /// after a value of 20 columns or fewer, less after a longer one;
+    /// io::write reports a comment that does not fit.
     struct Keyword {
-      std::string name;
-      std::string value;
-      std::string comment;
+      std::string name;      ///< 1 to 8 characters of A-Z, 0-9, '-' and '_'
+      std::string value;     ///< at most 68 characters
+      std::string comment;   ///< written after the value, as above
     };
 
     /// Options of io::write.
@@ -181,8 +181,8 @@ namespace otswap {
      *  io::write wrote with NaN rows reads back with them. A null value of
      *  a FITS integer column (TNULL) is an error.
      *
-     *  @exception Error if the file is missing or unreadable, a column is
-     *  absent (in ASCII the message lists the names of the ### line), a column is requested
+     *  @exception Error if no column is requested, the file is missing or
+     *  unreadable, a column is absent (in ASCII the message lists the names of the ### line), a column is requested
      *  twice, a requested index is too large, a row is too short, a field
      *  that must be a number is not one, or a null integer is met. The
      *  message names the ASCII line, counted from 1 with comments and blank
@@ -334,10 +334,12 @@ namespace otswap {
       /// twin.
       std::string twin;
 
-      std::vector<Column> columns;
-      std::size_t nRows = 0;
+      std::vector<Column> columns;   ///< the columns, as for io::write
+      std::size_t nRows = 0;         ///< the rows, with fillRow; ignored without it
+      /// Fills row i, as the row overload of io::write; empty to take the
+      /// rows from the columns.
       std::function<void(std::size_t, std::vector<double>&, std::vector<std::int64_t>&)> fillRow;
-      WriteOptions options;
+      WriteOptions options;          ///< precision and keywords of this part
     };
 
     /**
@@ -429,7 +431,7 @@ namespace otswap {
       Displacement,       ///< displX, displY, displZ: Result::meanDisplacement
       ValidRealizations,  ///< nValidRec (J): Result::validRealizations
       Selection,          ///< outsideRedshiftCut, outsideMask (J, 0 or 1), and outsideDistanceCut for a
-                          ///< result of a Cartesian overload (see writeDisplacementComplete); lightcone only
+                          ///< result whose profile is in distance or that flags a tracer in it; lightcone only
       OutsideBox          ///< outsideBox (J, 0 or 1): Result::outsideBox; box only
     };
 
@@ -437,8 +439,7 @@ namespace otswap {
      *  @brief Write the mean displacement field of a result, one row per
      *  tracer.
      *
-     *  The default groups, with the columns of CosmoBolognaLib's displacement
-     *  file first, in its order, and its random columns named lagr:
+     *  The default groups:
      *  - box: Tracer, Lagrangian, Displacement, ValidRealizations (10
      *    columns), and OutsideBox (11) when limits were given to
      *    reconstructBox;
@@ -447,27 +448,25 @@ namespace otswap {
      *    outsideDistanceCut);
      *  - Id first (one more column) when Result::ids is not empty.
      *
-     *  'D' values are written with 9 significant digits in ASCII, so a
-     *  position or displacement read back from ASCII equals the one written
-     *  within that rounding; FITS stores the doubles themselves. Keywords:
-     *  those of the reconstruction, listed with writeDisplacementComplete,
-     *  and MPSPART = 1 and DISTPART = 1 when the profile and the table are
-     *  written. In FITS the table is named DISPLACEMENTS.
+     *  Precision: in ASCII, 'D' values are written with 9 significant
+     *  digits, so a position or displacement read back equals the one
+     *  written within that rounding, and the keywords BOXXLO to BOXZHI of a
+     *  non-periodic box are rounded outward to that precision, so the
+     *  tracers as written lie within the limits as written; a periodic box
+     *  keeps its limits exactly. FITS stores the doubles themselves. The
+     *  profile and the table below take 17 digits in ASCII and read back
+     *  identical.
      *
-     *  A lightcone file also holds the mps(z) profile and the distance
-     *  table of the result, as writeDisplacementComplete writes them (the
-     *  same columns and keywords, 17 digits in ASCII, the HDUs MPSPROF and
-     *  DISTANCE in FITS, the twin files .mps and .distances in ASCII), each
-     *  with its own PRODUCT, mean displacements mps profile and mean
-     *  displacements distance table. Each is written when lightconeTables is
-     *  true, the result is a lightcone and holds it: the profile when
-     *  mpsProfile is not empty, the table when distances is not null. The
-     *  file then carries both, and readDisplacementMean returns them.
+     *  Keywords: those of the reconstruction, listed with
+     *  writeDisplacementComplete, and MPSPART = 1 and DISTPART = 1 when the
+     *  profile and the table are written. In FITS the table is named
+     *  DISPLACEMENTS.
      *
-     *  In ASCII the coordinates have 9 significant digits, and the keywords
-     *  BOXXLO to BOXZHI of a non-periodic box are rounded outward to that
-     *  precision, so the tracers as written lie within the limits as
-     *  written; a periodic box and FITS keep the limits exactly.
+     *  A lightcone file also holds the mps profile and the distance table
+     *  of the result, in the layout of writeDisplacementComplete, each with
+     *  its own PRODUCT, mean displacements mps profile and mean
+     *  displacements distance table, under the same conditions; and
+     *  readDisplacementMean returns them.
      *
      *  @param file the file to write; its extension sets the format.
      *  @param result a box or lightcone result.
@@ -478,17 +477,16 @@ namespace otswap {
      *
      *  @exception Error if a group is repeated or does not apply to the
      *  geometry (OutsideBox to a lightcone, or a lightcone group to a box),
-     *  if a field a group reads does not have the size of its
-     *  layout, whatever the groups: if ids is neither empty nor one per
-     *  object or holds a value twice, if result.nRealizations and
+     *  or if a field a group reads does not have the size of its layout;
+     *  whatever the groups, if ids is neither empty nor one per object or
+     *  holds a value twice, if result.nRealizations and
      *  result.config.nRealizations differ, if result.nRealizationsMean is 0,
      *  or above 1 while result.nRealizations is not 1, if
      *  selection.boxLimits is set and box is empty or differs from it, if
      *  the result is periodic and is not a box result, has no
      *  selection.boxLimits or flags a tracer in outsideBox, if periodic and
-     *  selection.periodic differ, if
-     *  the profile written does not have one mps and one count per
-     *  redshift; or as io::write.
+     *  selection.periodic differ, if the profile written does not have one
+     *  mps and one count per node; or as io::write.
      */
     void writeDisplacementMean (const std::string& file, const Result& result,
                                 const std::vector<DisplacementGroup>& groups = {},
@@ -512,19 +510,15 @@ namespace otswap {
      *  file holds them: id (ids, empty when the IDs are 0..nObjects-1),
      *  lagrX..lagrZ (lagrangian), lagrRA..lagrRed (lagrangianSky, in a
      *  lightcone), outsideRedshiftCut, outsideMask and outsideDistanceCut
-     *  (lightcone), outsideBox (box). Without them a flag is all 0, lagrangian is tracers
-     *  + meanDisplacement, and lagrangianSky is computed from tracers +
-     *  meanDisplacement with the distance table, as recomputeMeans does, or
-     *  is empty without the table. The profile and the table are read when the main table
+     *  (lightcone), outsideBox (box). Without them a flag is all 0, and
+     *  lagrangian, lagrangianSky and lagrangianDistance are computed from
+     *  tracers + meanDisplacement as recomputeMeans does. The profile and the table are read when the main table
      *  declares them (MPSPART, DISTPART), from the HDUs or twin files of
      *  writeDisplacementMean; a file of otswap 0.2 has neither.
      *  elapsedSeconds is 0.
      *
-     *  FITS reads back every double as written. ASCII reads back what was
-     *  written with 9 significant digits: the positions, the displacements
-     *  and the sky coordinates, the right ascension in [0, 360) as the
-     *  writer folds it; the profile and the table, with 17 digits, read back
-     *  identical. recomputeMeans on the Result read sets validRealizations
+     *  The values read back within the precision of writeDisplacementMean;
+     *  the right ascension in [0, 360), as the writer folds it. recomputeMeans on the Result read sets validRealizations
      *  to 0 or 1, the count of its one realization.
      *
      *  @param file a mean displacement file; its extension sets the format.
@@ -577,12 +571,12 @@ namespace otswap {
      *  BOXXLO, BOXXHI, BOXYLO, BOXYHI, BOXZLO, BOXZHI, Result::box when it
      *  is set, and BOXLIM = 1 when it holds the limits given to
      *  reconstructBox; PERIODIC = 1 when the box is periodic (the keyword is
-     *  then written with BOXLIM, and absent otherwise, as in files of
-     *  otswap 0.3); ZCUTMIN and ZCUTMAX for the finite bounds of a
-     *  redshift cut, DCUTMIN and DCUTMAX for those of a distance cut, MASK = 1 when a mask selected the objects, FILTNSID and
-     *  MAXPIXCR when a mask filter was applied (CFMAXPIX and MAXPIXCR are
-     *  thresholds of rejectMaskCrossings: the longest run of unobserved
-     *  pixels a displacement's arc may cross); NTRAC, NTRCUT, NTRDCUT,
+     *  then written with BOXLIM, and absent for a box that is not
+     *  periodic); ZCUTMIN and ZCUTMAX for the finite bounds of a
+     *  redshift cut, DCUTMIN and DCUTMAX for those of a distance cut, MASK
+     *  = 1 when a mask selected the objects, FILTNSID and MAXPIXCR when a
+     *  mask filter was applied (CFMAXPIX and MAXPIXCR are thresholds of
+     *  rejectMaskCrossings, which states the rule); NTRAC, NTRCUT, NTRDCUT,
      *  NTRMASK, NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNDCUT, NRNMASK, NRNBOTH,
      *  NRNBOX, NTRWRAP,
      *  NRNWRAP, NDISPL and NDISPCR, the counts of Result::selection, each when it is not 0.
@@ -590,8 +584,9 @@ namespace otswap {
      *  same value. Then MPSPART = 1 and DISTPART = 1 when the profile and
      *  the table are written.
      *
-     *  The profile, columns redshift, MPS and nTracers (J), with the
-     *  keywords ZMIN, ZMAX and MPSREPR of writeMpsProfile, and the table,
+     *  The profile, columns redshift (or distance, for a profile in
+     *  distance), MPS and nTracers (J), with the keywords ZMIN, ZMAX (or
+     *  DISTMIN, DISTMAX) and MPSREPR of writeMpsProfile, and the table,
      *  columns redshift, distance and, when the table has one,
      *  growthRate, with the keywords ZMIN and ZMAX, its ends, are written
      *  with 17 digits in ASCII, each with its own PRODUCT, complete
@@ -621,9 +616,8 @@ namespace otswap {
      *  selection.boxLimits is set and box is empty or differs from it, if
      *  the result is periodic and is not a box result, has no
      *  selection.boxLimits or flags a tracer in outsideBox, if periodic and
-     *  selection.periodic differ, if
-     *  the profile written does not have one mps and one count per
-     *  redshift, or as io::write.
+     *  selection.periodic differ, if the profile written does not have one
+     *  mps and one count per node, or as io::write.
      */
     void writeDisplacementComplete (const std::string& file, const Result& result,
                                     bool lightconeTables = true);
@@ -633,12 +627,15 @@ namespace otswap {
      *  Result.
      *
      *  Read as written: the geometry, ids, nRealizationsMean (NRECMEAN, 1
-     *  when absent), config (but log, which is &std::clog), tracers, tracersSky (degrees to radians), displacement,
-     *  valid, the flags (outsideDistanceCut all 0 when its column is
-     *  absent), filteredNside, selection, mps,
-     *  box, mpsProfile, and the distance table, as a new table equal to the
-     *  one written. Recomputed with recomputeMeans: validRealizations,
-     *  meanDisplacement, lagrangian and lagrangianSky. elapsedSeconds is 0.
+     *  when absent), config (but log, which is &std::clog; the fields a
+     *  file does not record take the current defaults), tracers,
+     *  tracersSky (degrees to radians), displacement, valid, the flags
+     *  (outsideDistanceCut all 0 when its column is absent), filteredNside,
+     *  selection, mps, box, periodic, mpsProfile, and the distance table,
+     *  as a new table equal to the one written. Recomputed with
+     *  recomputeMeans: validRealizations, meanDisplacement, lagrangian,
+     *  lagrangianSky and lagrangianDistance. elapsedSeconds is 0, and
+     *  cellSide NaN.
      *  ids is empty when the file's IDs are 0..nObjects-1. The columns of the
      *  tracer, id and flags are taken from realization 0.
      *
@@ -665,7 +662,7 @@ namespace otswap {
      *  format.
      *
      *  @return the result, as writeDisplacementComplete received it but for
-     *  the differences above.
+     *  the differences above (tracersSky, elapsedSeconds, cellSide).
      *
      *  @exception Error if the file cannot be read (as io::read); if its
      *  PRODUCT is not that of writeDisplacementComplete; if a keyword or a
@@ -695,7 +692,7 @@ namespace otswap {
     /**
      *  @brief Write a catalogue moved to real space, one row per tracer.
      *
-     *  The default groups, CosmoBolognaLib's reconstructed catalogue first:
+     *  The default groups:
      *  - lightcone: Sky, Cartesian, ValidRealizations, Neighbours, Status
      *    (10 columns);
      *  - box: Cartesian, ValidRealizations, Neighbours, Status (7 columns);

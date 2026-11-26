@@ -1,12 +1,19 @@
 """Optimal transport reconstruction of the displacement field of a tracer
 catalogue, by local swapping.
 
+Each tracer is paired one to one with a random so that the sum of the
+squared Euclidean distances between paired points in three dimensions is
+small. The solution is approximate: 4-opt local search on the balanced
+assignment problem, a heuristic with a fixed cost, not a general optimal
+transport solver.
+
 Coordinates are NumPy arrays of shape (N, 3). Cartesian coordinates, and
-every length, are in coordinate units: the unit of the tracers given in a box,
-that of the distance table in a lightcone (Mpc/h from
-``DistanceTable.flat``); sky coordinates are ordered right ascension, declination, redshift,
-with the angular unit given explicitly by ``angle_unit``. Inputs are
-converted to float64; the reconstruction works on its own copy of them.
+every length, are in coordinate units: the unit of the tracers in a box and
+in ``reconstruct_lightcone_cartesian``, with which any distance table used
+must agree; that of the distance table for sky coordinates (Mpc/h from
+``DistanceTable.flat``). Sky coordinates are ordered right ascension,
+declination, redshift, with the angular unit given explicitly by
+``angle_unit``. Inputs are converted to float64.
 
 The number of threads follows ``OMP_NUM_THREADS``. The reconstruction
 functions release the GIL while they run.
@@ -57,12 +64,13 @@ starting with ``otswap:``:
       otswap: reconstructBox: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
       otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
       otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
+      otswap: measureMpsProfile: <B> bins over [<dmin>, <dmax>] in coordinate units
       otswap: realSpaceLightcone: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
       otswap: realSpaceBox: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
 
 - ``"detailed"``: as ``"normal"``, with the lines that explain it: the mean
-  particle separation of a box and its source, the mps(z) profile of a
-  lightcone, and the breakdown of the corrected and of the uncorrected.
+  particle separation of a box and its source, the mps(z) or mps(d)
+  profile of a lightcone, and the breakdown of the corrected and of the uncorrected.
 
 The counts behind every line are in the object returned. The extrapolation
 of b(z) is an ``ExtrapolationWarning``, whatever the verbosity.
@@ -84,7 +92,8 @@ class ExtrapolationWarning(UserWarning):
 
 class Config:
     """Free parameters of the reconstruction, as ``otswap::Config``: the
-    ``config`` of ``reconstruct_box`` and ``reconstruct_lightcone``.
+    ``config`` of ``reconstruct_box``, ``reconstruct_lightcone`` and
+    ``reconstruct_lightcone_cartesian``.
 
     Every field is a keyword of the constructor, with the default of the C++
     struct, and a read/write attribute. A value is converted to the field's
@@ -109,30 +118,37 @@ class Config:
     ) -> None: ...
 
     n_realizations: int
-    """Independent reconstructions to run."""
+    """Independent reconstructions to run, each on its own N randoms; at
+    least 1, default 30. Advice on the choice: the guide, section "Choosing
+    the parameters"."""
 
     convergence: float
     """The sweeps stop once the fraction of successful swaps in a sweep,
-    swaps per tracer visited, no longer exceeds this threshold."""
+    swaps per tracer visited, no longer exceeds this threshold; in (0, 1),
+    default 1e-3. Advice on the choice: the guide, section "Choosing the
+    parameters"."""
 
     seed: int
     """Seed of the random streams; 0 draws one at random. With a fixed seed
-    the result does not depend on the number of threads."""
+    the result is the same bit for bit whatever the number of threads."""
 
     cell_size: float
-    """Grid cell size in units of the mps. Affects speed only."""
+    """Grid cell size in units of the mps; positive, default 3. Affects
+    speed only, never the result. Advice on the choice: the guide, section
+    "Choosing the parameters"."""
 
     reject_crossings: bool
-    """With a mask given to ``reconstruct_lightcone``, filter the result with
-    ``reject_mask_crossings``. Read by ``reconstruct_lightcone`` with a mask
-    only."""
+    """With a mask given to ``reconstruct_lightcone`` or
+    ``reconstruct_lightcone_cartesian``, filter the result with
+    ``reject_mask_crossings``. Read with a mask only."""
 
     max_unobserved_pixels_crossed: int
     """The threshold of that filter, the longest run of unobserved pixels a
-    displacement's arc may cross. To filter with another threshold, set
-    it here: a second filter with the same mask and a higher threshold
-    changes nothing, since the filter only marks displacements invalid. Read
-    by ``reconstruct_lightcone`` with a mask only."""
+    displacement's arc may cross, as ``reject_mask_crossings`` defines it;
+    default 0, which rejects any crossing. Set it here: a second filter with
+    the same mask and a higher threshold changes nothing, since the filter
+    only marks displacements invalid. Read with a mask only. Advice on the
+    choice: the guide, section "Choosing the parameters"."""
 
     verbosity: Verbosity
     """What the call prints; see ``Verbosity`` and each function."""
@@ -156,7 +172,9 @@ class CorrectionConfig:
     ) -> None: ...
 
     weight_by_realizations: bool
-    """Weight each neighbour by its number of valid realizations as well."""
+    """Weight each neighbour by its number of valid realizations as well;
+    default False. Advice on the choice: the guide, section "Choosing the
+    parameters"."""
 
     verbosity: Verbosity
     """What the call prints; see ``Verbosity`` and each function."""
@@ -272,12 +290,16 @@ class Result:
         valid : array_like, shape (n_realizations, n_objects)
             Each entry 0 or 1 (or bool).
         tracers : array_like, shape (n_objects, 3)
-            Cartesian.
+            Cartesian, in coordinate units.
         tracers_sky : array_like, shape (n_objects, 3), optional
             For a lightcone result, with its ``angle_unit`` and the
             ``distances`` table of the reconstruction, from which
             ``lagrangian_sky`` is computed. Without it the result is a box
-            result, and neither may be given.
+            result, and neither may be given. A lightcone result of
+            ``reconstruct_lightcone_cartesian`` made without a distance table
+            cannot be rebuilt here, ``distances`` being required with
+            ``tracers_sky``; ``io.read_displacement_complete`` rebuilds it
+            from its file.
         outside_redshift_cut, outside_mask, outside_distance_cut : array_like, shape (n_objects,), optional
             0 or 1; all 0 when omitted.
         outside_box : array_like, shape (n_objects,), optional
@@ -293,8 +315,9 @@ class Result:
         periodic : bool, optional
             Whether the result is that of a periodic box (``reconstruct_box``
             with ``periodic``); requires ``box`` and raises with
-            ``tracers_sky``. The displacements are then taken as minimum-image
-            and ``lagrangian`` is wrapped into the box.
+            ``tracers_sky``. The displacements must already be minimum-image,
+            in [-L/2, L/2) on each axis; ``lagrangian`` is wrapped into the
+            box.
         box : BoxLimits or ((x0, y0, z0), (x1, y1, z1)), optional
             The limits of the box, recorded as ``box`` and
             ``selection.box_limits``, as ``reconstruct_box`` does when given
@@ -307,9 +330,9 @@ class Result:
         ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
         ``lagrangian_sky`` are computed as ``recompute_means`` computes them,
         so arrays read back exactly give the reconstruction's values, bit for
-        bit. The profile, the mps, the box and the selection counts are not
-        reconstructed: ``mps``, ``mps_profile`` and ``box`` are None, the
-        box being the ``box`` given, if any.
+        bit. The profile, the mps and the selection counts are not
+        reconstructed: ``mps`` and ``mps_profile`` are None; ``box`` is the
+        ``box`` given, or None.
         """
 
     @property
@@ -382,9 +405,12 @@ class Result:
     @property
     def tracers_sky(self) -> Optional[NDArray[np.float64]]:
         """Sky coordinates of each tracer, shape (n_objects, 3), in
-        ``angle_unit``; None for a box. In degrees, the angles come back as
-        ``x * (pi/180) * (180/pi)``, which can differ from the input in the
-        last bit."""
+        ``angle_unit``; None for a box. For sky input, in degrees, the angles
+        come back as ``x * (pi/180) * (180/pi)``, which can differ from the
+        input in the last bit. For a result of
+        ``reconstruct_lightcone_cartesian``, the angles of ``point_to_sky``
+        and the redshift at which ``distances`` reaches the tracer's
+        distance, NaN when no ``distances`` were given."""
 
     @property
     def lagrangian(self) -> NDArray[np.float64]:
@@ -424,8 +450,8 @@ class Result:
     @property
     def mps_profile(self) -> Optional["MpsProfile"]:
         """Lightcone: the mean particle separation as a function of redshift
-        or, for Cartesian ``tracers``, of comoving distance, measured on the
-        tracers kept. None for a box. Keeps this result alive."""
+        or, for a result of ``reconstruct_lightcone_cartesian``, of comoving
+        distance, measured on the tracers kept. None for a box. Keeps this result alive."""
 
     @property
     def elapsed_seconds(self) -> float:
@@ -458,7 +484,8 @@ class Result:
     def outside_redshift_cut(self) -> NDArray[np.bool_]:
         """Whether each tracer lay outside the ``redshift_cut`` of
         ``reconstruct_lightcone`` and took no part in the reconstruction,
-        shape (n_objects,). All false without a cut. A cut tracer has NaN
+        shape (n_objects,). All false without a cut, for a box and for a
+        result of ``reconstruct_lightcone_cartesian``. A cut tracer has NaN
         displacements, no valid realization and a NaN mean displacement."""
 
     @property
@@ -472,7 +499,8 @@ class Result:
     @property
     def outside_mask(self) -> NDArray[np.bool_]:
         """Whether each tracer fell on an unobserved pixel of the ``mask`` of
-        ``reconstruct_lightcone`` and took no part in the reconstruction,
+        ``reconstruct_lightcone`` or ``reconstruct_lightcone_cartesian`` and
+        took no part in the reconstruction,
         shape (n_objects,). All false without a mask. Independent of
         ``outside_redshift_cut`` and ``outside_distance_cut``: a tracer may
         carry both flags. A flagged
@@ -498,9 +526,10 @@ class Result:
         redshift, as ``to_sky`` computes them with the reconstruction's
         distance table. NaN rows where ``lagrangian`` is NaN: the tracers left
         out by a selection and those with no valid realization; a position
-        whose distance falls outside the table has a NaN redshift. For
-        Cartesian ``tracers`` the angles are those of ``point_to_sky``, and
-        every redshift is NaN when no ``distances`` were given. None for a
+        whose distance falls outside the table has a NaN redshift. For a
+        result of ``reconstruct_lightcone_cartesian`` the angles are those of
+        ``point_to_sky``, and every redshift is NaN when no ``distances`` were
+        given. None for a
         box. Recomputed by ``reject_mask_crossings``."""
 
     @property
@@ -517,10 +546,12 @@ class MpsProfile:
     ``measure_mps_profile``: the tracers kept in
     ``n_bins`` uniform redshift bins over [``redshift_min``,
     ``redshift_max``], mps = (N / V)^(-1/3) in each, joined linearly and
-    extrapolated linearly beyond the outermost bins. Read-only.
+    extrapolated linearly beyond the outermost bins. Each bin must hold at
+    least 278 tracers, for a 2% accuracy on its mps. Read-only.
 
-    For Cartesian ``tracers``, a profile in comoving distance from the
-    origin: the bins are uniform in distance over [``distance_min``,
+    Measured by ``reconstruct_lightcone_cartesian``, or alone by
+    ``measure_mps_profile_cartesian``, a profile in comoving distance from
+    the origin: the bins are uniform in distance over [``distance_min``,
     ``distance_max``], ``distance`` holds their centres, ``redshift`` is
     empty, and ``redshift_min`` and ``redshift_max`` are NaN; the other way
     round for a profile in redshift."""
@@ -545,10 +576,12 @@ class MpsProfile:
         """Tracers in each bin, shape (n_bins,)."""
 
     @property
-    def redshift_min(self) -> float: ...
+    def redshift_min(self) -> float:
+        """The smallest redshift binned; NaN in a profile in distance."""
 
     @property
-    def redshift_max(self) -> float: ...
+    def redshift_max(self) -> float:
+        """The largest redshift binned; NaN in a profile in distance."""
 
     @property
     def distance_min(self) -> float:
@@ -562,15 +595,16 @@ class MpsProfile:
 
     @property
     def representative(self) -> float:
-        """The count-weighted median of ``mps``, which sizes the grids of the
-        reconstruction."""
+        """The count-weighted median of ``mps``, in coordinate units, which
+        sizes the grids of the reconstruction."""
 
     def at(self, value: ArrayLike) -> NDArray[np.float64]:
         """The mps at each ``value``, in coordinate units, the shape of
         ``value`` kept: a redshift for a profile in redshift, a comoving
         distance for a profile in distance. It is the value the
         reconstruction used at a tracer of that redshift or distance. Raises if the
-        profile is empty, or where the extrapolation is not positive."""
+        profile is empty or holds both redshift and distance nodes, or where
+        the extrapolation is not positive."""
 
 
 class SelectionCounts:
@@ -578,16 +612,17 @@ class SelectionCounts:
 
     For ``reconstruct_lightcone``, the tracers removed are
     ``tracers_outside_redshift_cut + tracers_outside_mask -
-    tracers_outside_both`` from sky tracers, and
+    tracers_outside_both``; for ``reconstruct_lightcone_cartesian``,
     ``tracers_outside_distance_cut + tracers_outside_mask -
-    tracers_outside_both`` from Cartesian ones, and the same for the
-    randoms; the counts of the other cut are 0. For
-    ``reconstruct_box``, the tracers removed are ``tracers_outside_box``, and
-    the randoms removed ``randoms_outside_box``; these, ``tracers`` and
-    ``randoms`` are set only when a ``box`` was given, ``randoms`` 0 when the
-    randoms were drawn. Every other count is 0, and nothing else is applied,
-    for ``reconstruct_box``; the box counts are 0 for
-    ``reconstruct_lightcone``. ``repr`` gives the report the reconstruction
+    tracers_outside_both``; the same for the randoms, and the counts of the
+    other cut are 0. For ``reconstruct_box`` with ``box``, the tracers
+    removed are ``tracers_outside_box``, and the randoms removed
+    ``randoms_outside_box``; with ``periodic`` nothing is removed, these are
+    0, and ``tracers_wrapped`` and ``randoms_wrapped`` give what was wrapped
+    into the box. ``tracers`` and ``randoms`` are set only when a ``box``
+    was given, ``randoms`` 0 when the randoms were drawn. Every other count
+    is 0, and nothing else is applied, for ``reconstruct_box``; the box
+    counts are 0 for a lightcone. ``repr`` gives the report the reconstruction
     prints.
     """
 
@@ -667,7 +702,8 @@ class SelectionCounts:
     @property
     def max_unobserved_pixels_crossed(self) -> Optional[int]:
         """The threshold of the latest mask filter applied to the result, by
-        ``reconstruct_lightcone`` (``config.reject_crossings``) or by
+        ``reconstruct_lightcone`` or ``reconstruct_lightcone_cartesian``
+        (``config.reject_crossings``) or by
         ``reject_mask_crossings`` afterwards; None when none was."""
 
     @property
@@ -676,7 +712,7 @@ class SelectionCounts:
 
     @property
     def displacements_crossing_mask(self) -> int:
-        """Of them, those rejected by every mask filter so far."""
+        """Of them, those rejected by the mask filters so far, in total."""
 
 
 # ---------------------------------------------------------------------------
@@ -782,8 +818,10 @@ def to_cartesian(
     angle_unit: AngleUnit,
 ) -> NDArray[np.float64]:
     """Convert sky coordinates, shape (N, 3), to Cartesian ones in the
-    unit of the distance table,
-    using the same convention as ``reconstruct_lightcone``. Raises if the
+    unit of the distance table, with the observer at the origin:
+    ``x = d cos(dec) cos(ra)``, ``y = d cos(dec) sin(ra)``,
+    ``z = d sin(dec)``, d the comoving distance at the redshift, the
+    convention of ``reconstruct_lightcone``. Raises if the
     array is not of shape (N, 3), if an entry is not finite, if a declination
     lies outside [-90, 90] degrees ([-pi/2, pi/2] radians), or if a redshift
     falls outside the distance table; the message names the object and gives
@@ -971,7 +1009,7 @@ def reconstruct_box(
         disjoint subset. If omitted, R * N randoms are drawn uniformly in
         ``box``, or without it in the bounding box of the tracers.
     mps : float, optional
-        Mean particle separation, in the units of the coordinates. If
+        Mean particle separation, in coordinate units. If
         omitted, (V / N)^(1/3), with N the tracers inside the box and V its
         volume, the box being ``Result.box``: ``box`` or, without it, the
         bounding box of the tracers and the given randoms, or of the tracers
@@ -984,16 +1022,20 @@ def reconstruct_box(
         flagged in ``Result.outside_box``, the randoms given outside it are
         dropped, and the neighbour grids span it. ``Result.box`` holds it.
     periodic : bool, optional
-        Whether the box is periodic, with ``box`` required. Each side must
-        be an integer multiple of the shortest (a cube, or for instance
+        Whether the box is periodic, with ``box`` required: a whole
+        simulation box with periodic boundary conditions; a sub-volume cut
+        from one is not periodic. Each side must be an integer multiple of
+        the shortest, within a relative 1e-12 (a cube, or for instance
         500 x 500 x 1000). The tracers and the given randoms outside the box
         are wrapped into it, not removed: ``Result.tracers`` holds the
         wrapped positions, ``outside_box`` is all False, and the numbers
         wrapped are ``selection.tracers_wrapped`` and
         ``selection.randoms_wrapped``. Distances are minimum-image;
         displacements lie in [-L/2, L/2) on each axis, of period L, and
-        ``Result.lagrangian`` is wrapped into the box. The mean particle
-        separation is (V / N)^(1/3) of the box with N all the tracers.
+        ``Result.lagrangian`` is wrapped into the box. Without ``mps``, the
+        mean particle separation is (V / N)^(1/3) of the box with N all the
+        tracers. Advice on the choice: the guide, section "Choosing the
+        parameters".
         With ``periodic``, ``"normal"`` prints in
         place of the box lines::
 
@@ -1043,8 +1085,8 @@ def reconstruct_box(
 
     Notes
     -----
-    The box is not periodic: nothing flows through its faces, so modes on the
-    scale of the box itself cannot be reconstructed.
+    Without ``periodic``, the box is not periodic: nothing flows through its
+    faces, so modes on the scale of the box itself cannot be reconstructed.
     """
 
 
@@ -1066,8 +1108,8 @@ def reconstruct_lightcone(
     uniform redshift bins over the observed range, mps = (N / V)^(-1/3) in
     each, with V the shell volume implied by the sky area. The bin values
     are joined by linear interpolation and extrapolated linearly beyond the
-    outermost bins. Raises if a bin holds too few tracers for a 2% accuracy
-    on its mps. For Cartesian coordinates, see
+    outermost bins. Raises if a bin holds fewer than 278 tracers, for a 2%
+    accuracy on its mps (see ``MpsProfile``). For Cartesian coordinates, see
     ``reconstruct_lightcone_cartesian``.
 
     Randoms are required: they carry the survey geometry, the selection
@@ -1084,7 +1126,8 @@ def reconstruct_lightcone(
         M >= R * N, with R ``config.n_realizations``, when nothing is left
         out.
     sky_area_deg2 : float, optional
-        Effective survey area, when no mask is given: the published value.
+        Effective survey area, in square degrees, when no mask is given: the
+        published value.
         Give exactly one of ``sky_area_deg2`` and ``mask``.
     mask : Mask, optional
         The survey's mask. The sky area is then ``mask.sky_area_deg2``, and
@@ -1093,10 +1136,12 @@ def reconstruct_lightcone(
         the randoms are dropped, and the tracers keep their row, flagged in
         ``Result.outside_mask``. After it, with ``config.reject_crossings``,
         ``reject_mask_crossings`` is applied with
-        ``config.max_unobserved_pixels_crossed``. The mask and the redshift
+        ``config.max_unobserved_pixels_crossed``; that function gives the
+        rule. The mask and the redshift
         cut are both evaluated on every object; the objects kept pass both.
     n_bins : int
-        Redshift bins used to measure mps(z).
+        Redshift bins used to measure mps(z), at least 1. Advice on the
+        choice: the guide, section "Choosing the parameters".
     distances : DistanceTable
         The redshift to distance relation, with which the sky coordinates
         are converted and the shell volumes computed; it must cover the
@@ -1105,7 +1150,7 @@ def reconstruct_lightcone(
         Unit of right ascension and declination, of the sky arrays given and
         of those of the result. A declination outside [-90, 90] degrees
         ([-pi/2, pi/2] radians) raises, the message giving it in this unit.
-    redshift_cut : RedshiftCut or (min, max), optional
+    redshift_cut : RedshiftCut or (float, float), optional
         Tracers and randoms whose redshift lies outside this closed range
         are left out of the reconstruction, before anything else: the
         randoms are dropped, and the tracers keep their row, flagged in
@@ -1186,13 +1231,15 @@ def reconstruct_lightcone_cartesian(
     sky_area_deg2, mask : optional
         As in ``reconstruct_lightcone``; give exactly one.
     n_bins : int
-        Distance bins used to measure mps(d).
+        Distance bins used to measure mps(d), at least 1. Advice on the
+        choice: the guide, section "Choosing the parameters".
     distances : DistanceTable, optional
-        Only to fill the redshifts of the result, as above.
+        Only to fill the redshifts of the result, as above; its distances in
+        the unit of the coordinates.
     angle_unit : AngleUnit
         Unit of the right ascension and declination of the sky arrays of the
         result.
-    distance_cut : DistanceCut or (min, max), optional
+    distance_cut : DistanceCut or (float, float), optional
         Objects whose comoving distance from the origin lies outside this
         closed range are left out, in coordinate units: the randoms are
         dropped, and the tracers keep their row, flagged in
@@ -1241,19 +1288,20 @@ def measure_mps_profile(
     tracers_sky : array_like, shape (N, 3)
         Sky coordinates of the tracers.
     sky_area_deg2 : float, optional
-        Effective survey area, when no mask is given, as in
-        ``reconstruct_lightcone``. Give exactly one of ``sky_area_deg2`` and
+        Effective survey area, in square degrees, when no mask is given, as
+        in ``reconstruct_lightcone``. Give exactly one of ``sky_area_deg2`` and
         ``mask``.
     mask : Mask, optional
         The survey's mask. The sky area is then ``mask.sky_area_deg2``, and
         the tracers on unobserved pixels are left out, as
         ``reconstruct_lightcone`` leaves them out.
     n_bins : int
-        Redshift bins used to measure mps(z).
+        Redshift bins used to measure mps(z), at least 1. Advice on the
+        choice: the guide, section "Choosing the parameters".
     distances : DistanceTable
         The redshift to distance relation; it must cover the redshifts of
         the tracers kept.
-    redshift_cut : RedshiftCut or (min, max), optional
+    redshift_cut : RedshiftCut or (float, float), optional
         As in ``reconstruct_lightcone``: the tracers whose redshift lies
         outside this closed range are left out. None, the default, cuts
         nothing.
@@ -1314,8 +1362,9 @@ def measure_mps_profile_cartesian(
     sky_area_deg2, mask : optional
         As in ``measure_mps_profile``; give exactly one.
     n_bins : int
-        Distance bins used to measure mps(d).
-    distance_cut : DistanceCut or (min, max), optional
+        Distance bins used to measure mps(d), at least 1. Advice on the
+        choice: the guide, section "Choosing the parameters".
+    distance_cut : DistanceCut or (float, float), optional
         As in ``reconstruct_lightcone_cartesian``.
     verbosity : Verbosity, optional
         What the call prints; see ``Verbosity``. The last line reads
@@ -1360,9 +1409,10 @@ def reject_mask_crossings(
     ``tracers`` array without N rows, a flag, ``tracers_sky``,
     ``lagrangian`` or ``lagrangian_sky`` array whose size is neither 0 nor
     the one of its layout, or an entry of ``valid`` neither 0 nor 1. Tracers
-    flagged in ``outside_redshift_cut``, ``outside_distance_cut`` or
-    ``outside_mask`` are left as they are. ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
-    ``lagrangian_sky`` are recomputed, and ``result.selection`` records the
+    that took no part in the reconstruction (any ``outside_*`` flag) are
+    left as they are. ``valid_realizations``, ``mean_displacement``,
+    ``lagrangian``, ``lagrangian_sky`` and ``lagrangian_distance`` are
+    recomputed, and ``result.selection`` records the
     filter. On a result holding a mean (``n_realizations_mean`` above 1, one
     realization), ``valid_realizations`` keeps the counts of the tracers kept,
     and is 0 for those rejected.
@@ -1370,10 +1420,13 @@ def reject_mask_crossings(
 
 
 def recompute_means(result: Result) -> None:
-    """Recompute ``valid_realizations``, ``mean_displacement``, ``lagrangian``
-    and ``lagrangian_sky`` from ``displacement`` and ``valid``, as the
-    reconstruction computes them: the sum over the valid realizations in
-    realization order, divided by their count. Updates ``result`` in place.
+    """Recompute ``valid_realizations``, ``mean_displacement``, ``lagrangian``,
+    ``lagrangian_sky`` and ``lagrangian_distance`` from ``displacement`` and
+    ``valid``, as the reconstruction computes them: the sum over the valid
+    realizations in realization order, divided by their count; then
+    ``lagrangian``, wrapped into the box of a periodic result, and from it
+    ``lagrangian_sky`` and ``lagrangian_distance``, as
+    ``Result.lagrangian_sky`` describes. Updates ``result`` in place.
     Raises if ``displacement`` or ``valid`` has the wrong size, an entry of
     ``valid`` is neither 0 nor 1, or a flag, ``tracers`` or ``tracers_sky``
     array has a size that is neither 0 nor the one of its layout."""
@@ -1414,7 +1467,7 @@ class CorrectionStatus(IntEnum):
     NO_VALID_NEIGHBOUR = 2
     """No valid tracer within 3 sigma (with sigma = 0: no valid realization); not moved."""
     LEFT_OUT = 3
-    """Outside the reconstruction's redshift cut, mask or box limits; not moved."""
+    """Outside the reconstruction's redshift or distance cut, mask or box limits; not moved."""
 
 
 class RealSpaceCatalog:
@@ -1480,7 +1533,7 @@ class RealSpaceCatalog:
         corrected, 1 moved with the average of its neighbours (it had no
         valid realization), 2 not moved, with no valid tracer within 3 sigma
         (with sigma = 0: no valid realization), 3 not moved, left out of the
-        reconstruction by its redshift cut, mask or box limits
+        reconstruction by its redshift or distance cut, mask or box limits
         (``Result.outside_*`` say which). See ``CorrectionStatus``."""
 
     @property
@@ -1562,7 +1615,8 @@ class NeighbourAverage(NamedTuple):
     """What ``neighbour_average`` returns, shape (N,) each."""
 
     values: NDArray[np.float64]
-    """The average at each object; NaN with no valid object within 3 sigma."""
+    """The average at each object; NaN with no valid object within 3 sigma;
+    with sigma = 0, the input value."""
 
     n_neighbours: NDArray[np.uint32]
     """Valid objects averaged, the object itself included when it is valid."""
@@ -1602,9 +1656,8 @@ def neighbour_average(
         Non-negative integers, such as ``Result.valid_realizations``.
     sigma : float
         Width of the gaussian, in the unit of the positions; finite and
-        non-negative. For coordinates in Mpc/h, 10 Mpc/h is a reasonable
-        starting value; the best value depends on the sample, and should be
-        checked in each analysis.
+        non-negative. Advice on the choice: the guide, section "Choosing the
+        parameters".
     weight_by_realizations : bool, optional
         Weight each neighbour by its valid realizations as well.
     box : BoxLimits or ((x0, y0, z0), (x1, y1, z1)), optional
@@ -1628,9 +1681,15 @@ def neighbour_average(
         valid object is not finite, or if sigma is negative or not finite;
         the message names the object.
     Error
+        If ``periodic`` is given without ``box`` or ``box`` without
+        ``periodic``; with ``periodic``, if a bound of ``box`` is not finite,
+        a lower bound is not below the upper one, a side is not an integer
+        multiple of the shortest, or a position lies outside the box.
+    Error
         From the neighbour search, with a message starting
-        ``"meshsearch: "``, if sigma > 0 and the positions span no volume (a
-        single object, or all in one plane or on one line).
+        ``"meshsearch: "``, if sigma > 0 and, without ``periodic``, the
+        positions span no volume (a single object, or all in one plane or on
+        one line).
 
     Notes
     -----
@@ -1714,12 +1773,11 @@ def real_space_lightcone(
         The b(z) table, as in ``rsd_factor``; warns ``ExtrapolationWarning``
         once if b(z) is extrapolated.
     sigma : float
-        Width of the average, in coordinate units; 0 for none. For coordinates
-        in Mpc/h, 10 Mpc/h is a reasonable starting value; the best value
-        depends on the sample, and should be checked in each analysis.
+        Width of the average, in coordinate units; 0 for none. Advice on the
+        choice: the guide, section "Choosing the parameters".
     correction : CorrectionConfig, optional
         ``weight_by_realizations``: weight each neighbour by its number of
-        valid realizations as well. ``verbosity``: what the call prints; see
+        valid realizations as well (see ``CorrectionConfig``). ``verbosity``: what the call prints; see
         ``Verbosity``. ``"normal"`` prints the line
         of the call; ``"detailed"`` before it how many of the corrected moved
         with their neighbours' average, having no valid realization, and how
@@ -1743,8 +1801,8 @@ def real_space_lightcone(
 
     Notes
     -----
-    Tracers outside the reconstruction's redshift cut or mask are not
-    corrected, take no part in any average, and have status 3. The catalogue
+    Tracers outside the reconstruction's redshift or distance cut or mask
+    are not corrected, take no part in any average, and have status 3. The catalogue
     carries the result's ``ids``.
 
     On a result read by ``otswap.io.read_displacement_complete`` the
@@ -1769,10 +1827,8 @@ def real_space_box(
     ``real_space_lightcone`` with the projection on the axis, a single factor
     at ``redshift`` with the constant ``bias``, and the shift along the axis.
 
-    Unless ``result.periodic``, the box is not periodic: nothing flows through
-    its faces, so modes on the scale of the box itself cannot be
-    reconstructed, and positions are not wrapped. For a periodic result the
-    neighbours are found across the faces with minimum-image distances, and
+    Unless ``result.periodic``, positions are not wrapped. For a periodic
+    result the neighbours are found across the faces with minimum-image distances, and
     the corrected coordinate along the axis is wrapped into the box. Tracers outside the
     reconstruction's box limits are not corrected, take no part in any
     average, and have status 3. The catalogue carries the result's ``ids``.

@@ -9,9 +9,9 @@
   This example explains how to reconstruct the displacement field of
   halos in a cube with periodic boundary conditions, such as a
   simulation box. The box is given by its limits; every distance is then
-  the minimum image, so nothing is cut at the faces and the
-  displacements are as reliable at the faces as inside, and modes on the
-  scale of the box are reconstructed.
+  the minimum image, so no face is a boundary: a tracer near a face may
+  be matched to a random near the opposite one, as anywhere else in the
+  box.
 
   Each side of a periodic box must be an integer multiple of the
   shortest one, so a cube, or a cuboid such as 500 x 500 x 1000, is
@@ -72,11 +72,14 @@ int main (int argc, char** argv)
 
     // Independent realizations, each on its own set of randoms. With no
     // randoms given, as here, otswap draws them itself, uniformly in the
-    // box, a different set for each realization
+    // box, a different set for each realization; 8 realizations keep the
+    // example fast
     config.nRealizations = 8;
 
     // The sweeps stop once the fraction of successful swaps in a sweep no
-    // longer exceeds this threshold; the default is 1e-3
+    // longer exceeds this threshold; 1e-2 keeps the example fast. For an
+    // analysis, start from the defaults, 30 realizations and 1e-3: the
+    // guide's section "Choosing the parameters" advises on both
     config.convergence = 1.e-2;
 
     // A fixed seed makes the run reproducible, whatever the number of threads
@@ -135,8 +138,8 @@ int main (int argc, char** argv)
     // One row per tracer, in the order of the input: its position, its
     // mean Lagrangian position, wrapped into the box, the mean
     // displacement and the number of valid realizations, with a header
-    // giving the units, the box, the periodicity and the parameters of the
-    // run
+    // describing the columns (lengths in coordinate units), the box, the
+    // periodicity and the parameters of the run
     otswap::io::writeDisplacementMean(output + "/displacement_periodic_box.dat", result);
 
     std::cout << "Written: output/displacement_periodic_box.dat" << std::endl;

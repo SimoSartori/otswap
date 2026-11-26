@@ -23,7 +23,9 @@ around i.
 The box is not periodic, here or in the reconstruction: nothing flows
 through its faces, so modes on the scale of the box itself are not
 reconstructed, and the corrected positions are not wrapped. A box cut from a
-periodic simulation is treated as a plain sub-volume.
+periodic simulation is treated as a plain sub-volume; a whole simulation box
+with periodic boundary conditions is reconstructed with the periodic option:
+see the periodic_box example.
 
 Usage: python full_recons_box.py [data_dir]. The catalogues are read from
 data_dir, by default the examples' data folder; the output is written to the
@@ -71,7 +73,9 @@ def main():
     # As in the box example: 8 realizations, a convergence threshold of
     # 1e-2, a fixed seed, and the mean particle separation of the bounding
     # box of the tracers and randoms, computed by otswap and printed with
-    # "detailed"
+    # "detailed". 8 realizations, which the example randoms are enough for,
+    # and 1e-2 keep the example fast; for an analysis, start from the
+    # defaults, 30 and 1e-3 (the guide's section "Choosing the parameters")
     config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, verbosity="detailed")
     result = otswap.reconstruct_box(tracers, randoms, config=config)
 
@@ -92,13 +96,13 @@ def main():
     redshift, bias, axis = 1.0, 1.91255, 1
 
     # sigma, the width of the gaussian average in Mpc/h: 10 Mpc/h is a
-    # reasonable starting value, but the best value depends on the sample
-    # and should be checked in each analysis. The options are an
+    # reasonable starting value, to be checked in each analysis (the
+    # guide's section "Choosing the parameters"). The options are an
     # otswap.CorrectionConfig: with weight_by_realizations=True, each
     # neighbour would be weighted by its number of valid realizations.
     #
-    # The correction reads the tracers from the result. In a box every
-    # tracer is valid and counts among its own neighbours, so every one is
+    # The correction reads the tracers from the result. In a box without
+    # limits every tracer is valid and counts among its own neighbours, so every one is
     # corrected; catalogue.status records what was done with each
     correction = otswap.CorrectionConfig(weight_by_realizations=False)
     catalogue = otswap.real_space_box(result, axis=axis, redshift=redshift, distances=distances,

@@ -91,7 +91,8 @@ namespace otswap {
   /// The result of neighbourAverage: N entries each.
   struct NeighbourAverage {
 
-    /// The average at each object; NaN with no valid object within 3 sigma.
+    /// The average at each object; NaN with no valid object within 3 sigma;
+    /// with sigma = 0, the input value.
     std::vector<double> values;
 
     /// The number of valid objects averaged, the object itself included
@@ -129,9 +130,8 @@ namespace otswap {
    *  @param validRealizations N entries.
    *  @param sigma width of the gaussian, in the unit of the positions;
    *  finite and non-negative. For coordinates in Mpc/h, 10 Mpc/h is a
-   *  reasonable starting value; the
-   *  best value depends on the sample, and should be checked in each
-   *  analysis.
+   *  reasonable starting value, to be checked in each analysis; advice on
+   *  the choice: the guide, section "Choosing the parameters".
    *  @param weightByRealizations weight each neighbour by its count of
    *  valid realizations as well.
    *
@@ -168,8 +168,9 @@ namespace otswap {
    *  @param periodic whether the box is periodic. The positions must lie
    *  inside the limits (closed); wrap them first.
    *
-   *  @exception Error as the first overload, and if the limits are not a
-   *  valid periodic box or a position lies outside them.
+   *  @exception Error as the first overload but for the span of the
+   *  positions, and if the limits are not a valid periodic box or a
+   *  position lies outside them.
    */
   NeighbourAverage neighbourAverage (const std::vector<double>& positions,
                                      const std::vector<double>& values,
@@ -195,9 +196,9 @@ namespace otswap {
    *  line-of-sight displacement into the shift to real space, at each
    *  redshift.
    *
-   *  f is distances.growthRateAt(z), b(z) the bias table at z. Nothing is
-   *  written: the redshifts at which b(z) is extrapolated beyond the table
-   *  are counted in *nExtrapolated, when given.
+   *  f is distances.growthRateAt(z), b(z) the bias table at z. It writes
+   *  no report; the redshifts at which b(z) is extrapolated beyond the
+   *  table are counted in *nExtrapolated, when given.
    *
    *  @param redshift observed redshifts, inside the distance table's range.
    *  @param distances a table carrying the growth rate.
@@ -255,6 +256,10 @@ namespace otswap {
    *  @param shift N entries; NaN gives NaN along the axis, infinities are
    *  refused.
    *  @param axis 0, 1 or 2.
+   *
+   *  @exception Error if the axis is not 0, 1 or 2, if the size of
+   *  positions is not a multiple of three or a position is not finite, if
+   *  shift does not hold one entry per object, or if a shift is infinite.
    */
   std::vector<double> shiftAlongAxis (const std::vector<double>& positions,
                                       const std::vector<double>& shift,
@@ -268,7 +273,8 @@ namespace otswap {
   struct CorrectionConfig {
 
     /// Weight each neighbour by its count of valid realizations as well,
-    /// as in neighbourAverage.
+    /// as in neighbourAverage. Advice on the choice: the guide, section
+    /// "Choosing the parameters".
     bool weightByRealizations = false;
 
     /// What the call reports; see Verbosity.
@@ -292,6 +298,7 @@ namespace otswap {
    */
   struct RealSpaceCatalog {
 
+    /// The number of objects: the rows of every per-object array.
     std::size_t nObjects = 0;
 
     /// The geometry of the reconstruction corrected.
@@ -330,24 +337,32 @@ namespace otswap {
     /// corrected. nObjects entries.
     std::vector<unsigned> validRealizations;
 
-    /// The diagnostics of neighbourAverage: valid tracers averaged, and the
-    /// sum of their valid realizations; 0 for a tracer left out. nObjects
-    /// entries each.
+    /// The valid tracers averaged, as neighbourAverage counts them; 0 for a
+    /// tracer left out. nObjects entries.
     std::vector<unsigned> nNeighbours;
+
+    /// The sum of the valid realizations of the tracers averaged; 0 for a
+    /// tracer left out. nObjects entries.
     std::vector<unsigned> nRealizationsAveraged;
 
     /// Tracers at whose redshift b(z) was extrapolated beyond its table; 0
     /// in a box.
     std::size_t nExtrapolated = 0;
 
-    /// The width of the average and its weighting, as given.
+    /// The width of the average, as given, in coordinate units.
     double sigma = std::numeric_limits<double>::quiet_NaN();
+
+    /// The weighting of the average, as given in
+    /// CorrectionConfig::weightByRealizations.
     bool weightByRealizations = false;
 
-    /// Box: the line-of-sight axis, the redshift and the bias, as given. 0
-    /// and NaN in a lightcone.
+    /// Box: the line-of-sight axis, as given; 0 in a lightcone.
     unsigned axis = 0;
+
+    /// Box: the redshift, as given; NaN in a lightcone.
     double boxRedshift = std::numeric_limits<double>::quiet_NaN();
+
+    /// Box: the bias, as given; NaN in a lightcone.
     double boxBias = std::numeric_limits<double>::quiet_NaN();
 
     /// Wall time of the call that made the catalogue, in seconds.
@@ -388,11 +403,9 @@ namespace otswap {
    *  @p distances gives at that redshift, one without from its position's
    *  distance, so a Cartesian result built with a distance table and the
    *  same result built without one can differ in the corrected positions.
-   *  The two distances are the same to rounding, since redshifts and
+   *  The two distances agree within rounding, since redshifts and
    *  distances are interpolated linearly between the same nodes of the
-   *  table: the difference is of the order of 1e-15 in relative terms at
-   *  most, and the corrected positions of the lightcone example are
-   *  identical.
+   *  table, so the corrected positions can differ by rounding.
    *
    *  On a Result read by io::readDisplacementComplete the correction is
    *  that of the reconstruction itself, bit for bit, but for the right
@@ -406,9 +419,7 @@ namespace otswap {
    *  corrected distances as well as the observed ones.
    *  @param bias the b(z) table.
    *  @param sigma width of the average, in coordinate units; 0 for none.
-   *  For coordinates in Mpc/h, 10 Mpc/h is a
-   *  reasonable starting value; the best value depends on the sample, and
-   *  should be checked in each analysis.
+   *  Advice on the choice: the guide, section "Choosing the parameters".
    *  @param config the weighting, and what the call reports.
    *
    *  @exception Error if result is not a lightcone result, is malformed or
@@ -435,14 +446,11 @@ namespace otswap {
    *
    *  The chain is that of realSpaceLightcone, on result.tracers, with the
    *  projection on the axis, a single factor f / (b + 3 f / 5) at the box's
-   *  redshift, and the shift applied along the axis. Positions are not
-   *  wrapped, except for a periodic result (Result::periodic).
-   *
-   *  Unless the result is periodic, the box is not periodic: nothing flows
-   *  through its faces, so modes on the scale of the box itself cannot be
-   *  reconstructed. For a periodic result the neighbours are found across
-   *  the faces, with minimum-image distances (see neighbourAverage), and
-   *  the corrected coordinate along the axis is wrapped into the box.
+   *  redshift, and the shift applied along the axis. For a periodic result
+   *  (Result::periodic) the neighbours are found across the faces, with
+   *  minimum-image distances (see neighbourAverage), and the corrected
+   *  coordinate along the axis is wrapped into the box; otherwise no
+   *  position is wrapped.
    *
    *  Tracers flagged in result.outsideBox are left out, as in
    *  realSpaceLightcone, with the status LeftOut.

@@ -24,6 +24,17 @@
  *  @brief Optimal transport reconstruction of the displacement field
  *  of a tracer catalog, by local swapping.
  *
+ *  Each realization pairs every tracer with one random, one to one, so
+ *  that the sum of squared Euclidean distances in three dimensions
+ *  between paired points is small. The solution is approximate: a first
+ *  guess pairs each tracer with a nearby free random, then 4-opt local
+ *  search improves it. This is a heuristic for the balanced assignment
+ *  with this fixed cost, not a general optimal transport solver.
+ *
+ *  Given a seed (Config::seed), every result is the same bit for bit on
+ *  every supported platform and compiler, whatever the number of
+ *  threads.
+ *
  *  @author Simone Sartori <simone.sartori@inaf.it>
  */
 
@@ -55,11 +66,9 @@ namespace otswap {
   /// own, with the original nested in it (std::throw_with_nested), so
   /// std::rethrow_if_nested recovers it.
   ///
-  /// An Error records where it was constructed: the source file, the
-  /// function and the line. The location is not part of what(), which
-  /// holds the message alone. An error raised by a shared helper, or
-  /// rethrown with context after a parallel region or a lookup, carries
-  /// the location of that helper or of the rethrow.
+  /// An Error records where in otswap's sources it was raised: file(),
+  /// function() and line(). The location is not part of what(), which
+  /// holds the message alone.
   class Error : public std::runtime_error {
   public:
 
@@ -106,14 +115,16 @@ namespace otswap {
    *  Every length otswap takes or returns, the mean particle separation,
    *  box limits, displacements and smoothing widths included, is in
    *  coordinate units: the unit of the Cartesian coordinates. In a box it is
-   *  the unit of the tracers given; otswap assumes none. In a lightcone it is
-   *  the unit of the distance table: Mpc/h when the table comes from the
-   *  cosmology constructor of DistanceTable, the unit of the table given when
-   *  it comes from the table constructor.
+   *  the unit of the tracers given; otswap assumes none. In a lightcone given
+   *  on the sky it is the unit of the distance table: Mpc/h when the table
+   *  comes from the cosmology constructor of DistanceTable, the unit of the
+   *  table given when it comes from the table constructor. In a lightcone
+   *  given in Cartesian coordinates (the Cartesian overloads of
+   *  reconstructLightcone and measureMpsProfile) it is the unit of those
+   *  coordinates, which any distance table used with them must share.
    *
-   *  Nothing is copied into a nested container at any point: the layout is
-   *  the one the algorithm walks, and the one a numpy array maps onto
-   *  without a copy. The arrays of a Result and of a RealSpaceCatalog:
+   *  A numpy array maps onto this layout without a copy. The arrays of a
+   *  Result and of a RealSpaceCatalog:
    *
    *      [realization][object][3]  Result::displacement
    *      [realization][object]     Result::valid (uint8, 0 or 1)
@@ -141,14 +152,14 @@ namespace otswap {
    *
    *  Each line starts with "otswap: " and ends in '\n'; the counts behind
    *  every line are in the object returned, so nothing printed is
-   *  unavailable to a program.
+   *  unavailable to a program. What is discarded is always reported at
+   *  Normal.
    *
-   *  Each line is written, and the log flushed, as soon as its step
-   *  finishes, by the calling thread, never inside a parallel region; the
-   *  lines keep the order given here, so the mps(z) line of a lightcone
-   *  that rejects mask crossings follows the line of the crossings. A call
-   *  that throws leaves the lines of the steps it finished, and never
-   *  writes its call line.
+   *  The lines go to the stream set in Config::log, CorrectionConfig::log
+   *  or the log argument of measureMpsProfile, std::clog by default; null
+   *  writes nothing. Each line is written, and the stream flushed, as soon
+   *  as its step finishes. A call that throws keeps the lines of the steps
+   *  it finished and does not write its call line.
    */
   enum class Verbosity {
     /// Nothing.
@@ -162,13 +173,14 @@ namespace otswap {
     ///     otswap: reconstructBox: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
     ///     otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
     ///     otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
+    ///     otswap: measureMpsProfile: <B> bins over [<dmin>, <dmax>] in coordinate units
     ///     otswap: realSpaceLightcone: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
     ///     otswap: realSpaceBox: corrected <C> of <N> tracers in <T> s; <U> left uncorrected
     Normal,
 
     /// As Normal, with the lines that explain it: the mean particle
-    /// separation of a box and its source, the mps(z) profile of a
-    /// lightcone, and the breakdown of the corrected (moved by their
+    /// separation of a box and its source, the mps(z) or mps(d) profile of
+    /// a lightcone, and the breakdown of the corrected (moved by their
     /// neighbours) and of the uncorrected (left out of the reconstruction,
     /// or with no valid neighbour).
     Detailed
@@ -183,19 +195,26 @@ namespace otswap {
    */
   struct Config {
 
-    /// Independent reconstructions to run. Each consumes nObjects randoms.
+    /// Independent reconstructions to run, at least 1. Each consumes as
+    /// many randoms as there are tracers reconstructed. Advice on the
+    /// choice: the guide, section "Choosing the parameters".
     unsigned nRealizations = 30;
 
     /// The sweeps stop once the fraction of successful swaps in a sweep,
-    /// swaps per tracer visited, no longer exceeds this threshold. Every
-    /// tracer is examined in every sweep.
+    /// swaps per tracer visited, no longer exceeds this threshold; it must
+    /// lie strictly between 0 and 1. Every tracer is examined in every
+    /// sweep. Advice on the choice: the guide, section "Choosing the
+    /// parameters".
     double convergence = 1.e-3;
 
-    /// Seed of the generator. 0 draws one from std::random_device.
+    /// Seed of the generator. 0 draws one from std::random_device, and the
+    /// result records the seed drawn (Result::config). Given a seed, the
+    /// result is the same bit for bit whatever the number of threads.
     unsigned seed = 0;
 
     /// Grid cell size, in units of the representative mean particle
-    /// separation. Affects speed only, never the result.
+    /// separation; must be positive. Affects speed only, never the result.
+    /// Advice on the choice: the guide, section "Choosing the parameters".
     double cellSize = 3.;
 
     /// With a Mask given to reconstructLightcone, apply rejectMaskCrossings
@@ -204,8 +223,9 @@ namespace otswap {
     bool rejectCrossings = true;
 
     /// The threshold of that call, the longest run of unobserved pixels a
-    /// displacement's arc may cross; see rejectMaskCrossings. Read by the
-    /// mask overloads of reconstructLightcone only.
+    /// displacement's arc may cross; rejectMaskCrossings gives the rule.
+    /// Read by the mask overloads of reconstructLightcone only. Advice on
+    /// the choice: the guide, section "Choosing the parameters".
     unsigned maxUnobservedPixelsCrossed = 0;
 
     /// What the call reports; see Verbosity.
@@ -224,8 +244,8 @@ namespace otswap {
    *  (-inf, +inf), cuts nothing.
    */
   struct RedshiftCut {
-    double min = -std::numeric_limits<double>::infinity();
-    double max =  std::numeric_limits<double>::infinity();
+    double min = -std::numeric_limits<double>::infinity();  ///< lower bound, redshift
+    double max =  std::numeric_limits<double>::infinity();  ///< upper bound, redshift
   };
 
   /**
@@ -235,8 +255,8 @@ namespace otswap {
    *  (-inf, +inf), cuts nothing.
    */
   struct DistanceCut {
-    double min = -std::numeric_limits<double>::infinity();
-    double max =  std::numeric_limits<double>::infinity();
+    double min = -std::numeric_limits<double>::infinity();  ///< lower bound, in coordinate units
+    double max =  std::numeric_limits<double>::infinity();  ///< upper bound, in coordinate units
   };
 
   /**
@@ -245,9 +265,9 @@ namespace otswap {
    *  Each bound must
    *  be finite, with lower[k] < upper[k]; the default, NaN, is refused.
    *
-   *  For a periodic box, the period of axis k is upper[k] - lower[k], and
-   *  each period must be an integer multiple of the shortest one, within a
-   *  relative 1e-12: a cube, or a cuboid such as 500 x 500 x 1000.
+   *  For a periodic box, the period of axis k is upper[k] - lower[k];
+   *  reconstructBox, at its periodic parameter, gives the rule the periods
+   *  must follow.
    */
   struct BoxLimits {
     /// x, y, z of the lower corner.
@@ -276,8 +296,8 @@ namespace otswap {
    *  periodic box nothing is removed: the objects outside the limits are
    *  wrapped into them, counted in tracersWrapped and randomsWrapped, and
    *  the counts outside the box are 0. Every other count is 0, and nothing
-   *  else is applied, in a box result; the box counts are 0 in a lightcone
-   *  result.
+   *  else is applied, in a box result; the box and wrapping counts are 0
+   *  in a lightcone result.
    */
   struct SelectionCounts {
 
@@ -307,7 +327,7 @@ namespace otswap {
     /// result, by reconstructLightcone or afterwards; empty when none was.
     std::optional<unsigned> maxUnobservedPixelsCrossed;
     std::size_t displacements = 0;              ///< valid displacements before the first filter
-    std::size_t displacementsCrossingMask = 0;  ///< of them, rejected by every filter so far
+    std::size_t displacementsCrossingMask = 0;  ///< of them, rejected by the filters so far, in total
 
     /**
      *  @brief The selection report of a reconstruction.
@@ -335,8 +355,8 @@ namespace otswap {
      *      otswap: wrapped <a> of <N> tracers into the periodic box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
      *      otswap: wrapped <b> of <M> randoms into the periodic box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
      *
-     *  @return the report, or an empty string when no selection was
-     *  applied.
+     *  @return the report, or an empty string when no selection and no
+     *  filter was applied.
      */
     std::string message () const;
   };
@@ -360,10 +380,14 @@ namespace otswap {
    *  take Cartesian coordinates bin them in nBins uniform bins of comoving
    *  distance from the origin over [distanceMin, distanceMax]: a profile in
    *  distance, with distance filled and redshift empty. In each bin
-   *  mps = (N / V)^(-1/3), V the shell volume implied by the sky area. The
-   *  bin values are the nodes of a piecewise linear profile, extrapolated
-   *  linearly beyond the terminal ones; at() evaluates it. Empty in a box
-   *  result.
+   *  mps = (N / V)^(-1/3), V the shell volume implied by the sky area (and,
+   *  for a profile in redshift, the distance table). Each bin must hold at
+   *  least 1/(9 eps^2) tracers, eps = 0.02, that is 278: below that count
+   *  the Poisson error on its mps exceeds 2%. A bin holding fewer is
+   *  refused, and the error names the largest number of bins the catalog
+   *  supports. The bin values are the nodes of a piecewise linear profile,
+   *  extrapolated linearly beyond the terminal ones; at() evaluates it.
+   *  Empty in a box result.
    */
   struct MpsProfile {
     std::vector<double>      redshift;   ///< bin centres of a profile in redshift
@@ -373,10 +397,10 @@ namespace otswap {
     /// The binned range of a profile in redshift: the smallest and largest
     /// redshift of the tracers kept. NaN in a profile in distance.
     double redshiftMin = std::numeric_limits<double>::quiet_NaN();
-    double redshiftMax = std::numeric_limits<double>::quiet_NaN();
+    double redshiftMax = std::numeric_limits<double>::quiet_NaN();  ///< see redshiftMin
 
-    /// The count-weighted median of the nodes, which sizes the grids of the
-    /// reconstruction.
+    /// The count-weighted median of the nodes, in coordinate units, which
+    /// sizes the grids of the reconstruction.
     double representative = std::numeric_limits<double>::quiet_NaN();
 
     /// Bin centres of a profile in distance, in coordinate units.
@@ -386,7 +410,7 @@ namespace otswap {
     /// distance of the tracers kept, in coordinate units. NaN in a profile
     /// in redshift.
     double distanceMin = std::numeric_limits<double>::quiet_NaN();
-    double distanceMax = std::numeric_limits<double>::quiet_NaN();
+    double distanceMax = std::numeric_limits<double>::quiet_NaN();  ///< see distanceMin
 
     /**
      *  @brief The mps at @p value, in coordinate units: a redshift for a profile
@@ -395,9 +419,10 @@ namespace otswap {
      *  along the terminal segment, constant with a single node. This is the
      *  value the reconstruction used at each tracer.
      *
-     *  @exception Error if the profile is empty or holds both redshift and
-     *  distance nodes, or if the value is not positive, which only an
-     *  extrapolation can give.
+     *  @exception Error if the profile is empty, holds both redshift and
+     *  distance nodes, or holds a number of nodes different from the
+     *  number of values, or if the value found is not positive, which only
+     *  an extrapolation can give, or NaN.
      */
     double at (double value) const;
   };
@@ -411,8 +436,8 @@ namespace otswap {
    */
   struct Result {
 
-    std::size_t nObjects = 0;
-    unsigned    nRealizations = 0;
+    std::size_t nObjects = 0;       ///< tracers, one row each, as given
+    unsigned    nRealizations = 0;  ///< realizations held in displacement and valid
 
     /// The number of realizations averaged into each displacement, when
     /// the result holds a mean as its only realization, as
@@ -499,7 +524,8 @@ namespace otswap {
     /// Whether each tracer lay outside the redshift cut of
     /// reconstructLightcone and so took no part in the reconstruction:
     /// 1 for such a tracer, 0 otherwise. Flat, [object]. Size nObjects, all
-    /// 0 when no cut was given and in a box result.
+    /// 0 when no cut was given, in a result of a Cartesian overload and in
+    /// a box result.
     ///
     /// A cut tracer has NaN in every component of its displacement rows,
     /// valid 0 in every realization, validRealizations 0 and
@@ -591,8 +617,8 @@ namespace otswap {
     /// units: config.cellSize times the mean particle separation (for a
     /// lightcone, its representative value), or, in a periodic box, the
     /// largest side not above that which divides the shortest side of the
-    /// box a whole number of times. NaN in a result not made by a
-    /// reconstruction (Result::fromArrays, a file). Not written to files.
+    /// box a whole number of times. NaN in a Result built by hand (Python
+    /// Result.from_arrays) or read from a file. Not written to files.
     double cellSide = std::numeric_limits<double>::quiet_NaN();
 
     /// Lightcone: the mean particle separation profile measured on the
@@ -631,9 +657,12 @@ namespace otswap {
     /**
      *  @brief Build from the parameters of a flat cosmology.
      *
-     *  Samples nSamples points over [zMin, zMax] and integrates 1/E(z).
-     *  The defaults of w0 and wa give flat LCDM. Non-flat cosmologies are
-     *  served by the table constructor below.
+     *  Samples nSamples points over [zMin, zMax] and integrates 1/E(z),
+     *  with E^2(z) the sum of matter and of dark energy with equation of
+     *  state w(a) = w0 + wa (1 - a); radiation is neglected. The distances
+     *  are in Mpc/h, so h does not enter them: it is only checked. The
+     *  defaults of w0 and wa give flat LCDM. Other cosmologies are served
+     *  by the table constructor below.
      *
      *  With the default range and sampling, for flat LCDM and w0-wa
      *  cosmologies near it, the relative error of distanceAt, redshiftAt
@@ -643,13 +672,11 @@ namespace otswap {
      *  sight, is below 2e-5 Mpc/h over [0, 10].
      *  Below z = 0.01 the relative error of the distances grows, because
      *  the distance itself vanishes at z = 0 while the absolute error does
-     *  not. The table holds three arrays of nSamples doubles.
+     *  not.
      *
      *  The growth rate f = dlnD/dlna is sampled on the same grid, by
      *  integrating the linear growth equation from deep in matter
-     *  domination and taking f from the solution. It is not approximated
-     *  by Omega_m(z) raised to a power: that form is fitted to LCDM and
-     *  these parameters describe a w0-wa cosmology.
+     *  domination and taking f from the solution.
      *
      *  @param OmegaM matter density parameter; must lie in (0, 1]
      *  @param h Hubble constant in units of 100 km/s/Mpc; must be positive
@@ -662,7 +689,9 @@ namespace otswap {
      *  @param nSamples sampling points, uniform in redshift; must be at
      *  least two
      *
-     *  @exception Error if any parameter is out of range.
+     *  @exception Error if any parameter is out of range, or if the
+     *  parameters make E^2 or the growth rate non-positive or not finite
+     *  where they are computed.
      */
     DistanceTable (double OmegaM, double h, double w0 = -1., double wa = 0.,
                    double zMin = 0., double zMax = 10., unsigned nSamples = 50000);
@@ -707,8 +736,8 @@ namespace otswap {
     /// True when the table carries a growth rate.
     bool hasGrowthRate () const;
 
-    double minRedshift () const;
-    double maxRedshift () const;
+    double minRedshift () const;  ///< lowest sampled redshift
+    double maxRedshift () const;  ///< highest sampled redshift
 
     /// The sampled redshifts, strictly increasing, as given to the table
     /// constructor or as the cosmology constructor sampled them. A table
@@ -755,8 +784,9 @@ namespace otswap {
    *  allowed pixels, not a sum of their values. The rule is the same for
    *  both sources.
    *
-   *  NSIDE may be any integer from 1 to 2^29, Healpix's limit, and must be
-   *  a power of 2 in the NESTED scheme. The mask holds one byte per pixel,
+   *  NSIDE must be a power of 2 in the NESTED scheme. A map in memory may
+   *  have any NSIDE from 1 to 2^29, Healpix's limit; a FITS map, read 1024
+   *  pixels to a row, a multiple of 16 up to 2^29. The mask holds one byte per pixel,
    *  12 NSIDE^2 bytes: 12.6 MB at NSIDE 1024, 805 MB at NSIDE 8192, 3.2 GB
    *  at NSIDE 16384. A map too large for memory raises std::bad_alloc.
    *
@@ -767,8 +797,10 @@ namespace otswap {
   public:
 
     /**
-     *  @param fitsFile Healpix map: a binary table in HDU 2 with 1024
-     *  values to a row, in any numeric column type; NSIDE and ORDERING are
+     *  @param fitsFile Healpix map: a binary table in HDU 2 whose first
+     *  column holds the values, 1024 to a row (so NSIDE is a multiple of
+     *  16), in any numeric column type; other columns are ignored. NSIDE
+     *  and ORDERING are
      *  taken from the header, in either RING or NESTED scheme. The values
      *  are read a block of rows at a time, so reading needs memory for the
      *  mask's bytes only. Each value is tested as cfitsio converts it to
@@ -800,6 +832,8 @@ namespace otswap {
 
     /// As the constructor from a pointer and a count, over all of
     /// @p values.
+    /// @param values one value per pixel, in the order of @p ordering
+    /// @param ordering the pixel ordering of @p values; no default
     Mask (const std::vector<double>& values, PixelOrdering ordering);
 
     /// True when the direction falls in an allowed pixel. Radians.
@@ -839,7 +873,9 @@ namespace otswap {
    *  they are given, since each realization consumes a disjoint subset;
    *  without limits they may lie outside the bounding box of the tracers.
    *
-   *  @param mps mean particle separation; must be positive.
+   *  @param mps mean particle separation, in coordinate units; must be
+   *  positive. It sets the radius of the first guess, 8 mps, and the cell
+   *  of the neighbour grids.
    *
    *  @param config the parameters of the run; rejectCrossings and
    *  maxUnobservedPixelsCrossed are not read.
@@ -849,21 +885,26 @@ namespace otswap {
    *  in Result::outsideBox, the randoms given outside it are dropped, and
    *  the neighbour grids span it. A point on a face is inside.
    *
-   *  @param periodic whether the box is periodic; requires @p limits, each
-   *  of whose sides must then be an integer multiple of the shortest (see
-   *  BoxLimits). Every distance is then the minimum image, and nothing is
-   *  left out: each tracer and each given random outside the limits is
-   *  wrapped into them, by a whole number of periods per axis, and counted
-   *  in Result::selection. Result::tracers holds the wrapped tracers, and
-   *  the randoms are counted and drawn as with limits.
+   *  @param periodic whether the box is periodic, for a whole simulation
+   *  box with periodic boundary conditions (a sub-volume cut from one is
+   *  not periodic). It requires @p limits, whose period on each axis,
+   *  upper[k] - lower[k], must be an integer multiple of the shortest one,
+   *  within a relative 1e-12: a cube, or a cuboid such as
+   *  500 x 500 x 1000. Every distance is then the minimum image, and
+   *  nothing is left out: each tracer and each given random outside the
+   *  limits is wrapped into them, by a whole number of periods per axis,
+   *  and counted in Result::selection. Result::tracers holds the wrapped
+   *  tracers, and the randoms are counted and drawn as with limits.
    *
-   *  @exception Error if any array has a size that is not a multiple of
-   *  three, if the tracer array is empty, if the randoms are too few, if
-   *  any coordinate is not finite, if a bound of the limits is not finite
-   *  or a lower bound is not below the upper one, if the limits keep too
-   *  few tracers or randoms, or if mps is not positive; with @p periodic,
-   *  if no limits are given or a side is not an integer multiple of the
-   *  shortest. Also, from
+   *  @exception Error if config is invalid (see Config), if any array has
+   *  a size that is not a multiple of three, if fewer than 114 tracers are
+   *  reconstructed (each needs 113 distinct neighbours) or more than
+   *  2^32 - 1 are given, if the randoms are too few, if any coordinate is
+   *  not finite, if a bound of the limits is not finite or a lower bound
+   *  is not below the upper one, if the limits keep too few tracers or
+   *  randoms, or if mps is not positive; with @p periodic, if no limits
+   *  are given or a side is not an integer multiple of the shortest. Also,
+   *  from
    *  the neighbour search (see Error), if the grid cannot be built: a cell
    *  of config.cellSize * mps (in a periodic box, reduced to divide the
    *  shortest side a whole number of times: see Result::cellSide) so small
@@ -878,17 +919,12 @@ namespace otswap {
    *  without them, the bounding box of the tracers and the given randoms,
    *  or of the tracers alone when the randoms are drawn.
    *
-   *  @note Unless @p periodic, nothing flows through the faces of the
-   *  box, so modes on the scale of the box itself cannot be reconstructed.
+   *  @note Without @p periodic, the box is not periodic: nothing flows
+   *  through its faces, so modes on the scale of the box itself cannot be
+   *  reconstructed.
    *
    *  @note In a periodic box the cells of the neighbour grids divide the
    *  shortest side, so they may be smaller than config.cellSize * mps.
-   *
-   *  @note Given a seed, the result does not depend on the number of
-   *  threads. The assignment of given randoms to realizations, and in
-   *  each realization the random draw, the seeding pass and the swap
-   *  loop, draw from separate streams, each seeded from the run seed,
-   *  the realization index and the stream alone.
    */
   Result reconstructBox (const std::vector<double>& tracers,
                          const std::vector<double>& randoms,
@@ -909,6 +945,9 @@ namespace otswap {
    *  @exception Error as above, from the neighbour search included, and,
    *  without limits, if the tracers, with the given randoms, span no
    *  volume (all of them in one plane, on one line or at one point).
+   *
+   *  The other parameters, @p limits and @p periodic included, are as in
+   *  the overload above.
    */
   Result reconstructBox (const std::vector<double>& tracers,
                          const std::vector<double>& randoms,
@@ -1007,6 +1046,11 @@ namespace otswap {
    *  that rounds to 360 is folded to 0, so that one in [0, 2 pi) stays in
    *  [0, 360). NaN stays NaN.
    *
+   *  @param skyRadians 3 * nObjects entries, ordered right ascension,
+   *  declination, redshift; angles in radians. May be empty.
+   *
+   *  @return the same array with the angles in degrees.
+   *
    *  @exception Error if the size is not a multiple of three.
    */
   std::vector<double> skyToDegrees (std::vector<double> skyRadians);
@@ -1015,35 +1059,36 @@ namespace otswap {
    *  @brief Reconstruct in lightcone geometry, from sky coordinates.
    *
    *  The mean particle separation is measured from the tracers
-   *  themselves: nBins uniform bins in redshift over the observed range,
-   *  mps = (N / V)^(-1/3) per bin, with V the shell volume implied by
-   *  skyAreaDeg2 and the distance table. A bin holding fewer than
-   *  1/(9 eps^2) tracers, eps = 0.02, is refused: below that count the
-   *  Poisson error on its mps exceeds eps. The bin values are the nodes
-   *  of a piecewise linear profile, extrapolated linearly beyond the
-   *  terminal ones.
+   *  themselves, as a profile in redshift over nBins bins: MpsProfile
+   *  describes how, and the minimum number of tracers per bin.
    *
    *  Randoms are required and are not generated: they carry the survey
    *  geometry, the selection function and the completeness, none of which
    *  this package models.
    *
-   *  @param tracersSky sky coordinates, 3 * nObjects entries, radians.
+   *  @param tracersSky sky coordinates, 3 * nObjects entries, angles in
+   *  radians.
    *
-   *  @param randomsSky sky coordinates of the randoms. Their number is
+   *  @param randomsSky sky coordinates of the randoms, angles in radians.
+   *  Their number is
    *  checked after the redshift cut and, in the overloads with a mask, the
    *  mask: the randoms kept must number at least config.nRealizations
    *  times the tracers kept, which is config.nRealizations * nObjects when
    *  nothing is left out. They may lie outside the Cartesian bounding box
    *  of the tracers.
    *
-   *  @param skyAreaDeg2 effective area of the survey. When a mask is
+   *  @param skyAreaDeg2 effective area of the survey, in square degrees,
+   *  in (0, 41252.96], the whole sky. When a mask is
    *  available, pass the mask instead, to the overload below, which takes
    *  the area from it; otherwise supply the published value: a bounding box
    *  in right ascension and declination overestimates it for any footprint
    *  that is not rectangular, and the error propagates into the mean
    *  particle separation.
    *
-   *  @param nBins redshift bins used to measure mps(z).
+   *  @param nBins redshift bins used to measure mps(z), at least 1; each
+   *  must hold enough tracers (see MpsProfile). measureMpsProfile gives
+   *  the profile without reconstructing. Advice on the choice: the guide,
+   *  section "Choosing the parameters".
    *
    *  @param distances the redshift to distance relation, with which the sky
    *  coordinates are converted and the shell volumes computed; it must
@@ -1062,12 +1107,15 @@ namespace otswap {
    *  The counts are recorded in Result::selection and, with a cut that
    *  has a finite bound, reported as config.verbosity says.
    *
-   *  @exception Error if a bin holds too few tracers for its density to
-   *  be meaningful; the message reports how many bins the catalog
-   *  supports. Also if the profile extrapolates to a mps that is not
-   *  positive at a tracer's redshift, if any array is malformed, if a
-   *  declination lies outside [-pi/2, pi/2], if the randoms are too few,
-   *  or if a redshift falls outside the distance table. Also if a bound of
+   *  @exception Error if config is invalid (see Config), if nBins is 0, if
+   *  skyAreaDeg2 is outside its range, if a bin holds too few tracers for
+   *  its density to be meaningful (the message reports how many bins the
+   *  catalog supports), or if every tracer kept lies at one redshift.
+   *  Also if the profile extrapolates to a mps that is not positive at a
+   *  tracer's redshift, if any array is malformed, if fewer than 114
+   *  tracers are kept or more than 2^32 - 1 are given, if a declination
+   *  lies outside [-pi/2, pi/2], if the randoms are too few, or if a
+   *  redshift falls outside the distance table. Also if a bound of
    *  the cut is NaN or min > max, or if too few tracers or randoms remain
    *  inside it; the message gives the counts kept and dropped. Also, from
    *  the neighbour search (see Error), if the grid cannot be built: a cell
@@ -1088,12 +1136,9 @@ namespace otswap {
    *  coordinates, the observer at the origin; no cosmology.
    *
    *  As the overload from sky coordinates, with the mean particle
-   *  separation measured in distance rather than redshift: nBins uniform
-   *  bins of comoving distance from the origin over the range of the
-   *  tracers, mps = (N / V)^(-1/3) per bin, V the shell volume implied by
-   *  skyAreaDeg2, with the same per-bin threshold. Result::mpsProfile is a
-   *  profile in distance, and each tracer's mps is its value at the
-   *  tracer's distance.
+   *  separation measured as a profile in comoving distance from the origin
+   *  rather than in redshift (see MpsProfile). Result::mpsProfile is that
+   *  profile, and each tracer's mps is its value at the tracer's distance.
    *
    *  The result is filled as by the sky overload, with tracers the array
    *  given and tracersSky, lagrangianSky and lagrangianDistance computed
@@ -1105,7 +1150,8 @@ namespace otswap {
    *  @param randoms Cartesian coordinates of the randoms, required, as in
    *  the sky overload, in the same units.
    *  @param skyAreaDeg2 as in the sky overload.
-   *  @param nBins distance bins used to measure mps(d).
+   *  @param nBins distance bins used to measure mps(d), as nBins in the
+   *  sky overload.
    *  @param config as in the sky overload.
    *  @param distances optional; the table whose redshifts fill those of
    *  tracersSky and lagrangianSky, and which the result keeps. It plays no
@@ -1120,10 +1166,13 @@ namespace otswap {
    *  a finite bound, reported as config.verbosity says. The default cuts
    *  nothing.
    *
-   *  @exception Error if a bin holds too few tracers, if the profile
-   *  extrapolates to a mps that is not positive at a tracer's distance, if
-   *  every tracer lies at the same distance, if any array is malformed or
-   *  holds a non-finite coordinate, or if the randoms are too few; also
+   *  @exception Error if config is invalid (see Config), if nBins is 0, if
+   *  skyAreaDeg2 is outside its range, if a bin holds too few tracers, if
+   *  the profile extrapolates to a mps that is not positive at a tracer's
+   *  distance, if every tracer kept lies at the same distance, if any
+   *  array is malformed or holds a non-finite coordinate, if fewer than
+   *  114 tracers are kept or more than 2^32 - 1 are given, or if the
+   *  randoms are too few; also
    *  from the neighbour search, as in the sky overload. Also if a bound of
    *  the cut is NaN or min > max, or if too few tracers or randoms remain
    *  inside it; the message gives the counts kept and dropped.
@@ -1155,11 +1204,10 @@ namespace otswap {
    *  both. The counts are recorded in Result::selection and reported as
    *  config.verbosity says.
    *
-   *  To filter with another threshold afterwards, set
-   *  config.maxUnobservedPixelsCrossed instead: a second rejectMaskCrossings
-   *  with the same mask and a higher threshold changes nothing, since the
-   *  filter only clears entries. Or set config.rejectCrossings to false and
-   *  call rejectMaskCrossings on the result.
+   *  Set the threshold in config: a later rejectMaskCrossings with a
+   *  higher threshold changes nothing, the filter only clearing entries.
+   *  To choose it afterwards, set config.rejectCrossings to false and call
+   *  rejectMaskCrossings on the result.
    *
    *  @param tracersSky as in the overload with the sky area.
    *  @param randomsSky as in the overload with the sky area.
@@ -1235,21 +1283,19 @@ namespace otswap {
    *  redshifts of the tracers kept.
    *  @param cut as in reconstructLightcone, applied to the tracers.
    *
-   *  @param verbosity what the call reports. At Normal, when the cut has a
-   *  finite bound, the tracer line of the selection report
-   *  (SelectionCounts::message), then
-   *
-   *      otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
-   *
-   *  At Detailed, the mps(z) line of reconstructLightcone before the last.
-   *
+   *  @param verbosity what the call reports (see Verbosity). At Normal,
+   *  when the cut has a finite bound, the tracer line of the selection
+   *  report (SelectionCounts::message), then the measureMpsProfile line;
+   *  at Detailed, the mps(z) line of reconstructLightcone before the last.
    *  @param log where the report is written; null writes nothing.
    *
    *  @exception Error as reconstructLightcone, with the same messages, if
-   *  the tracer array is malformed, if a declination lies outside
-   *  [-pi/2, pi/2], if a bound of the cut is NaN or min > max, if a cut
-   *  with a finite bound keeps too few tracers, if a bin holds too few
-   *  tracers, or if a redshift kept falls outside the distance table.
+   *  the tracer array is malformed, if nBins is 0, if skyAreaDeg2 is
+   *  outside its range, if a declination lies outside [-pi/2, pi/2], if a
+   *  bound of the cut is NaN or min > max, if a cut with a finite bound
+   *  keeps too few tracers, if every tracer kept lies at one redshift, if
+   *  a bin holds too few tracers, or if a redshift kept falls outside the
+   *  distance table.
    */
   MpsProfile measureMpsProfile (const std::vector<double>& tracersSky,
                                 double skyAreaDeg2,
@@ -1309,17 +1355,16 @@ namespace otswap {
    *  @param nBins as in the Cartesian reconstructLightcone.
    *  @param cut as in the Cartesian reconstructLightcone, applied to the
    *  tracers.
-   *  @param verbosity what the call reports. At Normal, when the cut has a
-   *  finite bound, the tracer line of the selection report
-   *  (SelectionCounts::message), then
-   *
-   *      otswap: measureMpsProfile: <B> bins over [<dmin>, <dmax>] in coordinate units
-   *
-   *  At Detailed, the mps(d) line of reconstructLightcone before the last.
+   *  @param verbosity what the call reports (see Verbosity). At Normal,
+   *  when the cut has a finite bound, the tracer line of the selection
+   *  report (SelectionCounts::message), then the measureMpsProfile line in
+   *  coordinate units; at Detailed, the mps(d) line of reconstructLightcone
+   *  before the last.
    *  @param log where the report is written; null writes nothing.
    *
    *  @exception Error as the Cartesian reconstructLightcone, with the same
-   *  messages, if the array is malformed, if a bound of the cut is NaN or
+   *  messages, if the array is malformed, if nBins is 0, if skyAreaDeg2 is
+   *  outside its range, if a bound of the cut is NaN or
    *  min > max, if a cut with a finite bound keeps too few tracers, if
    *  every tracer kept lies at the same distance, or if a bin holds too
    *  few tracers.
@@ -1342,6 +1387,16 @@ namespace otswap {
    *  The profile equals, bit for bit, Result::mpsProfile of that overload
    *  with the same tracers, mask, nBins and cut. The cut is evaluated with
    *  the mask on every tracer.
+   *
+   *  @param tracers as in the Cartesian reconstructLightcone.
+   *  @param mask the survey's veto mask; borrowed for the call only.
+   *  @param nBins as in the Cartesian reconstructLightcone.
+   *  @param cut as in the Cartesian reconstructLightcone, evaluated with
+   *  the mask on every tracer.
+   *  @param verbosity as in the Cartesian overload with the sky area; the
+   *  tracer line of the selection report is always written, since the
+   *  mask applies.
+   *  @param log as in the Cartesian overload with the sky area.
    *
    *  @exception Error as the Cartesian overload with the sky area, and if
    *  too few tracers remain inside the mask; the counts in the message
@@ -1388,15 +1443,15 @@ namespace otswap {
    *  already cleared stay cleared, so the filter composes with any other
    *  and applying it twice with the same mask and threshold changes
    *  nothing. The fields that follow from valid are then recomputed, as
-   *  recomputeMeans does: validRealizations, meanDisplacement, lagrangian
-   *  and lagrangianSky. On a result holding a mean (nRealizationsMean above
+   *  recomputeMeans does: validRealizations, meanDisplacement, lagrangian,
+   *  lagrangianSky and lagrangianDistance. On a result holding a mean (nRealizationsMean above
    *  1, one realization), validRealizations keeps the counts of the objects
    *  kept, and is 0 for those rejected.
    *
    *  Result::selection records the filter: maxUnobservedPixelsCrossed the
    *  threshold of this call, displacements the valid displacements before
    *  the first filter applied to the result, and displacementsCrossingMask
-   *  those rejected by every filter so far.
+   *  those rejected by the filters so far, in total.
    *
    *  @param result a lightcone result, updated in place; a box result is
    *  refused, so a Result built by hand must set Result::geometry.
@@ -1408,10 +1463,11 @@ namespace otswap {
    *  depends on NSIDE: the same arc crosses about twice as many pixels when
    *  NSIDE doubles, and the same threshold is a different criterion.
    *
-   *  A tracer flagged in Result::outsideRedshiftCut or Result::outsideMask
-   *  is left as it is: its tracers and displacement rows may be NaN, and
-   *  its entries of valid must be 0. Every other tracer and displacement
-   *  must be finite.
+   *  A tracer that took no part in the reconstruction, flagged in any of
+   *  Result::outsideRedshiftCut, outsideDistanceCut, outsideMask and
+   *  outsideBox, is left as it is: its tracers and displacement rows may
+   *  be NaN, and its entries of valid must be 0. Every other tracer and
+   *  displacement must be finite.
    *
    *  @exception Error if the result is a box result, which has no sky to
    *  filter against; if the result is malformed (including a NaN in a
@@ -1429,15 +1485,17 @@ namespace otswap {
 
   /**
    *  @brief Recompute every field of a result that follows from valid:
-   *  validRealizations and meanDisplacement, then lagrangian and
-   *  lagrangianSky.
+   *  validRealizations and meanDisplacement, then lagrangian,
+   *  lagrangianSky and lagrangianDistance.
    *
    *  meanDisplacement is summed over the valid realizations in realization
    *  order and divided by their count, as the reconstruction does, so a
    *  result whose displacement and valid were read back from a file gives
    *  the reconstruction's bits. lagrangian is tracers + meanDisplacement,
-   *  left empty when tracers is; lagrangianSky is computed with
-   *  result.distances, and left empty without a distance table.
+   *  wrapped into the box of a periodic result, and left empty when
+   *  tracers is; lagrangianSky and lagrangianDistance are then filled as
+   *  Result::lagrangianSky and Result::lagrangianDistance describe, and
+   *  left empty otherwise.
    *
    *  @exception Error if displacement or valid has the wrong size, an entry
    *  of valid is neither 0 nor 1, or a flag, tracers or tracersSky array has

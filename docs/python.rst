@@ -26,6 +26,9 @@ Configuration
 .. autoapiclass:: otswap.RedshiftCut
    :members:
 
+.. autoapiclass:: otswap.DistanceCut
+   :members:
+
 Distances
 ~~~~~~~~~
 
@@ -35,6 +38,8 @@ Distances
 .. autoapifunction:: otswap.to_cartesian
 
 .. autoapifunction:: otswap.to_sky
+
+.. autoapifunction:: otswap.point_to_sky
 
 Mask
 ~~~~

@@ -2,8 +2,8 @@
 
 Six examples, each a C++ program and a Python script that do the same thing:
 the same inputs, parameters and seed, and the same output file, byte for
-byte. Each folder in {repo-tree}`examples` is a CMake project of its own,
-built against an installed otswap.
+byte. Each example folder in {repo-tree}`examples` is a CMake project of its
+own, built against an installed otswap.
 
 ## The data
 
@@ -12,7 +12,8 @@ clone of the repository; they are not in the Python package or the source
 distribution. They are provided for running the examples, may be
 redistributed unchanged with them, and may not be used for any other purpose:
 {repo-file}`examples/data/README.md` gives the terms and the content of each
-file.
+file. Lengths are in Mpc/h (the boxes are cubes of side 400 and 1000 Mpc/h)
+and angles in degrees.
 
 ## Building and running
 
@@ -218,8 +219,9 @@ and keywords, those of the periodic box included, are on the [file formats](form
 Reconstructs and corrects the lightcone of the two lightcone examples given
 in comoving Cartesian coordinates, the observer at the origin: the mean
 particle separation is measured in distance bins, and the mask acts on the
-angles of the objects. The reconstruction and the correction are those of the
-sky examples, from one run.
+angles of the objects. It runs the steps of the two sky examples in one run,
+on the same objects; the results differ slightly, the mps profile being
+binned in distance rather than redshift.
 
 Reads:
 

@@ -25,8 +25,8 @@
  *  platform.
  *
  *  Each returns the same bits on every supported platform and compiler,
- *  with any number of threads, whatever the system's maths library, and is
- *  within one unit in the last place of the exact value. Use them in place
+ *  whatever the system's maths library, and is within one unit in the last
+ *  place of the correctly rounded value. Use them in place
  *  of the standard library's where a result must be reproducible bit for
  *  bit. sqrt, fabs, floor and fmod need no counterpart here: IEEE 754
  *  already makes them exact or correctly rounded everywhere.

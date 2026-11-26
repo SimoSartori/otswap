@@ -83,8 +83,11 @@ int main (int argc, char** argv)
     // ----------------------------------------------------
 
     // The table gives the linear growth rate f(z) of the correction, and
-    // the redshifts of the result. It must cover the corrected distances
-    // too: the default range, z = 0 to 10, leaves room for that
+    // the redshifts of the result. Its distances are in Mpc/h, so the
+    // coordinates must be in Mpc/h too: the unit of the coordinates is
+    // that of any distance table used with them. It must cover the
+    // corrected distances too: the default range, z = 0 to 10, leaves room
+    // for that
     const otswap::DistanceTable distances(0.286, 0.7, -1., 0.);
 
 
@@ -94,7 +97,10 @@ int main (int argc, char** argv)
 
     // 8 realizations, a convergence threshold of 1e-2, a fixed seed, and
     // the displacements crossing an unobserved pixel of the mask rejected.
-    // The report goes to std::cout, in order with this program's lines
+    // 8 realizations, which the example randoms are enough for, and 1e-2
+    // keep the example fast; for an analysis, start from the defaults, 30
+    // and 1e-3 (the guide's section "Choosing the parameters"). The report
+    // goes to std::cout, in order with this program's lines
     otswap::Config config;
     config.nRealizations = 8;
     config.convergence = 1.e-2;
@@ -167,7 +173,10 @@ int main (int argc, char** argv)
 
     // The mean displacement, with the mps(d) profile and the distance
     // table in twin files, and the corrected catalogue; the columns are
-    // those of the lightcone and full_recons_lightcone examples
+    // those of the lightcone and full_recons_lightcone examples, but the
+    // mean file adds the column outsideDistanceCut, and the profile is
+    // binned in distance: a column distance and the keywords DISTMIN and
+    // DISTMAX, in coordinate units, instead of the redshift ones
     otswap::io::writeDisplacementMean(output + "/displacement_lightcone_cartesian.dat", result);
     otswap::io::writeRealSpaceCatalog(output + "/reconstructed_catalogue_lightcone_cartesian.dat", catalogue);
 

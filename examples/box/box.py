@@ -20,7 +20,9 @@ averaged.
 The box is not periodic: nothing flows through its faces, so modes on the
 scale of the box itself are not reconstructed, and the displacements are
 least reliable near the faces. A box cut from a periodic simulation is
-treated as a plain sub-volume.
+treated as a plain sub-volume; a whole simulation box with periodic
+boundary conditions is reconstructed with the periodic option: see the
+periodic_box example.
 
 Usage: python box.py [data_dir]. The catalogues are read from data_dir, by
 default the examples' data folder; the output is written to the folder
@@ -72,12 +74,15 @@ def main():
     # n_realizations: independent realizations. Each one consumes N
     # randoms, disjoint from those of the others, so the random catalogue
     # must hold at least n_realizations x N objects: the catalogue read here
-    # has exactly 8 per tracer. Omitting the randoms lets otswap draw them
-    # itself, uniformly in the bounding box of the tracers.
+    # has exactly 8 per tracer (404,376 randoms for 50,547 halos), hence 8
+    # realizations. Omitting the randoms lets otswap draw them itself,
+    # uniformly in the bounding box of the tracers.
     #
     # convergence: the sweeps stop once the fraction of successful swaps in a
     # sweep, swaps per tracer visited, no longer exceeds this threshold.
-    # Larger values are faster and less accurate; the default is 1e-3.
+    # Larger values are faster and less accurate; 1e-2 keeps the example
+    # fast. For an analysis, start from the defaults, 30 realizations and
+    # 1e-3: the guide's section "Choosing the parameters" advises on both.
     #
     # seed: a fixed seed makes the run reproducible; 0 draws a new seed at
     # each run, and result.config.seed records the one drawn. The number
@@ -101,9 +106,9 @@ def main():
     # Without one, as here, otswap takes (V/N)^(1/3), with V the volume of
     # the bounding box of the tracers and the randoms and N the number of
     # tracers, and records it in Result.mps; the keyword mps gives it
-    # instead. It sets the scale of the
-    # search for swap partners, so it must describe the whole catalogue:
-    # with a strongly varying density use the lightcone geometry, which
+    # instead. It sets the radius of the first guess, 8 mps, within which
+    # each tracer is paired with a free random, and the cell of the neighbour
+    # grids, so it must describe the whole catalogue: with a strongly varying density use the lightcone geometry, which
     # measures it as a function of redshift. When the volume is known, give
     # the box limits, the keyword box: the mps then comes from the box's
     # volume, not from the bounding box
@@ -132,7 +137,8 @@ def main():
     # One row per tracer, in the order of the input: its position, its mean
     # Lagrangian position (the position plus the mean displacement), the
     # mean displacement and the number of valid realizations, with a header
-    # giving the units and the parameters of the run. The writer is the C++
+    # describing the columns (lengths in coordinate units) and the parameters
+    # of the run. The writer is the C++
     # library's, so the file is the C++ example's, byte for byte;
     # otswap.io.read_displacement_mean reads this file back.
     # otswap.io.write_displacement_complete writes every realization instead,

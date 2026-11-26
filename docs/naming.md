@@ -8,6 +8,14 @@ passed as `config=` or `correction=`; a flat
 
 ## Errors
 
+Invalid input and failures raise `otswap::Error` in C++, `otswap.Error` in
+Python, whose message names the object at fault. An error of the neighbour
+search is one too: its message starts with `meshsearch: `, and in C++ the
+original `meshsearch::Error` is nested in it (`std::rethrow_if_nested`
+recovers it). The extrapolation of b(z) beyond its table is not an error:
+Python issues an `ExtrapolationWarning`, C++ reports it and counts it in
+`nExtrapolated`.
+
 | C++ | Python | Notes |
 |---|---|---|
 | `Error` | `Error` | C++ records the throw location: `file()`, `function()`, `line()` |
@@ -21,7 +29,7 @@ passed as `config=` or `correction=`; a flat
 |---|---|---|
 | `Config`, its fields | `Config`, `n_realizations`, `convergence`, `seed`, `cell_size`, `reject_crossings`, `max_unobserved_pixels_crossed`, `verbosity` | keyword `config` of `reconstruct_box`, `reconstruct_lightcone` and `reconstruct_lightcone_cartesian`, and of `Result.from_arrays` |
 | `CorrectionConfig`, its fields | `CorrectionConfig`, `weight_by_realizations`, `verbosity` | keyword `correction` of `real_space_lightcone` and `real_space_box` |
-| `Verbosity` | `"silent"`, `"normal"`, `"detailed"` | the `verbosity` field; the `verbosity` keyword of `measure_mps_profile` |
+| `Verbosity` | `"silent"`, `"normal"`, `"detailed"` | the `verbosity` field; the `verbosity` keyword of `measure_mps_profile` and `measure_mps_profile_cartesian` |
 | `Config::log`, `CorrectionConfig::log`, the `log` of `measureMpsProfile` | — | Python prints to `sys.stdout` |
 | `RedshiftCut`, `min`, `max` | `RedshiftCut`, `min`, `max`; keyword `redshift_cut` | also a pair `(min, max)` |
 | `DistanceCut`, `min`, `max` | `DistanceCut`, `min`, `max`; keyword `distance_cut` | also a pair `(min, max)`; of the `_cartesian` functions only |
@@ -147,8 +155,8 @@ module binds none of these types itself.
   functions too.
 - The layouts of the structs are part of the interface across 0.4.x: a field
   added in a patch release would break a module built against the older
-  header. A module built against the headers of 0.3 must be rebuilt for
-  0.4.
+  header. A module built against the headers of an earlier minor release
+  must be rebuilt.
 - A `Config` or `CorrectionConfig` received from Python holds
   `log = &std::clog`; the other module sets it before using it.
 - A `Result` or `RealSpaceCatalog` made by the other module is in radians:
