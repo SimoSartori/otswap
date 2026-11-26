@@ -182,9 +182,10 @@ jobs:
           done
 
       # The executable on the examples' parameters writes the examples' files,
-      # byte for byte. examples/executable/*.ini are the commented ones of the
-      # docs; tests/executable/example_*.ini hold the parameters of the box
-      # and lightcone examples.
+      # byte for byte, twin files included. examples/executable/*.ini are the
+      # commented ones of the docs; tests/executable/example_*.ini hold the
+      # parameters of the box and lightcone examples and of the run without
+      # a distance table of the lightcone_cartesian example.
       - name: Run the executable on the examples' parameters and compare
         run: |
           otswap="$RUNNER_TEMP/moved/bin/otswap"
@@ -194,17 +195,28 @@ jobs:
           "$otswap" examples/executable/lightcone_cartesian.ini
           "$otswap" tests/executable/example_box.ini
           "$otswap" tests/executable/example_lightcone.ini
+          "$otswap" tests/executable/example_lightcone_cartesian.ini
           cmp examples/executable/output/reconstructed_catalogue_box.dat \
             examples/full_recons_box/output-cpp/reconstructed_catalogue_box.dat
           cmp examples/executable/output/reconstructed_catalogue_lightcone.dat \
             examples/full_recons_lightcone/output-cpp/reconstructed_catalogue_lightcone.dat
           cmp examples/executable/output/reconstructed_catalogue_lightcone_cartesian.dat \
             examples/lightcone_cartesian/output-cpp/reconstructed_catalogue_lightcone_cartesian.dat
+          for twin in "" .mps .distances; do
+            cmp examples/executable/output/displacement_mean_zspace_lightcone_cartesian$twin.dat \
+              examples/lightcone_cartesian/output-cpp/displacement_lightcone_cartesian$twin.dat
+          done
           cmp examples/executable/output/displacement_mean_periodic_box.dat \
             examples/periodic_box/output-cpp/displacement_periodic_box.dat
           cmp build-executable-examples/displacement_mean_box.dat examples/box/output-cpp/displacement_box.dat
-          cmp build-executable-examples/displacement_mean_lightcone.dat \
-            examples/lightcone/output-cpp/displacement_lightcone.dat
+          for twin in "" .mps .distances; do
+            cmp build-executable-examples/displacement_mean_lightcone$twin.dat \
+              examples/lightcone/output-cpp/displacement_lightcone$twin.dat
+          done
+          for twin in "" .mps; do
+            cmp build-executable-examples/displacement_mean_lightcone_cartesian$twin.dat \
+              examples/lightcone_cartesian/output-cpp/displacement_lightcone_cartesian_no_table$twin.dat
+          done
 
       # add_subdirectory on the source tree: no tests, no example, no
       # executable, no build type

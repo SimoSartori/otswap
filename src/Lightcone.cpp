@@ -223,6 +223,35 @@ namespace {
     return profile;
   }
 
+  /// The Cartesian positions of the rows keep of a sky array, in that
+  /// order. A redshift outside the table is an error that names the kind
+  /// of object and its row in the array given by the caller.
+  std::vector<double> kept_to_cartesian (const std::vector<double>& sky,
+                                         const std::vector<std::size_t>& keep,
+                                         const char* kind,
+                                         const otswap::DistanceTable& distances)
+  {
+    std::vector<double> cartesian(3 * keep.size());
+
+    for (std::size_t k = 0; k < keep.size(); ++k) {
+      const std::size_t i = keep[k];
+      double distance = 0.;
+      try {
+        distance = distances.distanceAt(sky[3*i+2]);
+      }
+      catch (const otswap::Error& e) {
+        throw otswap::Error(std::string("the ") + kind + " in row " + std::to_string(i) +
+                            " (from 0) of the " + kind + " sky array: " + e.what() +
+                            "; the redshifts of the tracers and randoms kept must lie in the "
+                            "distance table");
+      }
+      otswap::internal::to_cartesian(sky[3*i], sky[3*i+1], distance,
+                                     cartesian[3*k], cartesian[3*k+1], cartesian[3*k+2]);
+    }
+
+    return cartesian;
+  }
+
 }
 
 
@@ -692,6 +721,10 @@ namespace {
     const std::string selected = reporting ? counts.message() : std::string();
     if (reporting) internal::write_lines(*config.log, selected);
 
+    std::vector<double> convertedTracers = kept_to_cartesian(tracersSky, keepTracers, "tracer", distances);
+    const std::vector<double> convertedRandoms =
+      kept_to_cartesian(randomsSky, keepRandoms, "random", distances);
+
     MpsProfile profile = internal::mps_profile(ts, skyAreaDeg2, nBins, distances);
 
     std::ostringstream profileLine;
@@ -699,10 +732,6 @@ namespace {
     if (detailed) profile_line(profileLine, profile);
     if (!rejecting && detailed) internal::write_lines(*config.log, profileLine.str());
 
-    std::vector<double> convertedTracers = toCartesian(ts, distances);
-    const std::vector<double> convertedRandoms =
-      dropRandoms ? toCartesian(internal::rows(randomsSky, keepRandoms), distances)
-                  : toCartesian(randomsSky, distances);
     const std::vector<double>& t = convertedTracers;
     const std::vector<double>& r = convertedRandoms;
 
@@ -787,6 +816,8 @@ namespace {
                      counts.tracersOutsideMask, counts.tracersOutsideBoth);
       internal::write_lines(*log, out.str());
     }
+
+    kept_to_cartesian(tracersSky, keep, "tracer", distances);
 
     const bool dropTracers = keep.size() != nObjects;
     const std::vector<double> keptSky = dropTracers ? internal::rows(tracersSky, keep) : std::vector<double>();

@@ -1,7 +1,7 @@
 # Examples
 
 Six examples, each a C++ program and a Python script that do the same thing:
-the same inputs, parameters and seed, and the same output file, byte for
+the same inputs, parameters and seed, and the same output files, byte for
 byte. Each example folder in {repo-tree}`examples` is a CMake project of its
 own, built against an installed otswap.
 
@@ -34,17 +34,21 @@ for a static cfitsio).
 ## Box
 
 Reconstructs the displacement field of halos in a cube, in real space,
-with box geometry: Cartesian coordinates and a mean particle separation
-computed from the tracers. Eight realizations, each on its own subset of the
-randoms.
+with box geometry: Cartesian coordinates, the box limits, and a mean
+particle separation computed from the volume of the limits and the number of
+tracers. Eight realizations, each on its own subset of the randoms. It then
+sets IDs on the result, writes every realization to a FITS file, reads it
+back, and compares the mean over half of the realizations with the mean over
+all of them.
 
 Reads:
 
 - {repo-file}`examples/data/box_halos_real_space.dat`
 - {repo-file}`examples/data/box_randoms.dat`
 
-Writes `output/displacement_box.dat`, with {py:func}`otswap.io.write_displacement_mean`; its columns
-and keywords are on the [file formats](formats.md) page.
+Writes `output/displacement_box.dat`, with {py:func}`otswap.io.write_displacement_mean`, and
+`output/displacement_complete_box.fits`, with {py:func}`otswap.io.write_displacement_complete`; their
+columns and keywords are on the [file formats](formats.md) page.
 
 ::::{tab-set}
 :sync-group: lang
@@ -71,8 +75,11 @@ and keywords are on the [file formats](formats.md) page.
 
 Reconstructs the displacement field of a survey-like catalogue with
 lightcone geometry: sky coordinates, the mean particle separation measured as
-a function of redshift, a redshift cut and the survey's HEALPix mask, with
-the displacements that cross unobserved pixels rejected.
+a function of redshift, a redshift cut that keeps a slice of the catalogue,
+and the survey's HEALPix mask, with the displacements that cross unobserved
+pixels rejected. Before the reconstruction it measures the mean particle
+separation alone, from the mask and from the sky area; after it, it reads
+the file written back.
 
 Reads:
 
@@ -80,7 +87,8 @@ Reads:
 - {repo-file}`examples/data/lightcone_randoms.dat`
 - {repo-file}`examples/data/lightcone_mask.fits`
 
-Writes `output/displacement_lightcone.dat`, with {py:func}`otswap.io.write_displacement_mean`, and its
+Writes `output/mps_lightcone.dat`, with {py:func}`otswap.io.write_mps_profile`;
+`output/displacement_lightcone.dat`, with {py:func}`otswap.io.write_displacement_mean`, and its
 twin files `displacement_lightcone.mps.dat` and `displacement_lightcone.distances.dat`, the mps(z)
 profile and the distance table; their columns and keywords are on the [file formats](formats.md) page.
 
@@ -107,14 +115,17 @@ profile and the distance table; their columns and keywords are on the [file form
 
 ## Redshift-space correction in a box
 
-Runs the box reconstruction on the same halos in redshift space, distorted
-along one axis, then moves each halo along that axis to its real-space
-position with the factor f/(b + 3f/5).
+Runs the box reconstruction, without box limits, on the same halos in
+redshift space, distorted along the y axis, then moves each halo along that
+axis to its real-space position with the factor f/(b + 3f/5). It reads the
+corrected catalogue back by column name and compares it with the halos in
+real space.
 
 Reads:
 
 - {repo-file}`examples/data/box_halos_redshift_space.dat`
 - {repo-file}`examples/data/box_randoms.dat`
+- {repo-file}`examples/data/box_halos_real_space.dat`, for the comparison
 
 Writes `output/reconstructed_catalogue_box.dat`, with {py:func}`otswap.io.write_real_space_catalog`; its columns
 and keywords are on the [file formats](formats.md) page.
@@ -218,10 +229,11 @@ and keywords, those of the periodic box included, are on the [file formats](form
 
 Reconstructs and corrects the lightcone of the two lightcone examples given
 in comoving Cartesian coordinates, the observer at the origin: the mean
-particle separation is measured in distance bins, and the mask acts on the
-angles of the objects. It runs the steps of the two sky examples in one run,
-on the same objects; the results differ slightly, the mps profile being
-binned in distance rather than redshift.
+particle separation is measured in distance bins, a cut on the comoving
+distance keeps a shell of the catalogue, and the mask acts on the angles of
+the objects. It runs the steps of the two sky examples in one run, then the
+reconstruction again without the distance table, which gives the same
+displacements.
 
 Reads:
 
@@ -231,8 +243,9 @@ Reads:
 - {repo-file}`examples/data/lightcone_bias.dat`
 
 Writes `output/displacement_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_displacement_mean`, and its
-twin files `.mps.dat` and `.distances.dat`, the mps(d) profile and the distance table, and
-`output/reconstructed_catalogue_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_real_space_catalog`; their columns
+twin files `.mps.dat` and `.distances.dat`, the mps(d) profile and the distance table;
+`output/displacement_lightcone_cartesian_no_table.dat`, the result without the table, and its twin
+`.mps.dat`; and `output/reconstructed_catalogue_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_real_space_catalog`; their columns
 and keywords are on the [file formats](formats.md) page.
 
 ::::{tab-set}

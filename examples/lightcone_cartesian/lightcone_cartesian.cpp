@@ -9,17 +9,20 @@
 /*
   This example explains how to reconstruct a survey catalogue that is
   given in comoving Cartesian coordinates, with the observer at the
-  origin, instead of right ascension, declination and redshift. It
-  is the lightcone and full_recons_lightcone examples on the same
-  tracers and randoms, converted to Cartesian coordinates with the same
-  cosmology.
+  origin, instead of right ascension, declination and redshift. Its
+  tracers and randoms are those of the lightcone and
+  full_recons_lightcone examples, converted to Cartesian coordinates
+  with the same cosmology, and it does what both do: the
+  reconstruction, here with a cut on the distance, then the correction.
 
   Without redshifts the mean particle separation is measured as a
   function of the comoving distance from the origin, in uniform distance
   bins, and the mask and the optional distance cut act on the angles and
   the distance of each object. The distance table is optional for the
   reconstruction, and only fills the redshifts of the result; it is
-  needed here for the growth rate of the correction.
+  needed here for the growth rate of the correction. The example runs the
+  reconstruction a second time without it, to show that nothing else
+  changes.
 
   Usage: lightcone_cartesian [data_dir]. The catalogues are read from
   data_dir, by default the examples' data folder; the output is written
@@ -111,16 +114,52 @@ int main (int argc, char** argv)
     config.log = &std::cout;
 
     // The mean particle separation is measured in 30 distance bins of
-    // equal width, each with enough tracers. A cut on the comoving
-    // distance, otswap::DistanceCut {dMin, dMax}, would leave out the
-    // objects outside it; the default, {}, cuts nothing
+    // equal width, each with enough tracers, over the distances of the
+    // tracers kept
     const unsigned nBins = 30;
 
-    const otswap::Result result = otswap::reconstructLightcone(tracers, randoms, mask, nBins, config, &distances);
+    // Tracers and randoms whose comoving distance from the origin lies
+    // outside this closed range, in coordinate units, are left out of the
+    // reconstruction: the randoms are dropped, and the tracers keep their
+    // row, flagged in Result::outsideDistanceCut. The catalogue spans 2126
+    // to 2500 Mpc/h. The default, {}, cuts nothing
+    otswap::DistanceCut cut;
+    cut.min = 2200.;
+    cut.max = 2450.;
 
-    // The profile is in distance, in Mpc/h
+    // The table, given by pointer since it is optional, fills the
+    // redshifts of the result
+    const otswap::Result result = otswap::reconstructLightcone(tracers, randoms, mask, nBins, config, &distances, cut);
+
+    // The profile is in distance, in coordinate units (Mpc/h here)
     std::cout << "mps(d): " << result.mpsProfile.mps.size() << " nodes, from " << result.mpsProfile.mps.front()
               << " to " << result.mpsProfile.mps.back() << " Mpc/h" << std::endl;
+
+
+    // ----------------------------------------------------------------
+    // ------------ Reconstruct without the distance table ------------
+    // ----------------------------------------------------------------
+
+    // Without a table, a null pointer, the reconstruction does the same
+    // work, from the same seed, and gives the same displacements, valid
+    // flags and profile, bit for bit; only the redshifts of the result
+    // are NaN, and its files hold no distance table
+    const otswap::Result withoutTable = otswap::reconstructLightcone(tracers, randoms, mask, nBins, config,
+                                                                     nullptr, cut);
+
+    // Equal values, NaN counting as equal to NaN: the tracers left out by
+    // the cut, and those without a valid realization, have NaN means
+    auto sameValues = [] (const std::vector<double>& a, const std::vector<double>& b) {
+      if (a.size() != b.size()) return false;
+      for (std::size_t k = 0; k < a.size(); ++k)
+        if (!(a[k] == b[k] || (std::isnan(a[k]) && std::isnan(b[k])))) return false;
+      return true;
+    };
+    const bool same = sameValues(withoutTable.displacement, result.displacement) &&
+                      withoutTable.valid == result.valid &&
+                      withoutTable.mpsProfile.mps == result.mpsProfile.mps;
+    std::cout << "Without the table: " << (same ? "the same" : "NOT the same")
+              << " displacements, valid flags and profile" << std::endl;
 
 
     // ---------------------------------------------
@@ -176,11 +215,15 @@ int main (int argc, char** argv)
     // those of the lightcone and full_recons_lightcone examples, but the
     // mean file adds the column outsideDistanceCut, and the profile is
     // binned in distance: a column distance and the keywords DISTMIN and
-    // DISTMAX, in coordinate units, instead of the redshift ones
+    // DISTMAX, in coordinate units, instead of the redshift ones. The
+    // file of the result without the table has NaN redshift columns
+    // (tracRed, lagrRed) and no distance table twin
     otswap::io::writeDisplacementMean(output + "/displacement_lightcone_cartesian.dat", result);
+    otswap::io::writeDisplacementMean(output + "/displacement_lightcone_cartesian_no_table.dat", withoutTable);
     otswap::io::writeRealSpaceCatalog(output + "/reconstructed_catalogue_lightcone_cartesian.dat", catalogue);
 
     std::cout << "Written: output/displacement_lightcone_cartesian.dat" << std::endl;
+    std::cout << "Written: output/displacement_lightcone_cartesian_no_table.dat" << std::endl;
     std::cout << "Written: output/reconstructed_catalogue_lightcone_cartesian.dat" << std::endl;
 
   }
