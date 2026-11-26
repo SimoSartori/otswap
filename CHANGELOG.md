@@ -98,8 +98,8 @@ with 0.3.
   profile holds both redshift and distance nodes.
 - `Config::cellSize` (`cell_size`) defaults to 3, was 4, and the
   executable's `mesh_cellsize` with it. The cell size changes the speed
-  only: results are unchanged. The files of a run with the default record
-  `CELLSIZE = 3`.
+  only: results are unchanged. The files of a run with the default now
+  record `CELLSIZE = 3`.
 - `CorrectionStatus::LeftOut` (`LEFT_OUT`) also covers the tracers left out
   by the distance cut.
 - The displacement writers refuse a periodic result whose flags are not
@@ -116,15 +116,6 @@ with 0.3.
   unchanged.
 - The error for a redshift outside the distance table names the tracer or
   random and its row in the input arrays.
-- The package metadata lists classifiers: Python 3.10 to 3.14, Linux and
-  macOS, astronomy and physics. The supported Python versions are
-  unchanged.
-- Continuous integration builds and tests the Python package in a clean
-  environment with Python 3.10, 3.12 and 3.14, on Linux and macOS.
-- `tools/wheels/build_deps.sh` downloads zlib from zlib.net, then its
-  fossils directory, then GitHub, with the same SHA-256.
-- The guide states that a `Result` must not be read from one thread while
-  another modifies it in place.
 
 ### Removed
 
@@ -134,6 +125,31 @@ with 0.3.
   `toCartesian` and the same distance table gave the result of the sky
   overload, which takes their place; for Cartesian coordinates without sky
   ones, use the new Cartesian overloads.
+
+### Build and documentation
+
+- The package metadata lists classifiers: Python 3.10 to 3.14, Linux and
+  macOS, astronomy and physics. The supported Python versions are
+  unchanged.
+- Continuous integration builds and tests the Python package in a clean
+  environment with Python 3.10, 3.12 and 3.14, on Linux and macOS.
+- `tools/wheels/build_deps.sh` downloads zlib from zlib.net, then its
+  fossils directory, then GitHub, with the same SHA-256.
+- The guide gives a numbered path of steps for each geometry (box, periodic
+  box, lightcone on the sky, lightcone in Cartesian coordinates), each
+  linking its example, and sections on the distance table, the inputs of the
+  redshift-space correction, and files. It states that a `Result` must not
+  be read from one thread while another modifies it in place.
+- A new page, "Using otswap from another package", gathers the use of the
+  library from CMake, the sharing of the Python types with another nanobind
+  module and the loading of the same OpenMP runtime, formerly on the pages
+  of names and of the Python reference.
+- The Python reference lists the members of each class in the order of the
+  stubs, and `BoxLimits` under "Configuration".
+- The method page writes the redshift-space correction with the mean
+  displacement D = −Ψ_OT and the line of sight l̂, as `otswap/RSD.h` and the
+  module docstring do, and describes the first guess and the box as
+  implemented.
 
 ## 0.3.0 — 2026-11-05
 

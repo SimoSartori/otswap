@@ -55,7 +55,7 @@ def main():
     # ---------------------------------------------------
 
     # Halos of a simulation at redshift 0 in a cube of side 1000 Mpc/h,
-    # [0, 1000) on each axis, comoving coordinates in Mpc/h. The file holds
+    # [0, 1000] on each axis, comoving coordinates in Mpc/h. The file holds
     # x, y and z in real space, then z in redshift space, with the line of
     # sight along the z axis: the positions observed are x, y and the fourth
     # column, those in real space the first three. Table.values has shape
@@ -84,9 +84,9 @@ def main():
     # threads.
     #
     # cell_size: the grid cell, in units of mps, affects the speed only,
-    # never the result. In a periodic box the cells divide the shortest side
-    # a whole number of times, so the cell used can be smaller:
-    # result.cell_side
+    # never the result; the default is 3. In a periodic box the cells divide
+    # the shortest side a whole number of times, so the cell used can be
+    # smaller: result.cell_side
     config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, cell_size=3.0,
                            verbosity="normal")
 
@@ -96,8 +96,10 @@ def main():
 
     # The box is periodic: the limits, the keyword box, are required, and
     # the mean particle separation, (V/N)^(1/3) with V the volume of the
-    # limits, comes from them. A tracer outside the limits would be wrapped
-    # into the box and counted in result.selection; here none is
+    # limits, comes from them. The limits are closed: a tracer on an upper
+    # face stays there, and one outside the limits would be wrapped into the
+    # box and counted in result.selection; here none is. With the randoms
+    # omitted, otswap draws them
     result = otswap.reconstruct_box(tracers, box=((0.0, 0.0, 0.0), (side, side, side)),
                                     periodic=True, config=config)
 
@@ -119,12 +121,13 @@ def main():
     # ------------ Write the output ------------
     # ------------------------------------------
 
-    # One row per tracer, in the order of the input: its position, its mean
-    # Lagrangian position, wrapped into the box, the mean displacement and
-    # the number of valid realizations, with a header describing the columns
-    # (lengths in coordinate units), the box, the periodicity and the
-    # parameters of the run. The writer is the
-    # C++ library's, so the file is the C++ example's, byte for byte
+    # One row per tracer, in the order of the input: its position and its
+    # mean Lagrangian position, both wrapped into the box, the mean
+    # displacement, the number of valid realizations and the flag
+    # outsideBox, always 0 in a periodic box, with a header describing the
+    # columns (lengths in coordinate units), the box, the periodicity and
+    # the parameters of the run. The writer is the C++ library's, so the
+    # file is the C++ example's, byte for byte
     otswap.io.write_displacement_mean(output / "displacement_periodic_box.dat", result)
 
     print("Written: output/displacement_periodic_box.dat")

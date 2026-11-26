@@ -42,7 +42,11 @@ catalogue.
 
 There is one reconstruction only, on the observed tracers, in redshift
 space: no second reconstruction on the corrected catalogue, and no void
-search. With `perform_recons` the reconstruction's files therefore have
+search. The key `perform_recons` switches on the redshift-space correction,
+not the reconstruction, which always runs; its product is the corrected
+catalogue. For the mean displacements alone, set `perform_recons = false`
+and `printDisplMean = true`, and leave out the correction keys and, in a
+box, the cosmology. With `perform_recons` the reconstruction's files therefore have
 `zspace_` in their names, and the corrected catalogue is the only real-space
 product.
 
@@ -51,10 +55,11 @@ with NaN coordinates for the tracers that were not moved. It cannot be given
 back to otswap as `tracer_file`, since a reconstruction refuses non-finite
 coordinates.
 
-The two-step use with BitVF, otswap's complete displacement file
-(`displacement_complete_zspace_<name>`) given to a one-pass BitVF run, finds
-voids in redshift space only: voids in the corrected catalogue need BitVF's
-own two-pass run.
+The Back-in-time Void Finder (BitVF), a package in preparation built on
+otswap, finds voids from the displacement field. Given otswap's complete
+displacement file (`displacement_complete_zspace_<name>`) in a one-pass
+run, it finds voids in redshift space only: voids in the corrected catalogue
+need BitVF's own two-pass run.
 
 Paths in the parameter file are used as written: relative ones resolve
 against the current directory, not the parameter file's.
@@ -126,7 +131,7 @@ change nothing, so a parameter file stays valid when an input changes format.
 
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
-| `veto_mask_filename` | string | required | L | the HEALPix FITS map of the observed sky; it also gives the sky area |
+| `veto_mask_filename` | string | required | L | the HEALPix FITS map of the observed sky; it also gives the sky area, for which the executable has no key of its own |
 | `z_min` | double | none | L with `lightcone_input = sky` | the lower bound of the redshift cut, applied to tracers and randoms |
 | `z_max` | double | none | L with `lightcone_input = sky` | the upper bound; not below `z_min` |
 | `d_min` | double | none | L with `lightcone_input = cartesian` | the lower bound of the cut on the comoving distance from the origin, in coordinate units, applied to tracers and randoms |
@@ -142,10 +147,10 @@ change nothing, so a parameter file stays valid when an input changes format.
 | `wa` | double | 0 | L, B with `perform_recons`; as `w0` | |
 
 The cosmology gives a {cpp:class}`otswap::DistanceTable` over redshifts 0
-to 10. In a lightcone it turns redshifts into distances; in a box it is used
-only for the growth rate at `redshift`, so a box without `perform_recons`
-takes none of these keys. A lightcone beyond redshift 10 fails with the
-library's message.
+to 10, with distances in Mpc/h. In a lightcone on the sky it turns redshifts
+into distances; in a box it is used only for the growth rate at `redshift`,
+so a box without `perform_recons` takes none of these keys. A lightcone
+beyond redshift 10 fails with the library's message.
 
 A lightcone with `lightcone_input = cartesian` needs no cosmology to be
 reconstructed: the reconstruction uses distances only. Giving `Omega_matter`
@@ -153,36 +158,51 @@ and `little_h`, both or neither, builds the table, which then fills the
 redshift of each tracer, written in the displacement files with the table
 itself; without it the redshifts are NaN. The cosmology is required with
 `perform_recons`, whose correction needs the growth rate f(z) and the bias
-b(z) at the tracers' redshifts.
+b(z) at the tracers' redshifts. A Cartesian lightcone given a cosmology must
+have its coordinates in Mpc/h, the unit of the table's distances.
 
 ### Reconstruction
 
+The [guide](guide.md#choosing-the-parameters) gives advice on the keys of
+this section.
+
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
-| `Nrec` | unsigned | 30 | B, L | the number of realizations, at least 1; see the [guide](guide.md#choosing-the-parameters) |
-| `threshold` | double | 1e-3 | B, L | the convergence threshold of the swap loop, strictly between 0 and 1; see the [guide](guide.md#choosing-the-parameters) |
+| `Nrec` | unsigned | 30 | B, L | the number of realizations, at least 1 |
+| `threshold` | double | 1e-3 | B, L | the convergence threshold of the swap loop, strictly between 0 and 1 |
 | `seed` | unsigned | 0 | B, L | the seed of the random streams; 0 draws one, written in the displacement files |
 | `mesh_cellsize` | double | 3 | B, L | the grid cell size, in mean particle separations, positive; it changes the speed only |
-| `bins` | unsigned | required | L | the bins of the mean particle separation profile, at least 1: redshift bins on the sky, distance bins with `lightcone_input = cartesian`; see the [guide](guide.md#choosing-the-parameters) |
-| `reject_mask_crossings` | bool | true | L | reject a displacement whose path crosses unobserved pixels |
-| `max_unobserved_pixels_crossed` | unsigned | 0 | L with `reject_mask_crossings` | the unobserved pixels in a row a path may cross; 0 rejects at the first; see the [guide](guide.md#choosing-the-parameters) |
+
+Box only:
+
+| Key | Type | Default | Applies to | Meaning |
+|---|---|---|---|---|
 | `box_min` | 3 doubles | none | B | the lower x, y, z of the box, in coordinate units; with `box_max` or not at all |
 | `box_max` | 3 doubles | none | B | the upper x, y, z, each above `box_min`'s |
 | `mps` | double | none: (V/N)^(1/3) | B | the mean particle separation, in coordinate units, positive |
-| `periodic` | bool | false | B | the box is periodic: tracers and randoms outside it are wrapped into it, distances are minimum-image; requires `box_min` and `box_max`, each side an integer multiple of the shortest; see the [guide](guide.md#choosing-the-parameters) |
+| `periodic` | bool | false | B | the box is periodic, as described in the guide's [periodic box](guide.md#periodic-box); requires `box_min` and `box_max` |
 
 Without `box_min` and `box_max` the box is the bounding box of the tracers and
-the randoms of `random_file`, or of the tracers alone without it. The
-[guide](guide.md#choosing-the-parameters) gives advice on choosing the
-parameters.
+the randoms of `random_file`, or of the tracers alone without it.
 
-### RSD correction
+Lightcone only:
 
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
-| `perform_recons` | bool | false | B, L | correct the tracers for redshift-space distortions after the reconstruction |
-| `rsd_smoothing_scale` | double | required | B, L with `perform_recons` | the width σ of the gaussian average of the displacements, in coordinate units: Mpc/h in a lightcone on the sky, the unit of the input coordinates otherwise; non-negative, 0 for no average; see the [guide](guide.md#choosing-the-parameters) |
-| `rsd_weight_by_realizations` | bool | false | B, L with `perform_recons` | weight each neighbour by its number of valid realizations; see the [guide](guide.md#choosing-the-parameters) |
+| `bins` | unsigned | required | L | the bins of the mean particle separation profile, at least 1: redshift bins on the sky, distance bins with `lightcone_input = cartesian` |
+| `reject_mask_crossings` | bool | true | L | reject a displacement whose path crosses unobserved pixels |
+| `max_unobserved_pixels_crossed` | unsigned | 0 | L with `reject_mask_crossings` | the unobserved pixels in a row a path may cross; 0 rejects at the first |
+
+### RSD correction
+
+The [guide](guide.md#choosing-the-parameters) gives advice on σ and on the
+weighting.
+
+| Key | Type | Default | Applies to | Meaning |
+|---|---|---|---|---|
+| `perform_recons` | bool | false | B, L | switch on the redshift-space correction: move the tracers to real space after the reconstruction |
+| `rsd_smoothing_scale` | double | required | B, L with `perform_recons` | the width σ of the Gaussian average of the displacements, in coordinate units: Mpc/h in a lightcone on the sky, the unit of the input coordinates otherwise; non-negative, 0 for no average |
+| `rsd_weight_by_realizations` | bool | false | B, L with `perform_recons` | weight each neighbour by its number of valid realizations |
 | `redshift` | double | required | B with `perform_recons` | the box's redshift, in [0, 10] |
 | `bias` | double | required | B with `perform_recons` | the tracers' linear bias, positive |
 | `los_axis` | unsigned | required | B with `perform_recons` | the line of sight: 0, 1 or 2 for x, y or z |
@@ -197,7 +217,7 @@ parameters.
 | `output_format` | string | `dat` | B, L | `dat` (ASCII) or `fits` |
 | `printDisplMean` | bool | false | B, L | write the mean displacements |
 | `printDisplComplete` | bool | false | B, L | write the complete displacements |
-| `printMps` | bool | false | L | write the mean particle separation profile, in a file of its own when no displacement file is written, the displacement files holding it |
+| `printMps` | bool | false | L | write the mean particle separation profile; a displacement file holds it, so a file of its own is written only when no displacement file is |
 | `printRecCat` | bool | false | B, L with `perform_recons` | write the corrected catalogue; it must be true with `perform_recons` |
 
 A run must write something: without `perform_recons`, one of the `print`
@@ -222,15 +242,15 @@ the profile and the distance table a reader needs:
 `displacement_mean_[zspace_]<name>.mps.dat` and
 `displacement_mean_[zspace_]<name>.distances.dat`, and likewise for
 `displacement_complete_`; a Cartesian lightcone run without a cosmology has
-no distance table, and so no `.distances` file. In FITS they are extensions of
-the same file.
-With either displacement file the profile is written there, and `printMps`
-writes no `MPS_` file of its own.
+no distance table, and so no `.distances` file. In FITS they are extensions
+of the same file. With either displacement file the profile is written
+there, and `printMps` writes no `MPS_` file of its own.
 
-The [file formats](formats.md) page gives the two layouts, ASCII (`dat`)
-and FITS (`fits`), and the columns and keywords of each file. The reconstruction's files are written as soon as it
-ends, before the correction. Existing files of the same names are written
-over; no other file in `<dir>` is touched.
+The [file formats](formats.md) page gives the two layouts, ASCII (`dat`) and
+FITS (`fits`), and the columns and keywords of each file. The
+reconstruction's files are written as soon as it ends, before the
+correction. Existing files of the same names are written over; no other file
+in `<dir>` is touched.
 
 ## The example parameter files
 
@@ -245,9 +265,9 @@ mean displacement, its twin files and the corrected catalogue of the
 `lightcone_cartesian` example, byte for byte, under the executable's file
 names. The fourth reconstructs and corrects the halos of the `periodic_box`
 example in their periodic box, and writes its mean displacement and its
-corrected catalogue, byte for byte, under the executable's file names. Every key that applies
-to the run is set, those at their default included, and those without a
-default as `key =`.
+corrected catalogue, byte for byte, under the executable's file names.
+Every key that applies to the run is set, those at their default included,
+and those without a default as `key =`.
 
 ::::{tab-set}
 

@@ -24,8 +24,9 @@ formation. Within the Zel'dovich approximation (Zel'dovich 1970) the
 displacement from the initial positions is irrotational and derives from the
 gradient of a scalar potential, which guarantees a unique mapping before
 shell crossing (Brenier 1991; Brenier et al. 2003). The optimal transport
-problem with quadratic cost is a convex optimization problem with a unique
-solution under mild regularity assumptions (Brenier 1991), and the
+problem with quadratic cost, in its continuous form, is a convex
+optimization problem with a unique solution under mild regularity
+assumptions (Brenier 1991), and the
 reconstruction holds as long as the large-scale motions are predominantly
 irrotational and single-stream. Villani (2008) reviews optimal transport;
 Brenier (1991), Benamou & Brenier (2000), Frisch et al. (2002), Brenier et
@@ -42,21 +43,32 @@ Sartori et al. (2026), implemented in CosmoBolognaLib (Marulli et al. 2016),
 swaps quartets rather than pairs. It
 works in two phases.
 
-1. **First guess.** A local first guess matches each tracer to a nearby free
-   random: each starting tracer first with its nearest free random, so that
-   every tracer leaves this phase with a partner, then up to 31 pairs per
-   starter, within 8 mean particle separations.
+1. **First guess.** Starting tracers are taken in random order. Each is
+   paired first with its nearest free random, so that every tracer leaves
+   this phase with a partner; then the free tracers within 8 mean particle
+   separations of it are paired at random with as many of its nearest free
+   randoms, up to 31 pairs per starter, its own included.
 2. **Local search.** Each sweep visits every tracer, draws three at random
    among its 113 nearest tracers, the number a sphere of radius 3 mean
-   particle separations holds at mean density, tries the 24 permutations of the four partners and keeps
-   the best. The sweeps continue until the fraction of successful swaps in a
-   sweep, swaps per tracer visited, no longer exceeds a chosen threshold,
-   `convergence`.
+   particle separations holds at mean density, tries the 24 permutations of
+   the four partners and keeps the best. The sweeps continue until the
+   fraction of successful swaps in a sweep, swaps per tracer visited, no
+   longer exceeds a chosen threshold, `convergence`.
 
 This is 4-opt local search on an assignment problem: a heuristic, not an
 exact solver. The result is a good assignment, not a certified optimum. The
 cost is fixed to the squared Euclidean distance in three dimensions; otswap is
-not a general optimal transport solver and takes no cost matrix.
+not a general optimal transport solver and takes no cost matrix. The choice
+of the parameters is discussed in Appendix B of Sartori et al. (2026); the
+[guide](guide.md#choosing-the-parameters) gives advice on each.
+
+## The box
+
+In a box that is not periodic, the faces are boundaries: the randoms fill the
+box, and no tracer can be paired with a point beyond it. Nothing flows
+through the faces, so modes on the scale of the box cannot be reconstructed,
+and the displacements are least reliable near the faces. A region is best
+reconstructed within a larger volume, discarding a margin near the faces.
 
 ## The periodic box
 
@@ -65,7 +77,7 @@ torus: the distance between two points is the minimum image, the shortest of
 the Euclidean distances between their periodic copies, and the cost is its
 square. Mass can then flow through the faces, so a displacement near one face
 may point to a random near the opposite one; each displacement is the
-minimum-image vector, at most half a period on each axis.
+minimum-image vector, within half a period on each axis.
 
 ## Realizations
 
@@ -85,7 +97,8 @@ centroid.
 A survey gives sky coordinates. They are converted to comoving Cartesian
 coordinates with a redshift to distance table. The mean particle separation
 changes with redshift, so otswap measures it from the tracers, in redshift
-bins, and scales the seeding and the search with it. A catalogue already in
+bins, and sets with it the radius of the first guess and the cells of the
+neighbour grids. A catalogue already in
 comoving Cartesian coordinates, the observer at the origin, needs no
 cosmology: the mean particle separation is measured in bins of comoving
 distance from the observer, and a cut in distance replaces the cut in
@@ -107,9 +120,9 @@ The displacement field has two uses.
 
 ### The input of a void finder
 
-The displacement field is the input of the Back-in-time Void Finder, a
-separate package built on otswap, which identifies voids dynamically from it
-(Sartori et al. 2026).
+The displacement field is the input of the Back-in-time Void Finder
+(BitVF), a separate package built on otswap and in preparation, which
+identifies voids dynamically from it (Sartori et al. 2026).
 
 ### Redshift-space correction
 
@@ -136,7 +149,8 @@ $$
 
 The tracers are observed in redshift space and are biased, with linear bias
 $b$: their density contrast is $\delta_g^s(\mathbf{k}) = (b + f\mu^2)\,
-\delta_m(\mathbf{k})$ (Kaiser 1987). The optimal transport displacement is
+\delta_m(\mathbf{k})$ (Kaiser 1987). The optimal transport displacement from
+the Lagrangian to the observed position, $\boldsymbol{\Psi}_\mathrm{OT}$, is
 irrotational (Brenier 1991), and in the linear regime its divergence is set
 by the density of the tracers it moves, $\nabla \cdot
 \boldsymbol{\Psi}_\mathrm{OT} = -\delta_g^s$ (Sartori et al. 2026,
@@ -165,29 +179,29 @@ $$
 = b + \frac{3}{5} f .
 $$
 
-This refines eq. C.22 and approximates the mode-dependent correction. The
-shift of tracer $i$ along its line of sight is
+This refines eq. C.22 and approximates the mode-dependent correction.
+otswap's mean displacement points the other way, from the observed to the
+reconstructed position, backward in time: $\mathbf{D} =
+-\boldsymbol{\Psi}_\mathrm{OT}$. Since $\mathbf{r} = \mathbf{s} - f \,
+\Psi_\parallel \, \hat{\mathbf{l}}$, tracer $i$ is moved along its line of
+sight by
 
 $$
-s_i = \frac{f(z_i)}{b(z_i) + 3 f(z_i)/5} \,
-      \langle \boldsymbol{\Psi}_\mathrm{OT} \cdot \hat{\mathbf{r}} \rangle_i ,
+\Delta_i = \frac{f(z_i)}{b(z_i) + 3 f(z_i)/5} \,
+      \langle \mathbf{D} \cdot \hat{\mathbf{l}} \rangle_i ,
 $$
 
-where otswap's displacement points from the observed to the reconstructed
-position, backward in time, which accounts for the sign, and
-$\langle\,\rangle_i$ is a gaussian average of width $\sigma$, in coordinate
-units, over the valid tracers within $3\sigma$ of $i$, which keeps the
-correction on the scales where linear theory holds; a tracer with no valid
-tracer within $3\sigma$ is not moved. In a lightcone the line of sight is each
-tracer's own direction, the tracer moves to the redshift of comoving distance
-$d(z_i) + s_i$, $f$ comes from the distance table and $b(z)$ from a table of
-the tracers' bias; in a box the line of sight is a Cartesian axis, and $f$ and
-$b$ are those of the box's single redshift.
-
-## Parameters
-
-The choice of the parameters is discussed in Appendix B of Sartori et al.
-(2026); the [guide](guide.md#choosing-the-parameters) gives advice on each.
+a positive $\Delta_i$ moving it away from the observer. $\langle\,\rangle_i$
+is a Gaussian average of width $\sigma$, in coordinate units, over the valid
+tracers within $3\sigma$ of $i$, which restricts the correction to the larger
+scales, where linear theory holds; the
+[guide](guide.md#choosing-the-parameters) gives a starting value. A tracer
+with no valid tracer within $3\sigma$ is not moved. In a lightcone the line
+of sight is each tracer's own direction from the observer, the tracer moves
+to the redshift of comoving distance $d(z_i) + \Delta_i$, $f$ comes from the
+distance table and $b(z)$ from a table of the tracers' bias; in a box the
+line of sight is a Cartesian axis, and $f$ and $b$ are those of the box's
+single redshift.
 
 ## References
 

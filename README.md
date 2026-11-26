@@ -7,14 +7,10 @@ halos, by discrete optimal transport. Each tracer is paired one to one
 with a point drawn from a random catalogue that samples the same volume
 uniformly, standing for the homogeneous initial conditions, the pairing
 being chosen to make the sum of squared distances between paired points
-small. The pairing starts from a local first guess, which matches each
-tracer to a nearby free random, and is then refined by sweeps of local
-swaps: for four neighbouring tracers, all 24 permutations of their
-partners are tried and the cheapest is kept, until the fraction of
-successful swaps in a sweep no longer exceeds a chosen threshold. This
-local search gives an approximate solution of the assignment problem, not
-the exact optimum (see the [method](https://simosartori.github.io/otswap/method.html)
-page).
+small. The pairing is found by local search, swapping the partners of
+neighbouring tracers: an approximate solution of the assignment problem,
+not the exact optimum (see the
+[method](https://simosartori.github.io/otswap/method.html) page).
 
 The reconstruction is repeated on independent sets of N points extracted
 from the random catalogue. A tracer's displacement is the mean, over
@@ -23,23 +19,24 @@ mean Lagrangian position approximates the centroid of the Lagrangian
 volume from which the observed object has evolved, as the method page
 explains.
 
-otswap is built for survey data as much as for simulations. It handles
-boxes, periodic or not, and lightcones given on the sky or in comoving
-Cartesian coordinates; in a lightcone the footprint enters through a
-HEALPix mask and through a random catalogue reproducing the selection
-function, with an optional cut in redshift or distance, and
-displacements crossing unobserved regions are rejected. From the
+It handles boxes, periodic or not, as in simulations, and lightcones given
+on the sky or in comoving Cartesian coordinates, as in surveys; in a
+lightcone the footprint enters through a HEALPix mask and through a random
+catalogue reproducing the selection function, with an optional cut in
+redshift or distance, and displacements crossing unobserved regions are
+rejected. From the
 reconstructed displacements it corrects the catalogue for redshift-space
 distortions, given a fiducial cosmology and a bias b(z), and it writes
-its results as ASCII or FITS tables. Results are identical bit for bit
-on every supported platform and compiler, whatever the number of
-threads. C++17, with a Python package on the same code.
+its results as ASCII or FITS tables. For a given seed, results are
+identical bit for bit on every supported platform and compiler, whatever
+the number of threads. C++17, with a Python package on the same code.
 <!-- docs:about-end -->
 
 It is the middle of three packages: it depends on
 [meshsearch](https://github.com/SimoSartori/meshsearch) for its neighbour
-searches, and the Back-in-time Void Finder will be built on it. A version of
-it is included in CosmoBolognaLib, on which it does not depend.
+searches, and the Back-in-time Void Finder (BitVF), in preparation, is
+built on it. A version of it is included in CosmoBolognaLib, on which it
+does not depend.
 
 Documentation, for both APIs: **<https://simosartori.github.io/otswap/>**
 
@@ -105,17 +102,6 @@ library, so the same inputs give the same bits on every supported platform and
 compiler.
 <!-- docs:reproducibility-end -->
 
-## Tests
-
-```
-ctest --test-dir build
-OTSWAP_CPP_REFERENCE=build/cpp_reference pytest tests/
-```
-
-The Python tests run against the installed package; those comparing it with
-the C++ library need the `cpp_reference` program of the C++ build, and are
-skipped without it.
-
 ## Example
 
 ```python
@@ -129,13 +115,17 @@ print(result.mean_displacement[:3])
 otswap.io.write_displacement_mean("displacements.dat", result)
 ```
 
+Eight realizations keep it fast; the default, 30, is the starting point for
+an analysis.
+
 `examples/` holds six examples, each in C++ and in Python, with the data to
 run them: reconstructions in a box, a periodic box, a lightcone on the sky and
 a lightcone in Cartesian coordinates, and the redshift-space correction in a
 box and in a lightcone. The documentation walks through them.
 `examples/executable/` holds four commented parameter files (box, periodic box,
-lightcone, Cartesian lightcone) for the `otswap` executable,
-which runs a reconstruction and the correction with no code to write:
+lightcone, Cartesian lightcone) for the `otswap` executable, which runs a
+reconstruction and the correction with no code to write; it is built from
+source, and is not in the wheel:
 
 ```
 otswap examples/executable/box.ini
@@ -146,7 +136,22 @@ otswap examples/executable/box.ini
 Coordinates are NumPy arrays of shape (N, 3), sky coordinates ordered right
 ascension, declination, redshift, with the angular unit given explicitly by
 `angle_unit`; lengths are in coordinate units, as the guide's "Coordinates and
-units" describes. Tables are read and written by `otswap.io`.
+units" describes. Tables are read and written by `otswap.io`, in the
+[file formats](https://simosartori.github.io/otswap/formats.html) of the
+documentation.
+
+## Tests
+
+For development, from a build of the sources:
+
+```
+ctest --test-dir build
+OTSWAP_CPP_REFERENCE=build/cpp_reference pytest tests/
+```
+
+The Python tests run against the installed package; those comparing it with
+the C++ library need the `cpp_reference` program of the C++ build, and are
+skipped without it.
 
 ## Citing
 

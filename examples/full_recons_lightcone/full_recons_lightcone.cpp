@@ -18,7 +18,7 @@
 
   with f the linear growth rate, b the tracers' linear bias, and
   <Psi . r_hat>_i the line-of-sight component of the reconstructed mean
-  displacement, averaged with a gaussian of width sigma over the
+  displacement, averaged with a Gaussian of width sigma over the
   tracers around i. The tracer keeps its right ascension and
   declination, and moves to the redshift of comoving distance
   d(z_i) + s_i.
@@ -63,8 +63,8 @@ int main (int argc, char** argv)
 
     // Right ascension, declination and redshift for each object, one row
     // after the other. The angles are read in degrees and converted to
-    // radians by skyToRadians, with the factor numpy.deg2rad and otswap's
-    // Python interface use
+    // radians by skyToRadians, with the factor that otswap's Python
+    // interface uses
     const std::vector<double> tracersSky =
       otswap::skyToRadians(otswap::io::read(data + "/lightcone_tracers.dat", {"0", "1", "2"}).values);
     const std::vector<double> randomsSky =
@@ -102,14 +102,14 @@ int main (int argc, char** argv)
     // ------------ Run the reconstruction ------------
     // ------------------------------------------------
 
-    // As in the lightcone example, without a redshift cut: 8
-    // realizations, a convergence threshold of 1e-2, a fixed seed, 30
-    // redshift bins for the mean particle separation, and the
-    // displacements crossing an unobserved pixel of the mask rejected.
-    // 8 realizations, which the example randoms are enough for, and 1e-2
-    // keep the example fast; for an analysis, start from the defaults, 30
-    // and 1e-3 (the guide's section "Choosing the parameters"). The report
-    // goes to std::cout, in order with this program's lines
+    // As in the lightcone example, without a redshift cut: a fixed seed,
+    // 30 redshift bins for the mean particle separation, and the
+    // displacements crossing an unobserved pixel of the mask rejected. 8
+    // realizations, which the example randoms are enough for, and a
+    // convergence threshold of 1e-2 keep the example fast; for an
+    // analysis, start from the defaults, 30 and 1e-3 (the guide's section
+    // "Choosing the parameters"). The report goes to std::cout, in order
+    // with this program's lines
     otswap::Config config;
     config.nRealizations = 8;
     config.convergence = 1.e-2;
@@ -138,8 +138,8 @@ int main (int argc, char** argv)
     // ------------ Correct the redshift-space distortions ------------
     // ----------------------------------------------------------------
 
-    // sigma, the width of the gaussian average in Mpc/h: 10 Mpc/h is a
-    // reasonable starting value, to be checked in each analysis (the
+    // sigma, the width of the Gaussian average in Mpc/h: 10 Mpc/h is a
+    // starting value, and the value must be calibrated on the sample (the
     // guide's section "Choosing the parameters"). With
     // weightByRealizations, each neighbour would be weighted by its number
     // of valid realizations. Detailed reports, besides the line of the
@@ -189,10 +189,9 @@ int main (int argc, char** argv)
 
     // One row per tracer, in the order of the input: the right ascension
     // and declination, unchanged within the rounding of the file, and the
-    // corrected redshift; the corrected
-    // Cartesian position; the number of valid realizations, the two
-    // diagnostics of the average and the status of the tracer; NaN
-    // positions for an uncorrected tracer
+    // corrected redshift; the corrected Cartesian position; the number of
+    // valid realizations, the two diagnostics of the average and the
+    // status of the tracer; NaN positions for an uncorrected tracer
     otswap::io::writeRealSpaceCatalog(output + "/reconstructed_catalogue_lightcone.dat", catalogue);
 
     std::cout << "Written: output/reconstructed_catalogue_lightcone.dat" << std::endl;

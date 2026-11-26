@@ -20,7 +20,8 @@
   bins, and the mask and the optional distance cut act on the angles and
   the distance of each object. The distance table is optional for the
   reconstruction, and only fills the redshifts of the result; it is
-  needed here for the growth rate of the correction. The example runs the
+  needed here for the correction, which takes the growth rate f and the
+  bias b(z) at the tracers' redshifts. The example runs the
   reconstruction a second time without it, to show that nothing else
   changes.
 
@@ -98,12 +99,12 @@ int main (int argc, char** argv)
     // ------------ Run the reconstruction ------------
     // ------------------------------------------------
 
-    // 8 realizations, a convergence threshold of 1e-2, a fixed seed, and
-    // the displacements crossing an unobserved pixel of the mask rejected.
-    // 8 realizations, which the example randoms are enough for, and 1e-2
-    // keep the example fast; for an analysis, start from the defaults, 30
-    // and 1e-3 (the guide's section "Choosing the parameters"). The report
-    // goes to std::cout, in order with this program's lines
+    // A fixed seed, and the displacements crossing an unobserved pixel of
+    // the mask rejected. 8 realizations, which the example randoms are
+    // enough for, and a convergence threshold of 1e-2 keep the example
+    // fast; for an analysis, start from the defaults, 30 and 1e-3 (the
+    // guide's section "Choosing the parameters"). The report goes to
+    // std::cout, in order with this program's lines
     otswap::Config config;
     config.nRealizations = 8;
     config.convergence = 1.e-2;
@@ -174,7 +175,15 @@ int main (int argc, char** argv)
     // ----------------------------------------------------------------
 
     // As in full_recons_lightcone: realSpaceLightcone takes the result of
-    // either overload of reconstructLightcone
+    // either overload of reconstructLightcone. The distance table is
+    // required here, even for a result reconstructed without one: the
+    // growth rate f and the bias b(z) are taken at the tracers' redshifts,
+    // which the table gives from their distances.
+    //
+    // sigma, the width of the Gaussian average in coordinate units (Mpc/h
+    // here): 10 Mpc/h is a starting value, and the value must be
+    // calibrated on the sample (the guide's section "Choosing the
+    // parameters")
     const double sigma = 10.;
     otswap::CorrectionConfig correction;
     correction.weightByRealizations = false;

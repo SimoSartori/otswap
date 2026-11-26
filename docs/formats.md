@@ -1,12 +1,41 @@
 # File formats
 
-otswap reads and writes tables in two formats, chosen by the file's extension:
-`.fits`, `.fit` and `.fits.gz` are FITS, anything else is ASCII. The C++
-functions are in the namespace `otswap::io`, the Python ones in the module
-`otswap.io`; both run the same code, so a file written from Python is the same,
-byte for byte, as the one the C++ library writes from the same values. The
-names of the files the `otswap` executable writes are on the
-[executable](executable.md) page.
+otswap reads and writes tables in two formats, chosen by the file's extension,
+whatever its case: `.fits`, `.fit` and `.fits.gz` are FITS, anything else is
+ASCII. The C++ functions are in the namespace `otswap::io`, the Python ones in
+the module `otswap.io`; both run the same code, so a file written from Python
+is the same, byte for byte, as the one the C++ library writes from the same
+values. The names of the files the `otswap` executable writes are on the
+[executable](executable.md) page, and the syntax of its parameter files at
+the [end of this page](#parameter-files).
+
+## A table of one's own
+
+A table is written from its columns and read back by column name; an ID
+column is written and read exactly, as 64-bit integers, and the keywords come
+back as strings:
+
+```python
+import numpy as np
+import otswap
+
+rng = np.random.default_rng(1)
+x, y, z = rng.random((3, 5))
+ids = np.arange(100, 105)
+
+columns = [otswap.io.Column("id", ids, type="K", description="catalogue ID"),
+           otswap.io.Column("x", x), otswap.io.Column("y", y), otswap.io.Column("z", z)]
+otswap.io.write("points.dat", columns, keywords=[("SIDE", "1", "box side")])
+
+table = otswap.io.read("points.dat", ["x", "y", "z"], integer_columns=["id"])
+positions, read_ids = table.values, table.integers[:, 0]
+keywords = {name: value for name, value, _ in otswap.io.read_keywords("points.dat")}
+```
+
+The C++ functions have the same names in camelCase ([names side by
+side](naming.md#tables)). With `points.fits` the same lines write and read a
+FITS table; `read_keywords` then also returns the structural cards of the
+table (`XTENSION`, `TTYPE1`, ...) before the caller's.
 
 ## Reading
 
@@ -17,7 +46,8 @@ columns of a table, as double, and others exactly as 64-bit integers.
   an integer column must have an integer type.
 - **ASCII:** a column given by digits alone is a 0-based index; any other
   name is looked up in the last line starting with `###` before the first data
-  row, where otswap writes the names. Lines that are empty, hold only
+  row, where otswap writes the names. A header such as `# RA Dec z`, written
+  by another program, gives no names: read its columns by index. Lines that are empty, hold only
   separators, start with the comment character (`#` by default) after any
   separators, or start with `###` (a names line, whatever the comment
   character) are skipped; every other line is a data row, so a header line
@@ -46,7 +76,9 @@ named by its EXTNAME; in ASCII the first table in the file and each other one
 in a twin file of its own ({cpp:func}`otswap::io::twinFile`). Every table,
 the first included, is read by {cpp:func}`otswap::io::readPart` or
 {py:func}`otswap.io.read_part` from its EXTNAME and twin name, and its
-keywords by `readKeywords` with the EXTNAME, or on the twin file.
+keywords by `readKeywords` with the EXTNAME, or on the twin file that
+`twinFile` names. `readPart` reads any FITS table by its EXTNAME, whoever
+wrote it.
 
 The other inputs:
 
@@ -92,13 +124,22 @@ The two displacement files have their readers, which rebuild a `Result`:
 | `io::readDisplacementComplete` | `io.read_displacement_complete` | a complete displacement file of otswap 0.1 or later |
 
 The complete file is lossless in both formats; the precision of the mean file
-is given under {cpp:func}`otswap::io::writeDisplacementMean` below.
+is given under {cpp:func}`otswap::io::writeDisplacementMean` below. A mean
+file of otswap 0.1 is refused; a complete file of otswap 0.1 is read, its
+`index` column as the IDs. The corrected catalogue and the profile have no
+reader of their own: {cpp:func}`otswap::io::read` reads their columns by
+name.
+
+Angles in the files are in degrees. The Python readers take a required
+`angle_unit`, the unit of the sky arrays of the `Result` they return.
 
 A periodic box and a lightcone given in Cartesian coordinates are written in
 the same files, with what tells them apart: the keyword `PERIODIC` and the
 counts of wrapped objects for the former; for the latter, the distance cut,
-its flag column and a profile in distance, and no distance table when none
-was given. Each writer below lists them.
+the column `outsideDistanceCut`, written for every Cartesian result, and a
+profile in distance. A Cartesian result reconstructed without a distance table
+has NaN in its redshift columns and no distance table part. Each writer below
+lists what it writes.
 
 In Python the groups are strings, the C++ names in snake case
 (`DisplacementGroup::TracerSky` is `"tracer_sky"`).

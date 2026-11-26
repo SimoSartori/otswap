@@ -17,9 +17,10 @@ Without redshifts the mean particle separation is measured as a function of
 the comoving distance from the origin, in uniform distance bins, and the mask
 and the optional distance cut act on the angles and the distance of each
 object. The distance table is optional for the reconstruction, and only fills
-the redshifts of the result; it is needed here for the growth rate of the
-correction. The example runs the reconstruction a second time without it, to
-show that nothing else changes.
+the redshifts of the result; it is needed here for the correction, which
+takes the growth rate f and the bias b(z) at the tracers' redshifts. The
+example runs the reconstruction a second time without it, to show that
+nothing else changes.
 
 Usage: python lightcone_cartesian.py [data_dir]. The catalogues are read from
 data_dir, by default the examples' data folder; the output is written to the
@@ -81,11 +82,11 @@ def main():
     # ------------ Run the reconstruction ------------
     # ------------------------------------------------
 
-    # 8 realizations, a convergence threshold of 1e-2, a fixed seed, and the
-    # displacements crossing an unobserved pixel of the mask rejected. 8
-    # realizations, which the example randoms are enough for, and 1e-2 keep
-    # the example fast; for an analysis, start from the defaults, 30 and
-    # 1e-3 (the guide's section "Choosing the parameters").
+    # A fixed seed, and the displacements crossing an unobserved pixel of the
+    # mask rejected. 8 realizations, which the example randoms are enough
+    # for, and a convergence threshold of 1e-2 keep the example fast; for an
+    # analysis, start from the defaults, 30 and 1e-3 (the guide's section
+    # "Choosing the parameters").
     #
     # The mean particle separation is measured in 30 distance bins of equal
     # width, each with enough tracers, over the distances of the tracers
@@ -141,7 +142,14 @@ def main():
     # ----------------------------------------------------------------
 
     # As in full_recons_lightcone: real_space_lightcone takes the result of
-    # either function
+    # either function. The distance table is required here, even for a
+    # result reconstructed without one: the growth rate f and the bias b(z)
+    # are taken at the tracers' redshifts, which the table gives from their
+    # distances.
+    #
+    # sigma, the width of the Gaussian average in coordinate units (Mpc/h
+    # here): 10 Mpc/h is a starting value, and the value must be calibrated
+    # on the sample (the guide's section "Choosing the parameters")
     correction = otswap.CorrectionConfig(weight_by_realizations=False, verbosity="normal")
     catalogue = otswap.real_space_lightcone(result, distances=distances, bias=bias, sigma=10.0,
                                             correction=correction)

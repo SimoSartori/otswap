@@ -3,8 +3,7 @@ C++ reference
 
 Generated from the public headers ``otswap/OT.h``, ``otswap/RSD.h``,
 ``otswap/io.h``, ``otswap/ParameterFile.h``, ``otswap/Maths.h`` and
-``otswap/Random.h`` by Doxygen,
-with only what carries a comment included.
+``otswap/Random.h`` by Doxygen.
 
 otswap/OT.h
 -----------

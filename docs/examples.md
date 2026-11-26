@@ -3,7 +3,11 @@
 Six examples, each a C++ program and a Python script that do the same thing:
 the same inputs, parameters and seed, and the same output files, byte for
 byte. Each example folder in {repo-tree}`examples` is a CMake project of its
-own, built against an installed otswap.
+own, built against an installed otswap. The [guide](guide.md) gives the path
+of steps each one follows. All of them run 8 realizations with a convergence
+threshold of 1e-2, to run in seconds; the defaults, 30 and 1e-3, are the
+starting point for an analysis. The mean particle separation (mps) is the
+scale the reconstruction works at ([guide](guide.md#tracers-randoms-and-the-result)).
 
 ## The data
 
@@ -17,7 +21,9 @@ and angles in degrees.
 
 ## Building and running
 
-For an example `<name>`, with otswap installed under `<prefix>`:
+Install otswap first: the C++ library under a prefix `<prefix>` (README,
+"Build from source"), the Python package with `pip install otswap`. Then, for
+an example `<name>`, from the root of the repository:
 
 ```
 cmake -S examples/<name> -B build/examples/<name> -DCMAKE_PREFIX_PATH=<prefix>
@@ -31,15 +37,23 @@ Both read the examples' data folder unless `data_dir` is given, and write to
 system path, give its prefix with `-DCFITSIO_ROOT=...` (and `-DZLIB_ROOT=...`
 for a static cfitsio).
 
+The parameter files of the [executable](executable.md#the-example-parameter-files),
+in {repo-tree}`examples/executable`, reproduce files of the examples:
+`box.ini` the corrected catalogue of the correction in a box, `lightcone.ini`
+that of the correction in a lightcone, `periodic_box.ini` and
+`lightcone_cartesian.ini` the files of their examples, under the executable's
+file names.
+
 ## Box
 
-Reconstructs the displacement field of halos in a cube, in real space,
-with box geometry: Cartesian coordinates, the box limits, and a mean
-particle separation computed from the volume of the limits and the number of
-tracers. Eight realizations, each on its own subset of the randoms. It then
-sets IDs on the result, writes every realization to a FITS file, reads it
-back, and compares the mean over half of the realizations with the mean over
-all of them.
+Reconstructs the displacement field of halos in a cube, in real space, with
+box geometry: Cartesian coordinates, the box limits, and the mps computed
+from them, as the [guide](guide.md#box) describes; each realization runs on
+its own subset of the randoms. It then sets IDs on the result, writes every
+realization to a FITS file, reads it back, and compares the mean over half of
+the realizations with the mean over all of them. The [periodic
+box](#periodic-box) example reconstructs a whole simulation box with periodic
+boundary conditions.
 
 Reads:
 
@@ -71,6 +85,47 @@ columns and keywords are on the [file formats](formats.md) page.
 
 ::::
 
+## Periodic box
+
+Reconstructs the displacement field of halos in redshift space in a cube of a
+simulation, with periodic boundary conditions: the box is given by its
+limits, every distance is the minimum image, and nothing is cut at the
+faces. No randoms are given: otswap draws them in the box. The result
+reports the cell side of the neighbour grids actually used, which in a
+periodic box divides the shortest side. The halos are then corrected to real
+space, with neighbours across the faces and the corrected coordinate wrapped
+into the box, and compared with their real-space positions, which the data
+also give, along the line of sight and by the minimum image.
+
+Reads:
+
+- {repo-file}`examples/data/periodic_halos.dat`
+
+Writes `output/displacement_periodic_box.dat`, with {py:func}`otswap.io.write_displacement_mean`, and
+`output/reconstructed_catalogue_periodic_box.dat`, with {py:func}`otswap.io.write_real_space_catalog`; their
+columns and keywords, those of the periodic box included, are on the [file formats](formats.md) page.
+
+::::{tab-set}
+:sync-group: lang
+
+:::{tab-item} Python
+:sync: python
+
+```{literalinclude} ../examples/periodic_box/periodic_box.py
+:language: python
+```
+:::
+
+:::{tab-item} C++
+:sync: cpp
+
+```{literalinclude} ../examples/periodic_box/periodic_box.cpp
+:language: cpp
+```
+:::
+
+::::
+
 ## Lightcone
 
 Reconstructs the displacement field of a survey-like catalogue with
@@ -79,7 +134,8 @@ a function of redshift, a redshift cut that keeps a slice of the catalogue,
 and the survey's HEALPix mask, with the displacements that cross unobserved
 pixels rejected. Before the reconstruction it measures the mean particle
 separation alone, from the mask and from the sky area; after it, it reads
-the file written back.
+the file written back. It keeps the redshifts 0.90 to 1.08, in 30 bins, with
+the distance table of a flat ΛCDM cosmology with Ω_m = 0.286 and h = 0.7.
 
 Reads:
 
@@ -107,6 +163,52 @@ profile and the distance table; their columns and keywords are on the [file form
 :sync: cpp
 
 ```{literalinclude} ../examples/lightcone/lightcone.cpp
+:language: cpp
+```
+:::
+
+::::
+
+## Lightcone in Cartesian coordinates
+
+Reconstructs and corrects the lightcone of the two lightcone examples given
+in comoving Cartesian coordinates, the observer at the origin: the mean
+particle separation is measured in distance bins, a cut on the comoving
+distance keeps a shell of the catalogue, and the mask acts on the angles of
+the objects. It shows three variants: the reconstruction with the distance
+table, which fills the redshifts; the same without the table, which gives the
+same displacements with NaN redshifts; and the correction, which needs the
+table for the growth rate and the bias at the tracers' redshifts. The cut keeps
+the distances 2200 to 2450 Mpc/h.
+
+Reads:
+
+- {repo-file}`examples/data/lightcone_tracers_cartesian.dat`
+- {repo-file}`examples/data/lightcone_randoms_cartesian.dat`
+- {repo-file}`examples/data/lightcone_mask.fits`
+- {repo-file}`examples/data/lightcone_bias.dat`
+
+Writes `output/displacement_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_displacement_mean`, and its
+twin files `.mps.dat` and `.distances.dat`, the mps(d) profile and the distance table;
+`output/displacement_lightcone_cartesian_no_table.dat`, the result without the table, and its twin
+`.mps.dat`; and `output/reconstructed_catalogue_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_real_space_catalog`; their columns
+and keywords are on the [file formats](formats.md) page.
+
+::::{tab-set}
+:sync-group: lang
+
+:::{tab-item} Python
+:sync: python
+
+```{literalinclude} ../examples/lightcone_cartesian/lightcone_cartesian.py
+:language: python
+```
+:::
+
+:::{tab-item} C++
+:sync: cpp
+
+```{literalinclude} ../examples/lightcone_cartesian/lightcone_cartesian.cpp
 :language: cpp
 ```
 :::
@@ -182,91 +284,6 @@ and keywords are on the [file formats](formats.md) page.
 :sync: cpp
 
 ```{literalinclude} ../examples/full_recons_lightcone/full_recons_lightcone.cpp
-:language: cpp
-```
-:::
-
-::::
-
-## Periodic box
-
-Reconstructs the displacement field of halos in redshift space in a cube of a
-simulation, with periodic boundary conditions: the box is given by its
-limits, every distance is the minimum image, and nothing is cut at the
-faces. No randoms are given: otswap draws them in the box. The result
-reports the cell side of the neighbour grids actually used, which in a
-periodic box divides the shortest side. The halos are then corrected to real
-space, with neighbours across the faces and the corrected coordinate wrapped
-into the box, and compared with their real-space positions, which the data
-also give, along the line of sight and by the minimum image.
-
-Reads:
-
-- {repo-file}`examples/data/periodic_halos.dat`
-
-Writes `output/displacement_periodic_box.dat`, with {py:func}`otswap.io.write_displacement_mean`, and
-`output/reconstructed_catalogue_periodic_box.dat`, with {py:func}`otswap.io.write_real_space_catalog`; their
-columns and keywords, those of the periodic box included, are on the [file formats](formats.md) page.
-
-::::{tab-set}
-:sync-group: lang
-
-:::{tab-item} Python
-:sync: python
-
-```{literalinclude} ../examples/periodic_box/periodic_box.py
-:language: python
-```
-:::
-
-:::{tab-item} C++
-:sync: cpp
-
-```{literalinclude} ../examples/periodic_box/periodic_box.cpp
-:language: cpp
-```
-:::
-
-::::
-
-## Lightcone in Cartesian coordinates
-
-Reconstructs and corrects the lightcone of the two lightcone examples given
-in comoving Cartesian coordinates, the observer at the origin: the mean
-particle separation is measured in distance bins, a cut on the comoving
-distance keeps a shell of the catalogue, and the mask acts on the angles of
-the objects. It runs the steps of the two sky examples in one run, then the
-reconstruction again without the distance table, which gives the same
-displacements.
-
-Reads:
-
-- {repo-file}`examples/data/lightcone_tracers_cartesian.dat`
-- {repo-file}`examples/data/lightcone_randoms_cartesian.dat`
-- {repo-file}`examples/data/lightcone_mask.fits`
-- {repo-file}`examples/data/lightcone_bias.dat`
-
-Writes `output/displacement_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_displacement_mean`, and its
-twin files `.mps.dat` and `.distances.dat`, the mps(d) profile and the distance table;
-`output/displacement_lightcone_cartesian_no_table.dat`, the result without the table, and its twin
-`.mps.dat`; and `output/reconstructed_catalogue_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_real_space_catalog`; their columns
-and keywords are on the [file formats](formats.md) page.
-
-::::{tab-set}
-:sync-group: lang
-
-:::{tab-item} Python
-:sync: python
-
-```{literalinclude} ../examples/lightcone_cartesian/lightcone_cartesian.py
-:language: python
-```
-:::
-
-:::{tab-item} C++
-:sync: cpp
-
-```{literalinclude} ../examples/lightcone_cartesian/lightcone_cartesian.cpp
 :language: cpp
 ```
 :::
