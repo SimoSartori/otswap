@@ -23,7 +23,8 @@ jobs:
           python-version: "3.12"
 
       # The version lives in pyproject.toml and in CMakeLists.txt; on a tag
-      # push the tag must name it too.
+      # push the tag must name it too, and the changelog must carry the
+      # release date.
       - name: The versions agree
         run: |
           version=$(python -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
@@ -32,10 +33,31 @@ jobs:
             echo "pyproject.toml says $version and CMakeLists.txt $cmake_version"
             exit 1
           fi
-          if [ "$GITHUB_EVENT_NAME" = push ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
-            echo "tag $GITHUB_REF_NAME does not match version $version"
-            exit 1
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+              echo "tag $GITHUB_REF_NAME does not match version $version"
+              exit 1
+            fi
+            if ! grep -qE "^## $version — [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md; then
+              echo "CHANGELOG.md has no heading '## $version — YYYY-MM-DD' with a date"
+              exit 1
+            fi
           fi
+
+      # PyPI rejects an upload with an unknown classifier, and nothing else in
+      # the build notices one. A pyproject.toml without classifiers passes.
+      - name: The classifiers are valid
+        run: |
+          pip install trove-classifiers
+          python - <<'PY'
+          import pathlib, tomllib
+          from trove_classifiers import classifiers
+          used = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"].get("classifiers", [])
+          bad = [c for c in used if c not in classifiers]
+          print(len(used), "classifiers;", len(bad), "not valid")
+          if bad:
+              raise SystemExit(f"not valid trove classifiers: {bad}")
+          PY
 
       - name: Build
         run: pipx run build --sdist

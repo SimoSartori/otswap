@@ -1,12 +1,13 @@
 name: Docs
 
-# Builds the documentation on every push and pull request, so a broken
+# Builds the documentation on every push to main and every pull request, so a broken
 # reference or a malformed docstring fails here and not silently. Publishing to
 # Pages happens only from main. Deliberately separate from release.yml: a docs
 # failure must never stand between a tag and PyPI.
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
