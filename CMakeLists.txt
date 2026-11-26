@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(otswap VERSION 0.3.0 LANGUAGES C CXX)
+project(otswap VERSION 0.4.0 LANGUAGES C CXX)
 
 # PROJECT_IS_TOP_LEVEL needs CMake 3.21; this is the 3.16 equivalent, true
 # for a standalone build and false under add_subdirectory or FetchContent.
@@ -413,7 +413,7 @@ endif()
 # ---------------------------------------------------------------------------
 # Install and export
 #
-# find_package(otswap 0.3 CONFIG) then otswap::otswap. The archive holds
+# find_package(otswap 0.4 CONFIG) then otswap::otswap. The archive holds
 # fdlibm's objects; its other dependencies are found again on the consumer's
 # machine by otswapConfig.cmake: meshsearch 0.3 or a later 0.3.x,
 # cfitsio through the FindCFITSIO.cmake installed beside it, and OpenMP when

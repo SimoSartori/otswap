@@ -81,7 +81,7 @@ in a system path. The options:
 ### Using it from CMake
 
 ```cmake
-find_package(otswap 0.3 CONFIG REQUIRED)
+find_package(otswap 0.4 CONFIG REQUIRED)
 target_link_libraries(your_target PRIVATE otswap::otswap)
 ```
 

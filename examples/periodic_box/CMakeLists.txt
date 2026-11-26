@@ -14,7 +14,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(otswap_example_periodic_box LANGUAGES CXX)
 
-find_package(otswap 0.3 CONFIG REQUIRED)
+find_package(otswap 0.4 CONFIG REQUIRED)
 
 add_executable(periodic_box periodic_box.cpp)
 target_link_libraries(periodic_box PRIVATE otswap::otswap)
