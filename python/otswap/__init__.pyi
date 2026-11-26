@@ -405,6 +405,15 @@ class Result:
         period L, and ``lagrangian`` wrapped into the box."""
 
     @property
+    def cell_side(self) -> Optional[float]:
+        """The cell side of the neighbour grids actually used, in coordinate
+        units: ``config.cell_size`` times the mps (for a lightcone, its
+        representative value) or, in a periodic box, the largest side not
+        above that which divides the shortest side of the box a whole number
+        of times. None for a result not made by a reconstruction. Not written
+        to files."""
+
+    @property
     def box(self) -> Optional["BoxLimits"]:
         """Box: the box of the reconstruction, the ``box`` given to
         ``reconstruct_box`` or, without it, the bounding box of the tracers
@@ -1027,8 +1036,10 @@ def reconstruct_box(
     Error
         From the neighbour search, with a message starting
         ``"meshsearch: "``, if its grid cannot be built: a cell of
-        ``config.cell_size`` mps so small against the extent of the tracers and
-        randoms that the grid would need more cells than it can count.
+        ``config.cell_size`` mps (in a periodic box, reduced to divide the
+        shortest side a whole number of times: see ``Result.cell_side``) so
+        small against the extent of the tracers and randoms that the grid
+        would need more cells than it can count.
 
     Notes
     -----

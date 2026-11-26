@@ -24,7 +24,7 @@
  *  @brief The guarantees of a periodic box: the checks of its limits, the
  *  wrap of tracers and randoms and its counts, a valid permutation with
  *  minimum-image displacements, a cost that never rises, a known optimum
- *  across the faces approached, the wrapped Lagrangian positions, and
+ *  across the faces approached, the wrapped Lagrangian positions, the cell side used, and
  *  results that a seed pins down, whatever the thread count, to recorded
  *  hashes.
  */
@@ -300,6 +300,12 @@ int main ()
       wrapped = wrapped && r.lagrangian[k] == internal::wrap_coordinate(
                              r.tracers[k] + r.meanDisplacement[k], 0., 80.);
     check(wrapped, "lagrangian is tracers + meanDisplacement wrapped into the box");
+
+    const double cells = 80. / r.cellSide;
+    check(r.cellSide <= c.cellSize * r.mps && std::fabs(cells - std::round(cells)) < 1e-9,
+          "cellSide is not above cellSize * mps and divides the shortest side a whole number of times");
+    const Result plain = reconstructBox(tracers, {}, c);
+    check(plain.cellSide == c.cellSize * plain.mps, "a box that is not periodic uses cellSize * mps");
 
     Result edited = r;
     edited.valid[3] = 0;

@@ -20,6 +20,14 @@ with 0.3.
   `randomsWrapped` (`tracers_wrapped`, `randoms_wrapped`), reported at
   Normal as "wrapped <a> of <N> tracers into the periodic box ...".
   `Result.from_arrays` takes `periodic=`.
+- `Result::cellSide` (`Result.cell_side`): the cell side of the neighbour
+  grids actually used, in coordinate units. In a periodic box it can be
+  smaller than `cellSize` times the mps, since the cells divide the shortest
+  side a whole number of times; the error for a grid too large to address
+  covers that reduced side. Not written to files; NaN, None in Python, for a
+  result not made by a reconstruction.
+- Examples `periodic_box` and `lightcone_cartesian`, in C++ and Python, and
+  `examples/executable/periodic_box.ini`; the data `periodic_halos.dat`.
 - Periodic correction of redshift-space distortions: `realSpaceBox`
   (`real_space_box`) of a periodic result finds the neighbours across the
   faces and wraps the corrected coordinate into the box. `neighbourAverage`

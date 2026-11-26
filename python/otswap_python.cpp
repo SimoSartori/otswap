@@ -1480,6 +1480,12 @@ NB_MODULE(_otswap, m)
       }, "Box: the mean particle separation used, in coordinate units; None for a lightcone.")
     .def_prop_ro("periodic", [] (ResultHandle self) { return result_of(self).periodic; },
                  "Box: whether the box was periodic; False for a lightcone.")
+    .def_prop_ro("cell_side", [] (ResultHandle self) -> nb::object {
+        const double side = result_of(self).cellSide;
+        if (std::isnan(side)) return nb::none();
+        return nb::float_(side);
+      }, "The cell side of the neighbour grids actually used, in coordinate units; None for a result not made "
+         "by a reconstruction.")
     .def_prop_ro("box", [] (ResultHandle self) { return box_or_none(result_of(self).box); },
                  "Box: the box of the reconstruction, a copy; None for a lightcone.")
     .def_prop_ro("mps_profile", [] (const otswap::Result& r) -> const otswap::MpsProfile* {

@@ -1055,6 +1055,7 @@ def test_reconstruct_box_periodic(tmp_path, table, capsys):
     config = otswap.Config(n_realizations=2, seed=3, verbosity="silent")
     r = otswap.reconstruct_box(tracers, box=cube, periodic=True, config=config)
     assert r.periodic and not otswap.reconstruct_box(tracers, config=config).periodic
+    assert r.cell_side is not None and 0 < r.cell_side <= config.cell_size * r.mps
     lo, hi = np.array(cube[0]), np.array(cube[1])
     assert (r.tracers >= lo).all() and (r.tracers <= hi).all(), "tracers are wrapped into the box"
     assert not r.outside_box.any() and r.valid.all()

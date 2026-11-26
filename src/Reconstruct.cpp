@@ -467,6 +467,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
   result.outsideBox.assign(nObjects, 0);
   result.config = config;
   result.config.seed = seed;
+  result.cellSide = tracerGrid.get_cellsize();
   result.tracers = tracers;
   if (periodic) {
     result.box = *box;

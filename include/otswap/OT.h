@@ -587,6 +587,14 @@ namespace otswap {
     /// Always false in a lightcone result.
     bool periodic = false;
 
+    /// The cell side of the neighbour grids actually used, in coordinate
+    /// units: config.cellSize times the mean particle separation (for a
+    /// lightcone, its representative value), or, in a periodic box, the
+    /// largest side not above that which divides the shortest side of the
+    /// box a whole number of times. NaN in a result not made by a
+    /// reconstruction (Result::fromArrays, a file). Not written to files.
+    double cellSide = std::numeric_limits<double>::quiet_NaN();
+
     /// Lightcone: the mean particle separation profile measured on the
     /// tracers kept: in redshift for a sky overload of
     /// reconstructLightcone, in distance for a Cartesian one. Empty in a
@@ -857,8 +865,10 @@ namespace otswap {
    *  if no limits are given or a side is not an integer multiple of the
    *  shortest. Also, from
    *  the neighbour search (see Error), if the grid cannot be built: a cell
-   *  of config.cellSize * mps so small against the extent of the tracers
-   *  and randoms that the grid would need more cells than it can count.
+   *  of config.cellSize * mps (in a periodic box, reduced to divide the
+   *  shortest side a whole number of times: see Result::cellSide) so small
+   *  against the extent of the tracers and randoms that the grid would
+   *  need more cells than it can count.
    *
    *  @return the displacement field, one row per tracer given; every entry
    *  of valid is 1 and validRealizations is config.nRealizations, but for
