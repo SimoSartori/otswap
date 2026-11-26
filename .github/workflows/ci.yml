@@ -1,10 +1,13 @@
 name: CI
 
 # Builds and tests the C++ library, the Python module and the CMake package
-# on every push and pull request: with GCC and clang on Linux and with Apple
+# on every push to main and every pull request: with GCC and clang on Linux and with Apple
 # clang on macOS, warnings as errors.
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
@@ -92,13 +95,19 @@ jobs:
       - name: Build and install the module
         run: pip install ".[test]"
 
+      # Run from outside the source tree, so that the installed module is the
+      # one imported.
       - name: Python tests
+        working-directory: ${{ runner.temp }}
         env:
           OTSWAP_CPP_REFERENCE: ${{ github.workspace }}/build/cpp_reference
           OTSWAP_CROSSTEST_DIR: ${{ github.workspace }}/build/crossmodule
         run: >-
-          python -m pytest tests/test_otswap.py tests/test_rsd.py tests/test_determinism.py
-          tests/test_crossmodule.py
+          python -m pytest
+          "$GITHUB_WORKSPACE/tests/test_otswap.py"
+          "$GITHUB_WORKSPACE/tests/test_rsd.py"
+          "$GITHUB_WORKSPACE/tests/test_determinism.py"
+          "$GITHUB_WORKSPACE/tests/test_crossmodule.py"
           -p no:cacheprovider -rs
 
       # The C++ install rules and the executable are off under
