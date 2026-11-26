@@ -1101,8 +1101,8 @@ namespace otswap {
    *  [cut.min, cut.max] are left out of the reconstruction, before
    *  anything else: the randoms are dropped, and the tracers keep their
    *  row, flagged in Result::outsideRedshiftCut. mps(z) is measured on the
-   *  tracers kept, and only their redshifts need lie in the distance
-   *  table. The default cuts nothing.
+   *  tracers kept, and the redshifts of the tracers and randoms kept must
+   *  lie in the distance table. The default cuts nothing.
    *
    *  The counts are recorded in Result::selection and, with a cut that
    *  has a finite bound, reported as config.verbosity says.
@@ -1114,10 +1114,12 @@ namespace otswap {
    *  Also if the profile extrapolates to a mps that is not positive at a
    *  tracer's redshift, if any array is malformed, if fewer than 114
    *  tracers are kept or more than 2^32 - 1 are given, if a declination
-   *  lies outside [-pi/2, pi/2], if the randoms are too few, or if a
-   *  redshift falls outside the distance table. Also if a bound of
-   *  the cut is NaN or min > max, or if too few tracers or randoms remain
-   *  inside it; the message gives the counts kept and dropped. Also, from
+   *  lies outside [-pi/2, pi/2], if the randoms are too few, or if the
+   *  redshift of a tracer or random kept falls outside the distance table
+   *  (the message names which, and its row in the array given). Also if
+   *  a bound of the cut is NaN or min > max, or if too few tracers or
+   *  randoms remain inside it; the message gives the counts kept and
+   *  dropped. Also, from
    *  the neighbour search (see Error), if the grid cannot be built: a cell
    *  of config.cellSize mean particle separations so small against the
    *  extent of the tracers and randoms that the grid would need more cells

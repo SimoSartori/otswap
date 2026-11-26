@@ -1155,8 +1155,9 @@ def reconstruct_lightcone(
         are left out of the reconstruction, before anything else: the
         randoms are dropped, and the tracers keep their row, flagged in
         ``Result.outside_redshift_cut``. mps(z) is measured on the tracers
-        kept, and only their redshifts need lie in the distance table.
-        None, the default, and ``RedshiftCut()`` cut nothing.
+        kept, and the redshifts of the tracers and randoms kept must lie in
+        the distance table. None, the default, and ``RedshiftCut()`` cut
+        nothing.
     config : Config, optional
         Every field; ``reject_crossings`` and
         ``max_unobserved_pixels_crossed`` are read only with a mask.
@@ -1177,9 +1178,10 @@ def reconstruct_lightcone(
     ------
     Error
         If an array is not of shape (N, 3), if a declination is out of
-        range, or a redshift falls outside the distance table; if the
-        randoms are too few; if both or neither of ``sky_area_deg2`` and
-        ``mask`` are given.
+        range, or if the redshift of a tracer or random kept falls outside
+        the distance table (the message names which, and its row from 0 in
+        the array given); if the randoms are too few; if both or neither of
+        ``sky_area_deg2`` and ``mask`` are given.
     Error
         If a bound of the cut is NaN or its minimum exceeds its maximum, or
         if too few tracers or randoms remain inside the cut and the mask;

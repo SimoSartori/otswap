@@ -240,12 +240,13 @@ example, `full_recons_box` or `full_recons_lightcone` (see
 [examples](examples.md)), byte for byte. The third, also run from the
 repository root, reconstructs and corrects the lightcone example given in
 Cartesian coordinates: its tracers and randoms converted with the example's
-cosmology, in `examples/data/`; it writes the files of the
-`lightcone_cartesian` example. The fourth reconstructs the halos of the
-`periodic_box` example in their periodic box, and writes its mean
-displacement. Every key that applies to the run is
-set, those at their default included, and those without a default as
-`key =`.
+cosmology, in `examples/data/`, with its cut on the distance; it writes the
+mean displacement, its twin files and the corrected catalogue of the
+`lightcone_cartesian` example, byte for byte, under the executable's file
+names. The fourth reconstructs the halos of the `periodic_box` example in
+their periodic box, and writes its mean displacement. Every key that applies
+to the run is set, those at their default included, and those without a
+default as `key =`.
 
 ::::{tab-set}
 

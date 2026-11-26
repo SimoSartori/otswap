@@ -8,16 +8,18 @@
 
 """This example explains how to reconstruct a survey catalogue that is given
 in comoving Cartesian coordinates, with the observer at the origin, instead
-of right ascension, declination and redshift. It is the lightcone and
-full_recons_lightcone examples on the same tracers and randoms, converted to
-Cartesian coordinates with the same cosmology.
+of right ascension, declination and redshift. Its tracers and randoms are
+those of the lightcone and full_recons_lightcone examples, converted to
+Cartesian coordinates with the same cosmology, and it does what both do: the
+reconstruction, here with a cut on the distance, then the correction.
 
 Without redshifts the mean particle separation is measured as a function of
 the comoving distance from the origin, in uniform distance bins, and the mask
 and the optional distance cut act on the angles and the distance of each
 object. The distance table is optional for the reconstruction, and only fills
 the redshifts of the result; it is needed here for the growth rate of the
-correction.
+correction. The example runs the reconstruction a second time without it, to
+show that nothing else changes.
 
 Usage: python lightcone_cartesian.py [data_dir]. The catalogues are read from
 data_dir, by default the examples' data folder; the output is written to the
@@ -86,18 +88,47 @@ def main():
     # 1e-3 (the guide's section "Choosing the parameters").
     #
     # The mean particle separation is measured in 30 distance bins of equal
-    # width, each with enough tracers. A cut on the comoving distance, the
-    # keyword distance_cut, a (d_min, d_max) pair, would leave out the
-    # objects outside it; the default cuts nothing. angle_unit is required:
+    # width, each with enough tracers, over the distances of the tracers
+    # kept.
+    #
+    # distance_cut: tracers and randoms whose comoving distance from the
+    # origin lies outside this closed range, in coordinate units, are left
+    # out of the reconstruction: the randoms are dropped, and the tracers
+    # keep their row, flagged in Result.outside_distance_cut. The catalogue
+    # spans 2126 to 2500 Mpc/h. The default, None, cuts nothing; a
+    # (d_min, d_max) pair is accepted too.
+    #
+    # distances fills the redshifts of the result. angle_unit is required:
     # it is the unit of the angles in the result's sky coordinates
     config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, reject_crossings=True,
                            max_unobserved_pixels_crossed=0, verbosity="normal")
-    result = otswap.reconstruct_lightcone_cartesian(tracers, randoms, mask=mask, n_bins=30,
-                                                    distances=distances, angle_unit="deg", config=config)
+    n_bins = 30
+    distance_cut = otswap.DistanceCut(2200.0, 2450.0)
+    result = otswap.reconstruct_lightcone_cartesian(tracers, randoms, mask=mask, n_bins=n_bins,
+                                                    distances=distances, angle_unit="deg",
+                                                    distance_cut=distance_cut, config=config)
 
-    # The profile is in distance, in Mpc/h
+    # The profile is in distance, in coordinate units (Mpc/h here)
     profile = result.mps_profile
     print(f"mps(d): {len(profile.mps)} nodes, from {profile.mps[0]:g} to {profile.mps[-1]:g} Mpc/h")
+
+    # ----------------------------------------------------------------
+    # ------------ Reconstruct without the distance table ------------
+    # ----------------------------------------------------------------
+
+    # Without a table, distances omitted, the reconstruction does the same
+    # work, from the same seed, and gives the same displacements, valid flags
+    # and profile, bit for bit; only the redshifts of the result are NaN, and
+    # its files hold no distance table. NaN counts as equal to NaN here: the
+    # tracers left out by the cut, and those without a valid realization,
+    # have NaN means
+    without_table = otswap.reconstruct_lightcone_cartesian(tracers, randoms, mask=mask, n_bins=n_bins,
+                                                           angle_unit="deg", distance_cut=distance_cut,
+                                                           config=config)
+    same = (np.array_equal(without_table.displacement, result.displacement, equal_nan=True)
+            and np.array_equal(without_table.valid, result.valid)
+            and np.array_equal(without_table.mps_profile.mps, result.mps_profile.mps))
+    print(f"Without the table: {'the same' if same else 'NOT the same'} displacements, valid flags and profile")
 
     # ---------------------------------------------
     # ------------ Read the bias table ------------
@@ -136,12 +167,16 @@ def main():
     # the lightcone and full_recons_lightcone examples, but the mean file
     # adds the column outsideDistanceCut, and the profile is binned in
     # distance: a column distance and the keywords DISTMIN and DISTMAX, in
-    # coordinate units, instead of the redshift ones. The writers are the
-    # C++ library's, so the files are the C++ example's, byte for byte
+    # coordinate units, instead of the redshift ones. The file of the result
+    # without the table has NaN redshift columns (tracRed, lagrRed) and no
+    # distance table twin. The writers are the C++ library's, so the files
+    # are the C++ example's, byte for byte
     otswap.io.write_displacement_mean(output / "displacement_lightcone_cartesian.dat", result)
+    otswap.io.write_displacement_mean(output / "displacement_lightcone_cartesian_no_table.dat", without_table)
     otswap.io.write_real_space_catalog(output / "reconstructed_catalogue_lightcone_cartesian.dat", catalogue)
 
     print("Written: output/displacement_lightcone_cartesian.dat")
+    print("Written: output/displacement_lightcone_cartesian_no_table.dat")
     print("Written: output/reconstructed_catalogue_lightcone_cartesian.dat")
 
 

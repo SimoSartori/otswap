@@ -43,9 +43,9 @@ def main():
     output = here / "output"
     output.mkdir(parents=True, exist_ok=True)
 
-    # ----------------------------------------------------
+    # ---------------------------------------------------
     # ------------ Read the tracer catalogue ------------
-    # ----------------------------------------------------
+    # ---------------------------------------------------
 
     # Halos of a simulation in a cube of side 1000 Mpc/h, [0, 1000) on each
     # axis, comoving coordinates in Mpc/h; Table.values has shape (N, 3)

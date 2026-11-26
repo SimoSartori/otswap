@@ -52,9 +52,9 @@ int main (int argc, char** argv)
     std::filesystem::create_directories(output);
 
 
-    // ----------------------------------------------------
+    // ---------------------------------------------------
     // ------------ Read the tracer catalogue ------------
-    // ----------------------------------------------------
+    // ---------------------------------------------------
 
     // Halos of a simulation in a cube of side 1000 Mpc/h, [0, 1000) on each
     // axis, comoving coordinates in Mpc/h, x, y, z for each object

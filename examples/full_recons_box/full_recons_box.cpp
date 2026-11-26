@@ -83,10 +83,10 @@ int main (int argc, char** argv)
     // ------------ Run the reconstruction ------------
     // ------------------------------------------------
 
-    // As in the box example: 8 realizations, a convergence threshold of
-    // 1e-2, a fixed seed, and the mean particle separation of the bounding
-    // box of the tracers and randoms, computed by otswap and reported with
-    // Detailed. 8 realizations, which the example randoms are enough for,
+    // As in the box example, but without box limits: 8 realizations, a
+    // convergence threshold of 1e-2, a fixed seed, and the mean particle
+    // separation of the bounding box of the tracers and randoms, computed
+    // by otswap and reported with Detailed. 8 realizations, which the example randoms are enough for,
     // and 1e-2 keep the example fast; for an analysis, start from the
     // defaults, 30 and 1e-3 (the guide's section "Choosing the
     // parameters"). The report goes to std::cout, in order with this
@@ -169,6 +169,35 @@ int main (int argc, char** argv)
     otswap::io::writeRealSpaceCatalog(output + "/reconstructed_catalogue_box.dat", catalogue);
 
     std::cout << "Written: output/reconstructed_catalogue_box.dat" << std::endl;
+
+
+    // -----------------------------------------------------------
+    // ------------ Compare with the real-space halos ------------
+    // -----------------------------------------------------------
+
+    // The file holds the corrected position in the columns tracX, tracY
+    // and tracZ, which io::read finds by name in a file otswap wrote. The
+    // example data give the same halos in real space too, row by row, so
+    // the correction can be checked here, as survey data do not allow:
+    // along the line of sight, the offset of each halo from its real-space
+    // position, before and after the correction
+    const std::vector<double> moved =
+      otswap::io::read(output + "/reconstructed_catalogue_box.dat", {"tracX", "tracY", "tracZ"}).values;
+    const std::vector<double> real = otswap::io::read(data + "/box_halos_real_space.dat", {"0", "1", "2"}).values;
+
+    double before = 0., after = 0.;
+    std::size_t compared = 0;
+    for (std::size_t i = 0; i < nTracers; ++i) {
+      if (std::isnan(moved[3*i+axis])) continue;
+      ++compared;
+      const double inRedshiftSpace = tracers[3*i+axis] - real[3*i+axis];
+      const double inRealSpace = moved[3*i+axis] - real[3*i+axis];
+      before += inRedshiftSpace * inRedshiftSpace;
+      after += inRealSpace * inRealSpace;
+    }
+    std::cout << "rms offset from the real-space position along the line of sight, over " << compared
+              << " halos: " << std::sqrt(before / (double)compared) << " Mpc/h before the correction, "
+              << std::sqrt(after / (double)compared) << " Mpc/h after" << std::endl;
 
   }
 

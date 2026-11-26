@@ -619,6 +619,37 @@ int main ()
       reconstructLightcone(sky, randomSky, skyAreaDeg2, nBins, narrow, c);
     }, "redshifts outside the distance table raise");
 
+    group("a redshift outside the distance table names the tracer or random and its row in the input array");
+    {
+      // The cut drops the first 80 tracers and the first 10 randoms, so a
+      // row counted after the selection would differ from the input row.
+      const RedshiftCut cut {0.52, 2.};
+      std::vector<double> randoms = randomSky;
+      randoms.insert(randoms.end(), randomSky.begin(), randomSky.end());
+      for (std::size_t i = 0; i < 10; ++i) randoms[3*i+2] = 0.3;
+      const std::string range = " is outside the tabulated range [" + std::to_string(0.) + ", " +
+                                std::to_string(1.5) + "]; the redshifts of the tracers and randoms kept "
+                                "must lie in the distance table";
+
+      std::vector<double> farRandoms = randoms;
+      farRandoms[3*20+2] = 1.6;
+      throws_with([&] {
+        reconstructLightcone(sky, farRandoms, skyAreaDeg2, nBins, distances, c, cut);
+      }, "the random in row 20 (from 0) of the random sky array: the redshift " + std::to_string(1.6) + range,
+         "a random beyond the table, after dropped rows");
+
+      std::vector<double> farTracers = sky;
+      farTracers[3*1500+2] = 1.6;
+      throws_with([&] {
+        reconstructLightcone(farTracers, randoms, skyAreaDeg2, nBins, distances, c, cut);
+      }, "the tracer in row 1500 (from 0) of the tracer sky array: the redshift " + std::to_string(1.6) + range,
+         "a tracer beyond the table, after dropped rows");
+      throws_with([&] {
+        measureMpsProfile(farTracers, skyAreaDeg2, nBins, distances, cut);
+      }, "the tracer in row 1500 (from 0) of the tracer sky array: the redshift " + std::to_string(1.6) + range,
+         "measureMpsProfile gives the same message");
+    }
+
     group("an error of the neighbour search reaches the caller of every lightcone overload as an Error");
     Config fine = c;
     fine.cellSize = 1.e-12;

@@ -7,7 +7,10 @@
 # table the executable checks a file against. The switches are read from
 # the file as the executable reads them: geometry, perform_recons (default
 # false), random_file set to a value, reject_mask_crossings (default true), lightcone_input (default sky).
-# A key set with no value, "key =", counts as set.
+# A key set with no value, "key =", counts as set. A Cartesian lightcone
+# without perform_recons takes its cosmology in full or not at all, as the
+# executable does: with none of Omega_matter, little_h, w0 and wa set, none
+# of them applies.
 
 cmake_minimum_required(VERSION 3.16)
 
@@ -63,6 +66,18 @@ if ("${value_reject_mask_crossings}" STREQUAL "false")
   set(rejectCrossings OFF)
 endif()
 
+set(cosmologyKeys Omega_matter little_h w0 wa)
+set(noCosmology OFF)
+if (geometry STREQUAL "lightcone" AND cartesian AND NOT performRecons)
+  set(noCosmology ON)
+  foreach (key ${cosmologyKeys})
+    list(FIND present ${key} at)
+    if (NOT at EQUAL -1)
+      set(noCosmology OFF)
+    endif()
+  endforeach()
+endif()
+
 set(errors "")
 foreach (key ${keys})
   set(applies ${${geometry}_${key}})
@@ -83,6 +98,10 @@ foreach (key ${keys})
     endif()
   elseif (applies STREQUAL "CartesianInput")
     set(applied ${cartesian})
+  endif()
+  list(FIND cosmologyKeys ${key} cosmologyKey)
+  if (noCosmology AND NOT cosmologyKey EQUAL -1)
+    set(applied OFF)
   endif()
   list(FIND present ${key} at)
   if (applied AND at EQUAL -1)

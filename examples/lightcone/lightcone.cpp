@@ -18,6 +18,10 @@
   observed position) to that random (the Lagrangian position).
   Independent realizations are then averaged.
 
+  The example first measures the mean particle separation alone, the
+  quick way to choose its redshift bins, and at the end reads the file
+  it wrote back.
+
   The randoms carry the survey's geometry and selection function, which
   otswap does not model: use the survey's own random catalogue.
 
@@ -26,6 +30,7 @@
   folder output/ next to this file, created if missing.
 */
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -112,8 +117,9 @@ int main (int argc, char** argv)
     // Independent realizations. Each one consumes as many randoms as there
     // are tracers, disjoint from those of the others, so the randoms kept
     // must number at least nRealizations times the tracers kept. The
-    // catalogue read here holds 242,548 randoms for 29,579 tracers, all
-    // kept by the mask and the redshift cut: enough for 8 realizations
+    // redshift cut below keeps 202,184 of the 242,548 randoms and 24,708 of
+    // the 29,579 tracers (the mask keeps them all): enough for 8
+    // realizations
     config.nRealizations = 8;
 
     // The sweeps stop once the fraction of successful swaps in a sweep,
@@ -152,14 +158,47 @@ int main (int argc, char** argv)
     config.log = &std::cout;
 
     // The mean particle separation is measured in nBins redshift bins of
-    // equal width. Each bin needs at least 278 tracers: if one is refused,
-    // the message says how many bins the catalogue supports
+    // equal width, over the redshifts of the tracers kept. Each bin needs
+    // at least 278 tracers: if one is refused, the message gives an upper
+    // bound on the number of bins the catalogue supports
     const unsigned nBins = 30;
 
-    // Tracers and randoms outside this redshift range are left out of the
-    // reconstruction. The range here spans the whole catalogue: narrow it
-    // to reconstruct a slice. The default, {}, cuts nothing
-    const otswap::RedshiftCut cut {0.885, 1.10};
+    // Tracers and randoms outside this closed redshift range are left out
+    // of the reconstruction; the catalogue spans 0.885 to 1.10, and this
+    // range reconstructs a slice of it. The default, {}, cuts nothing
+    const otswap::RedshiftCut cut {0.90, 1.08};
+
+
+    // --------------------------------------------------------------
+    // ------------ Measure the mean particle separation ------------
+    // --------------------------------------------------------------
+
+    // measureMpsProfile measures mps(z) from the tracers alone, as the
+    // reconstruction does, from the same mask, bins, table and cut, and in
+    // a fraction of its time: the profile is Result::mpsProfile of the
+    // reconstruction below, bit for bit. Use it to choose nBins before a
+    // reconstruction. It reports the tracers the cut and the mask left out
+    const otswap::MpsProfile profile =
+      otswap::measureMpsProfile(tracersSky, mask, nBins, distances, cut, otswap::Verbosity::Normal, &std::cout);
+
+    std::cout << "mps(z): " << profile.mps.size() << " bins from z = " << profile.redshiftMin << " to "
+              << profile.redshiftMax << ", mps from " << *std::min_element(profile.mps.begin(), profile.mps.end())
+              << " to " << *std::max_element(profile.mps.begin(), profile.mps.end()) << " Mpc/h" << std::endl;
+
+    // Without a mask, the overloads that take the sky area, in square
+    // degrees, leave out no object on the sky and filter no crossing: the
+    // catalogues must then lie within the footprint already. These do, so
+    // with the mask's area the profile is the same
+    const otswap::MpsProfile fromArea =
+      otswap::measureMpsProfile(tracersSky, mask.skyAreaDeg2(), nBins, distances, cut, otswap::Verbosity::Silent);
+
+    std::cout << "The same profile from the sky area: " << (fromArea.mps == profile.mps ? "yes" : "no") << std::endl;
+
+    // One row per bin: its centre, its mps and its number of tracers, with
+    // the range and the representative mps as keywords
+    otswap::io::writeMpsProfile(output + "/mps_lightcone.dat", profile);
+
+    std::cout << "Written: output/mps_lightcone.dat" << std::endl;
 
 
     // ------------------------------------------------
@@ -222,13 +261,32 @@ int main (int argc, char** argv)
     // io::readDisplacementMean reads the file back whole. A tracer left
     // out, or without a valid realization, has NaN Lagrangian coordinates
     // and displacement. io::writeDisplacementComplete writes every
-    // realization instead, losslessly, and io::readDisplacementComplete
-    // reads it back
+    // realization instead, losslessly (see the box example)
     otswap::io::writeDisplacementMean(output + "/displacement_lightcone.dat", result);
 
     std::cout << "Written: output/displacement_lightcone.dat, "
                  "output/displacement_lightcone.mps.dat and "
                  "output/displacement_lightcone.distances.dat" << std::endl;
+
+
+    // --------------------------------------------
+    // ------------ Read the file back ------------
+    // --------------------------------------------
+
+    // readDisplacementMean reads the file and its twins into a Result whose
+    // only realization is the mean, with nRealizationsMean the number of
+    // realizations averaged, the profile and the distance table: the values
+    // as written, with 9 significant digits in ASCII, exactly in FITS
+    const otswap::Result readBack = otswap::io::readDisplacementMean(output + "/displacement_lightcone.dat");
+
+    double largest = 0.;
+    for (std::size_t k = 0; k < 3 * nTracers; ++k)
+      if (!std::isnan(result.meanDisplacement[k]))
+        largest = std::max(largest, std::fabs(readBack.meanDisplacement[k] - result.meanDisplacement[k]));
+    std::cout << "Read back: the mean of " << readBack.nRealizationsMean << " realizations, a profile of "
+              << readBack.mpsProfile.mps.size() << " bins, a distance table from z = "
+              << readBack.distances->minRedshift() << " to " << readBack.distances->maxRedshift()
+              << "; largest difference from the mean written: " << largest << " Mpc/h" << std::endl;
 
   }
 

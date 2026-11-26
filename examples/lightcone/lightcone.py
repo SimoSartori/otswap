@@ -17,6 +17,10 @@ displacement points from the tracer (the Eulerian, observed position) to
 that random (the Lagrangian position). Independent realizations are then
 averaged.
 
+The example first measures the mean particle separation alone, the quick
+way to choose its redshift bins, and at the end reads the file it wrote
+back.
+
 The randoms carry the survey's geometry and selection function, which
 otswap does not model: use the survey's own random catalogue.
 
@@ -95,9 +99,9 @@ def main():
     # n_realizations: independent realizations. Each one consumes as many
     # randoms as there are tracers, disjoint from those of the others, so
     # the randoms kept must number at least n_realizations times the
-    # tracers kept. The catalogue read here holds 242,548 randoms for 29,579
-    # tracers, all kept by the mask and the redshift cut: enough for 8
-    # realizations.
+    # tracers kept. The redshift cut below keeps 202,184 of the 242,548
+    # randoms and 24,708 of the 29,579 tracers (the mask keeps them all):
+    # enough for 8 realizations.
     #
     # convergence: the sweeps stop once the fraction of successful swaps in a
     # sweep, swaps per tracer visited, no longer exceeds this threshold.
@@ -128,17 +132,49 @@ def main():
     # nothing; the counts stay in result.selection either way.
     #
     # n_bins: the mean particle separation is measured in n_bins redshift
-    # bins of equal width. Each bin needs at least 278 tracers: if one is
-    # refused, the message says how many bins the catalogue supports.
+    # bins of equal width, over the redshifts of the tracers kept. Each bin
+    # needs at least 278 tracers: if one is refused, the message gives an
+    # upper bound on the number of bins the catalogue supports.
     #
-    # redshift_cut: tracers and randoms outside this redshift range are left
-    # out of the reconstruction. The range here spans the whole catalogue:
-    # narrow it to reconstruct a slice. The default, None, cuts nothing; a
-    # (min, max) pair is accepted too
+    # redshift_cut: tracers and randoms outside this closed redshift range
+    # are left out of the reconstruction; the catalogue spans 0.885 to 1.10,
+    # and this range reconstructs a slice of it. The default, None, cuts
+    # nothing; a (min, max) pair is accepted too
     config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, cell_size=3.0,
                            reject_crossings=True, max_unobserved_pixels_crossed=0, verbosity="normal")
     n_bins = 30
-    redshift_cut = otswap.RedshiftCut(0.885, 1.10)
+    redshift_cut = otswap.RedshiftCut(0.90, 1.08)
+
+    # --------------------------------------------------------------
+    # ------------ Measure the mean particle separation ------------
+    # --------------------------------------------------------------
+
+    # measure_mps_profile measures mps(z) from the tracers alone, as the
+    # reconstruction does, from the same mask, bins, table and cut, and in a
+    # fraction of its time: the profile is Result.mps_profile of the
+    # reconstruction below, bit for bit. Use it to choose n_bins before a
+    # reconstruction. It reports the tracers the cut and the mask left out
+    profile = otswap.measure_mps_profile(tracers_sky, mask=mask, n_bins=n_bins, distances=distances,
+                                         redshift_cut=redshift_cut, angle_unit="deg")
+
+    print(f"mps(z): {len(profile.mps)} bins from z = {profile.redshift_min:g} to {profile.redshift_max:g}, "
+          f"mps from {profile.mps.min():g} to {profile.mps.max():g} Mpc/h")
+
+    # Without a mask, the keyword sky_area_deg2 gives the sky area, in square
+    # degrees: no object is then left out on the sky and no crossing is
+    # filtered, so the catalogues must lie within the footprint already.
+    # These do, so with the mask's area the profile is the same
+    from_area = otswap.measure_mps_profile(tracers_sky, sky_area_deg2=mask.sky_area_deg2, n_bins=n_bins,
+                                           distances=distances, redshift_cut=redshift_cut, angle_unit="deg",
+                                           verbosity="silent")
+
+    print(f"The same profile from the sky area: {'yes' if np.array_equal(from_area.mps, profile.mps) else 'no'}")
+
+    # One row per bin: its centre, its mps and its number of tracers, with
+    # the range and the representative mps as keywords
+    otswap.io.write_mps_profile(output / "mps_lightcone.dat", profile)
+
+    print("Written: output/mps_lightcone.dat")
 
     # ------------------------------------------------
     # ------------ Run the reconstruction ------------
@@ -191,12 +227,29 @@ def main():
     # coordinates and displacement. The writer is the C++ library's, so the
     # files are the C++ example's, byte for byte.
     # otswap.io.write_displacement_complete writes every realization instead,
-    # losslessly, and otswap.io.read_displacement_complete reads it back
+    # losslessly (see the box example)
     otswap.io.write_displacement_mean(output / "displacement_lightcone.dat", result)
 
     print("Written: output/displacement_lightcone.dat, "
           "output/displacement_lightcone.mps.dat and "
           "output/displacement_lightcone.distances.dat")
+
+    # --------------------------------------------
+    # ------------ Read the file back ------------
+    # --------------------------------------------
+
+    # read_displacement_mean reads the file and its twins into a Result whose
+    # only realization is the mean, with n_realizations_mean the number of
+    # realizations averaged, the profile and the distance table: the values
+    # as written, with 9 significant digits in ASCII, exactly in FITS. The
+    # angles of the Result read are in angle_unit, which is required
+    read_back = otswap.io.read_displacement_mean(output / "displacement_lightcone.dat", angle_unit="deg")
+
+    largest = np.nanmax(np.abs(read_back.mean_displacement - result.mean_displacement))
+    table = read_back.distances
+    print(f"Read back: the mean of {read_back.n_realizations_mean} realizations, a profile of "
+          f"{len(read_back.mps_profile.mps)} bins, a distance table from z = {table.min_redshift:g} to "
+          f"{table.max_redshift:g}; largest difference from the mean written: {largest:g} Mpc/h")
 
 
 if __name__ == "__main__":

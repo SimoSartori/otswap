@@ -70,10 +70,10 @@ def main():
     # ------------ Run the reconstruction ------------
     # ------------------------------------------------
 
-    # As in the box example: 8 realizations, a convergence threshold of
-    # 1e-2, a fixed seed, and the mean particle separation of the bounding
-    # box of the tracers and randoms, computed by otswap and printed with
-    # "detailed". 8 realizations, which the example randoms are enough for,
+    # As in the box example, but without box limits: 8 realizations, a
+    # convergence threshold of 1e-2, a fixed seed, and the mean particle
+    # separation of the bounding box of the tracers and randoms, computed by
+    # otswap and printed with "detailed". 8 realizations, which the example randoms are enough for,
     # and 1e-2 keep the example fast; for an analysis, start from the
     # defaults, 30 and 1e-3 (the guide's section "Choosing the parameters")
     config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, verbosity="detailed")
@@ -131,6 +131,26 @@ def main():
     otswap.io.write_real_space_catalog(output / "reconstructed_catalogue_box.dat", catalogue)
 
     print("Written: output/reconstructed_catalogue_box.dat")
+
+    # -----------------------------------------------------------
+    # ------------ Compare with the real-space halos ------------
+    # -----------------------------------------------------------
+
+    # The file holds the corrected position in the columns tracX, tracY and
+    # tracZ, which otswap.io.read finds by name in a file otswap wrote. The
+    # example data give the same halos in real space too, row by row, so the
+    # correction can be checked here, as survey data do not allow: along the
+    # line of sight, the offset of each halo from its real-space position,
+    # before and after the correction
+    corrected = otswap.io.read(output / "reconstructed_catalogue_box.dat", ["tracX", "tracY", "tracZ"]).values
+    real = otswap.io.read(data / "box_halos_real_space.dat", [0, 1, 2]).values
+
+    kept = ~np.isnan(corrected[:, axis])
+    before = tracers[kept, axis] - real[kept, axis]
+    after = corrected[kept, axis] - real[kept, axis]
+    print(f"rms offset from the real-space position along the line of sight, over {np.count_nonzero(kept)} "
+          f"halos: {np.sqrt(np.mean(before ** 2)):g} Mpc/h before the correction, "
+          f"{np.sqrt(np.mean(after ** 2)):g} Mpc/h after")
 
 
 if __name__ == "__main__":
