@@ -86,8 +86,8 @@ namespace {
     Applies lightcone;
   };
 
-  /// Every key, in the order of docs/executable.md, which is also the
-  /// order of read_run's typed reads, after the switches.
+  /// Every key, in the order of read_run's typed reads, after the
+  /// switches.
   const Key kKeys[] = {
     {"geometry",                      Applies::Always,        Applies::Always},
     {"lightcone_input",               Applies::Never,         Applies::Always},

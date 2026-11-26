@@ -2,7 +2,7 @@
 # Copyright (C) 2026 by Simone Sartori, simone.sartori@inaf.it
 #
 # A package beside otswap that links the OpenMP runtime of otswap's macOS
-# wheel, as "Linking the same OpenMP runtime" (docs/python.rst) tells one to:
+# wheel, as "Linking the same OpenMP runtime" (docs/packages.md) tells one to:
 # OpenMP_ROOT from otswap.openmp_root(), and the rpath of a package installed
 # next to otswap. Built by check.py, which gives Python_EXECUTABLE, the
 # architecture and OUTPUT_DIRECTORY, a directory beside otswap's.

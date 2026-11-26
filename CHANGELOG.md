@@ -14,12 +14,14 @@ with 0.3.
   limits are wrapped into them by whole periods instead of being left out;
   `Result::tracers` holds the wrapped tracers, each displacement is the
   minimum-image vector, in [−L/2, L/2) per axis within rounding, and
-  `lagrangian` is wrapped into the box. A computed mps is that of the volume
-  of the limits and every tracer. `Result::periodic` (`Result.periodic`)
+  `lagrangian` is wrapped into the box. A computed mps is (V/N)^(1/3), V the
+  volume of the limits and N the number of tracers given, all of which are
+  kept. `Result::periodic` (`Result.periodic`)
   records the flag; `SelectionCounts` gains `periodic`, `tracersWrapped` and
   `randomsWrapped` (`tracers_wrapped`, `randoms_wrapped`), reported at
   Normal as "wrapped <a> of <N> tracers into the periodic box ...".
-  `Result.from_arrays` takes `periodic=`.
+  `Result.from_arrays` takes `periodic=` and `box=`; `box=` alone records
+  the limits of a box result that is not periodic.
 - `Result::cellSide` (`Result.cell_side`): the cell side of the neighbour
   grids actually used, in coordinate units. In a periodic box it can be
   smaller than `cellSize` times the mps, since the cells divide the shortest
@@ -83,12 +85,12 @@ with 0.3.
 
 ### Changed
 
-- **Breaking:** requires meshsearch 0.3.0 or a later 0.3.x, was 0.2.1 or a
+- **Breaking (CMake):** requires meshsearch 0.3.0 or a later 0.3.x, was 0.2.1 or a
   later 0.2.x; v0.3.0 is fetched when none is installed.
-- **Breaking:** the layouts of `Result`, `SelectionCounts` and `MpsProfile`
+- **Breaking (C++, Python modules sharing the types):** the layouts of `Result`, `SelectionCounts` and `MpsProfile`
   gain the fields above. A nanobind module or a program built against the
   headers of 0.3 must be rebuilt.
-- **Breaking:** the CMake package answers requests for 0.4
+- **Breaking (CMake):** the CMake package answers requests for 0.4
   (`find_package(otswap 0.4 CONFIG)`); a request for 0.3,
   `find_package(otswap 0.3 CONFIG)`, does not find 0.4.0.
 - **Breaking (Python):** `MpsProfile.at` takes `value`, a redshift or a
@@ -103,11 +105,13 @@ with 0.3.
 - `CorrectionStatus::LeftOut` (`LEFT_OUT`) also covers the tracers left out
   by the distance cut.
 - The displacement writers refuse a periodic result whose flags are not
-  consistent (not a box, no limits, a tracer flagged outside the box);
+  consistent (not a box, no limits, a tracer flagged outside the box, or
+  `selection.periodic` different from `periodic`);
   `writeMpsProfile` refuses a profile holding both redshift and distance
   nodes.
 - `writeDisplacementMean` in ASCII rounds the box keywords `BOXXLO` to
-  `BOXZHI` of a box that is not periodic outward to the 9 significant
+  `BOXZHI` of any box that is not periodic, given by limits or taken from
+  the tracers, outward to the 9 significant
   digits of the coordinates, so the tracers as written lie within the
   limits as written. FITS files, periodic boxes and the complete file keep
   the limits exactly. The values of these keywords in ASCII mean files may
@@ -115,13 +119,22 @@ with 0.3.
 - `uniformInt` is defined inline in `otswap/Random.h`; its values are
   unchanged.
 - The error for a redshift outside the distance table names the tracer or
-  random and its row in the input arrays.
+  random and its row in the input arrays. The correction of a Cartesian
+  lightcone result raises, naming the tracer, when its distance lies
+  outside the table, and suggests a table of wider range.
+- The examples `box`, `lightcone`, `full_recons_box` and
+  `full_recons_lightcone` run every feature they present, with
+  `cell_size = 3`: the box example gives the box limits, so its output
+  differs from that of 0.3, keeps every realization in a file with IDs and
+  reads it back; the lightcone example measures the mps profile alone and
+  reads the mean file back. Their parameter files in `examples/executable/`
+  set `periodic` or `lightcone_input`.
 
 ### Removed
 
-- **Breaking:** the overloads of `reconstructLightcone` that took both
-  Cartesian and sky arrays, and the `tracers=` and `randoms=` arguments of
-  Python `reconstruct_lightcone`, which called them. Arrays made with
+- **Breaking (C++, Python):** the overloads of `reconstructLightcone` that
+  took both Cartesian and sky arrays (C++), and the `tracers=` and `randoms=`
+  arguments of Python `reconstruct_lightcone`, which called them. Arrays made with
   `toCartesian` and the same distance table gave the result of the sky
   overload, which takes their place; for Cartesian coordinates without sky
   ones, use the new Cartesian overloads.
