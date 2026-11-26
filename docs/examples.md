@@ -190,19 +190,23 @@ and keywords are on the [file formats](formats.md) page.
 
 ## Periodic box
 
-Reconstructs the displacement field of halos in a cube of a simulation, with
-periodic boundary conditions: the box is given by its limits, every distance
-is the minimum image, and nothing is cut at the faces. No randoms are given:
-otswap draws them in the box. The result reports the cell side of the
-neighbour grids actually used, which in a periodic box divides the shortest
-side.
+Reconstructs the displacement field of halos in redshift space in a cube of a
+simulation, with periodic boundary conditions: the box is given by its
+limits, every distance is the minimum image, and nothing is cut at the
+faces. No randoms are given: otswap draws them in the box. The result
+reports the cell side of the neighbour grids actually used, which in a
+periodic box divides the shortest side. The halos are then corrected to real
+space, with neighbours across the faces and the corrected coordinate wrapped
+into the box, and compared with their real-space positions, which the data
+also give, along the line of sight and by the minimum image.
 
 Reads:
 
 - {repo-file}`examples/data/periodic_halos.dat`
 
-Writes `output/displacement_periodic_box.dat`, with {py:func}`otswap.io.write_displacement_mean`; its columns
-and keywords, those of the periodic box included, are on the [file formats](formats.md) page.
+Writes `output/displacement_periodic_box.dat`, with {py:func}`otswap.io.write_displacement_mean`, and
+`output/reconstructed_catalogue_periodic_box.dat`, with {py:func}`otswap.io.write_real_space_catalog`; their
+columns and keywords, those of the periodic box included, are on the [file formats](formats.md) page.
 
 ::::{tab-set}
 :sync-group: lang
