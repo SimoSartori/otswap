@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 — unreleased
+## 0.4.0 — 2026-11-26
 
 Changes marked **Breaking** require changes to code or builds that worked
 with 0.3.

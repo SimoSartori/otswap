@@ -14,7 +14,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(otswap_example_lightcone_cartesian LANGUAGES CXX)
 
-find_package(otswap 0.3 CONFIG REQUIRED)
+find_package(otswap 0.4 CONFIG REQUIRED)
 
 add_executable(lightcone_cartesian lightcone_cartesian.cpp)
 target_link_libraries(lightcone_cartesian PRIVATE otswap::otswap)
