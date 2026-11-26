@@ -464,6 +464,11 @@ namespace otswap {
      *  mpsProfile is not empty, the table when distances is not null. The
      *  file then carries both, and readDisplacementMean returns them.
      *
+     *  In ASCII the coordinates have 9 significant digits, and the keywords
+     *  BOXXLO to BOXZHI of a non-periodic box are rounded outward to that
+     *  precision, so the tracers as written lie within the limits as
+     *  written; a periodic box and FITS keep the limits exactly.
+     *
      *  @param file the file to write; its extension sets the format.
      *  @param result a box or lightcone result.
      *  @param groups the groups to write, in this order; empty for the
