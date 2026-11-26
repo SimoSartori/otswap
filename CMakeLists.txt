@@ -332,6 +332,7 @@ if (OTSWAP_BUILD_TESTS)
 
     # The shipped parameter files set every key that applies to their run.
     foreach (parameters examples/executable/box examples/executable/lightcone
+                        examples/executable/lightcone_cartesian
                         tests/executable/example_box tests/executable/example_lightcone)
       string(REPLACE "/" "_" parameters_name ${parameters})
       add_test(NAME executable_keys_${parameters_name}

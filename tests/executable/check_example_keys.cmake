@@ -6,7 +6,7 @@
 # The keys, and the runs each applies to, are those of kKeys in APP, the
 # table the executable checks a file against. The switches are read from
 # the file as the executable reads them: geometry, perform_recons (default
-# false), random_file set to a value, reject_mask_crossings (default true).
+# false), random_file set to a value, reject_mask_crossings (default true), lightcone_input (default sky).
 # A key set with no value, "key =", counts as set.
 
 cmake_minimum_required(VERSION 3.16)
@@ -54,6 +54,10 @@ set(randomFile OFF)
 if (NOT "${value_random_file}" STREQUAL "")
   set(randomFile ON)
 endif()
+set(cartesian OFF)
+if ("${value_lightcone_input}" STREQUAL "cartesian")
+  set(cartesian ON)
+endif()
 set(rejectCrossings ON)
 if ("${value_reject_mask_crossings}" STREQUAL "false")
   set(rejectCrossings OFF)
@@ -71,6 +75,14 @@ foreach (key ${keys})
     set(applied ${randomFile})
   elseif (applies STREQUAL "RejectCrossings")
     set(applied ${rejectCrossings})
+  elseif (applies STREQUAL "SkyInput")
+    if (cartesian)
+      set(applied OFF)
+    else()
+      set(applied ON)
+    endif()
+  elseif (applies STREQUAL "CartesianInput")
+    set(applied ${cartesian})
   endif()
   list(FIND present ${key} at)
   if (applied AND at EQUAL -1)

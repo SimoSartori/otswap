@@ -21,15 +21,19 @@ The parameter file has the syntax of {cpp:class}`otswap::io::ParameterFile`,
 described on the [file formats](formats.md#parameter-files) page: one
 `key = value` per line, `#` for comments, double quotes around a value that
 holds spaces. `key =`, with no value, means "none" for the keys whose default
-is none (`id_column`, `random_file` in a box, `z_min`, `z_max`, `box_min`,
+is none (`id_column`, `random_file` in a box, `z_min`, `z_max`, `d_min`, `d_max`, `box_min`,
 `box_max`, `mps`), the same as leaving the key out; any other key needs a
 value. Two commented files, one per geometry, are in
-{repo-tree}`examples/executable`, at the end of this page.
+{repo-tree}`examples/executable`, at the end of this page, with a third for a
+lightcone given in Cartesian coordinates.
 
 ## What it does
 
 One run is one reconstruction, of a box or of a lightcone, on the tracers
-and randoms read from the files given. It writes the files asked for: the
+and randoms read from the files given. A lightcone is given on the sky, as
+right ascension, declination and redshift, or, with `lightcone_input =
+cartesian`, as comoving Cartesian coordinates with the observer at the
+origin. It writes the files asked for: the
 mean displacement of each tracer, every realization, and in a lightcone the
 mean particle separation profile. With `perform_recons = true` it then moves
 the tracers to real space, as {cpp:func}`otswap::realSpaceBox` or
@@ -86,8 +90,9 @@ A key that is not listed here is an error (`unknown key`), and so is a key
 that does not apply to the run (`does not apply to a box`, `to a lightcone`,
 or `to a run without <switch>`): an applies-to column below marks with *B*
 the keys of a box, with *L* those of a lightcone, and with a switch those
-that apply only when it is on: `perform_recons = true`, `random_file` set, or
-`reject_mask_crossings = true`. A key that is not required and not set takes
+that apply only when it is on: `perform_recons = true`, `random_file` set,
+`reject_mask_crossings = true`, or, for a lightcone, `lightcone_input = sky`
+or `cartesian`. A key that is not required and not set takes
 its default, which is the library's where there is one; a key with no
 library default is required in the runs it applies to.
 
@@ -96,6 +101,7 @@ library default is required in the runs it applies to.
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
 | `geometry` | string | required | B, L | `box` or `lightcone` |
+| `lightcone_input` | string | `sky` | L | `sky` or `cartesian`: the coordinates of the tracers and randoms of a lightcone |
 | `verbosity` | string | `normal` | B, L | `silent`, `normal` or `detailed`: what the reconstruction and the correction report |
 
 ### Input
@@ -103,11 +109,11 @@ library default is required in the runs it applies to.
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
 | `tracer_file` | string | required | B, L | the tracers, ASCII or FITS by the extension |
-| `column_tracer` | 3 strings | required | B, L | box: x, y, z, in the coordinate units of the file; lightcone: right ascension, declination, redshift. Each an index from 0, or a column name |
+| `column_tracer` | 3 strings | required | B, L | box, or lightcone with `lightcone_input = cartesian`: x, y, z, in the coordinate units of the file; lightcone on the sky: right ascension, declination, redshift. Each an index from 0, or a column name |
 | `id_column` | string | none, no IDs | B, L | an integer column of the tracer file, read exactly as the tracers' IDs; it must not be one of `column_tracer`, and no ID may appear twice |
 | `random_file` | string | box: none, the randoms are drawn uniformly in the box of `box_min` and `box_max`, or without it in the bounding box of the tracers; lightcone: required | B, L | the randoms, as `tracer_file` |
 | `column_random` | 3 strings | required | B with `random_file`, L | as `column_tracer` |
-| `units` | string | required | L | `degrees` or `radians`: the angles of tracers and randoms |
+| `units` | string | required | L with `lightcone_input = sky` | `degrees` or `radians`: the angles of tracers and randoms |
 | `delimiter` | character | `" "` | B, L | the column separator of every ASCII input, the bias file included; `" "` for a space, `\t` for a tab |
 | `comment` | character | `#` | B, L | the character that starts a comment line in the same files |
 
@@ -119,23 +125,34 @@ change nothing, so a parameter file stays valid when an input changes format.
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
 | `veto_mask_filename` | string | required | L | the HEALPix FITS map of the observed sky; it also gives the sky area |
-| `z_min` | double | none | L | the lower bound of the redshift cut, applied to tracers and randoms |
-| `z_max` | double | none | L | the upper bound; not below `z_min` |
+| `z_min` | double | none | L with `lightcone_input = sky` | the lower bound of the redshift cut, applied to tracers and randoms |
+| `z_max` | double | none | L with `lightcone_input = sky` | the upper bound; not below `z_min` |
+| `d_min` | double | none | L with `lightcone_input = cartesian` | the lower bound of the cut on the comoving distance from the origin, in coordinate units, applied to tracers and randoms |
+| `d_max` | double | none | L with `lightcone_input = cartesian` | the upper bound; not below `d_min` |
 
 ### Cosmology
 
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
-| `Omega_matter` | double | required | L, B with `perform_recons` | Ω_m of a flat w0-wa cosmology, in (0, 1] |
-| `little_h` | double | required | L, B with `perform_recons` | H0 / (100 km/s/Mpc), positive |
-| `w0` | double | -1 | L, B with `perform_recons` | w(a) = w0 + wa (1 - a) |
-| `wa` | double | 0 | L, B with `perform_recons` | |
+| `Omega_matter` | double | required | L, B with `perform_recons`; optional with `lightcone_input = cartesian` unless `perform_recons` | Ω_m of a flat w0-wa cosmology, in (0, 1] |
+| `little_h` | double | required | L, B with `perform_recons`; optional as `Omega_matter` | H0 / (100 km/s/Mpc), positive |
+| `w0` | double | -1 | L, B with `perform_recons`; only with `Omega_matter` and `little_h` | w(a) = w0 + wa (1 - a) |
+| `wa` | double | 0 | L, B with `perform_recons`; as `w0` | |
 
 The cosmology gives a {cpp:class}`otswap::DistanceTable` over redshifts 0
 to 10. In a lightcone it turns redshifts into distances; in a box it is used
 only for the growth rate at `redshift`, so a box without `perform_recons`
 takes none of these keys. A lightcone beyond redshift 10 fails with the
 library's message.
+
+A lightcone with `lightcone_input = cartesian` needs no cosmology to be
+reconstructed: the reconstruction uses distances only. Giving `Omega_matter`
+and `little_h`, both or neither, builds the table, which then fills the
+redshift of each tracer, written in the displacement files with the table
+itself; without it the redshifts are NaN. The cosmology is required with
+`perform_recons`, whose correction needs the growth rate f(z) and the bias
+b(z) at the tracers' redshifts. The corrected positions of a Cartesian run
+with the table and without it agree to rounding.
 
 ### Reconstruction
 
@@ -145,7 +162,7 @@ library's message.
 | `threshold` | double | 1e-3 | B, L | the convergence threshold of the swap loop, strictly between 0 and 1 |
 | `seed` | unsigned | 0 | B, L | the seed of the random streams; 0 draws one, written in the displacement files |
 | `mesh_cellsize` | double | 3 | B, L | the grid cell size, in mean particle separations, positive; it changes the speed only |
-| `bins` | unsigned | required | L | the redshift bins of the mean particle separation profile, at least 1 |
+| `bins` | unsigned | required | L | the bins of the mean particle separation profile, at least 1: redshift bins on the sky, distance bins with `lightcone_input = cartesian` |
 | `reject_mask_crossings` | bool | true | L | reject a displacement whose path crosses unobserved pixels |
 | `max_unobserved_pixels_crossed` | unsigned | 0 | L with `reject_mask_crossings` | the unobserved pixels in a row a path may cross; 0 rejects at the first |
 | `box_min` | 3 doubles | none | B | the lower x, y, z of the box, in coordinate units; with `box_max` or not at all |
@@ -206,7 +223,9 @@ In ASCII, each displacement file of a lightcone comes with two more files,
 the profile and the distance table a reader needs:
 `displacement_mean_[zspace_]<name>.mps.dat` and
 `displacement_mean_[zspace_]<name>.distances.dat`, and likewise for
-`displacement_complete_`. In FITS they are extensions of the same file.
+`displacement_complete_`; a Cartesian lightcone run without a cosmology has
+no distance table, and so no `.distances` file. In FITS they are extensions of
+the same file.
 With either displacement file the profile is written there, and `printMps`
 writes no `MPS_` file of its own.
 
@@ -217,10 +236,11 @@ over; no other file in `<dir>` is touched.
 
 ## The example parameter files
 
-Both are run from the repository root, and write to
+The first two are run from the repository root, and write to
 `examples/executable/output/` the corrected catalogue of the corresponding
 example, `full_recons_box` or `full_recons_lightcone` (see
-[examples](examples.md)), byte for byte. Every key that applies to the run is
+[examples](examples.md)), byte for byte. The third, for a lightcone in
+Cartesian coordinates, names placeholder files: give it your own catalogues. Every key that applies to the run is
 set, those at their default included, and those without a default as
 `key =`.
 
@@ -236,6 +256,13 @@ set, those at their default included, and those without a default as
 :::{tab-item} Lightcone
 
 ```{literalinclude} ../examples/executable/lightcone.ini
+:language: ini
+```
+:::
+
+:::{tab-item} Lightcone, Cartesian
+
+```{literalinclude} ../examples/executable/lightcone_cartesian.ini
 :language: ini
 ```
 :::
