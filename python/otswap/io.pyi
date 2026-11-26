@@ -704,5 +704,9 @@ def write_real_space_catalog(
 def write_mps_profile(file: Path, profile: MpsProfile) -> None:
     """Write a mean particle separation profile: redshift (the bin centre),
     MPS, nTracers, one row per bin. Keywords: ZMIN, ZMAX, MPSREPR
-    (the representative value). ``MpsProfile.at`` gives the profile
-    anywhere. Raises if the profile is empty or malformed, or as ``write``."""
+    (the representative value). A profile in distance has the column
+    distance (the bin centre, in coordinate units) in place of redshift, and
+    the keywords DISTMIN and DISTMAX in place of ZMIN and ZMAX.
+    ``MpsProfile.at`` gives the profile anywhere. Raises if the profile is
+    empty or malformed, holds both redshift and distance nodes, or as
+    ``write``."""

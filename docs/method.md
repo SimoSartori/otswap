@@ -57,6 +57,15 @@ exact solver. The result is a good assignment, not a certified optimum. The
 cost is fixed to the squared Euclidean distance in three dimensions; otswap is
 not a general optimal transport solver and takes no cost matrix.
 
+## The periodic box
+
+A simulation box with periodic boundary conditions is reconstructed on the
+torus: the distance between two points is the minimum image, the shortest of
+the Euclidean distances between their periodic copies, and the cost is its
+square. Mass can then flow through the faces, so a displacement near one face
+may point to a random near the opposite one; each displacement is the
+minimum-image vector, at most half a period on each axis.
+
 ## Realizations
 
 The reconstruction is repeated on independent sets of $N$ points extracted
@@ -72,7 +81,11 @@ the Lagrangian volume from which the observed object has evolved.
 A survey gives sky coordinates. They are converted to comoving Cartesian
 coordinates with a redshift to distance table. The mean particle separation
 changes with redshift, so otswap measures it from the tracers, in redshift
-bins, and scales the seeding and the search with it.
+bins, and scales the seeding and the search with it. A catalogue already in
+comoving Cartesian coordinates, the observer at the origin, needs no
+cosmology: the mean particle separation is measured in bins of comoving
+distance from the observer, and a cut in distance replaces the cut in
+redshift.
 
 The survey's footprint is a HEALPix mask. Tracers and randoms on unobserved
 pixels are left out, and a displacement whose great-circle arc, from the

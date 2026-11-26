@@ -721,11 +721,13 @@ namespace otswap {
     /**
      *  @brief Write a mean particle separation profile: redshift (the bin
      *  centre), MPS, nTracers (J), one row per bin. Keywords: ZMIN,
-     *  ZMAX, MPSREPR (the representative value). MpsProfile::at gives the
-     *  profile anywhere.
+     *  ZMAX, MPSREPR (the representative value). A profile in distance has
+     *  the column distance (the bin centre, in coordinate units) in place
+     *  of redshift, and the keywords DISTMIN and DISTMAX in place of ZMIN
+     *  and ZMAX. MpsProfile::at gives the profile anywhere.
      *
-     *  @exception Error if the profile is empty or malformed, or as
-     *  io::write.
+     *  @exception Error if the profile is empty or malformed, holds both
+     *  redshift and distance nodes, or as io::write.
      */
     void writeMpsProfile (const std::string& file, const MpsProfile& profile);
 
