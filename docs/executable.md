@@ -239,8 +239,10 @@ over; no other file in `<dir>` is touched.
 The first two are run from the repository root, and write to
 `examples/executable/output/` the corrected catalogue of the corresponding
 example, `full_recons_box` or `full_recons_lightcone` (see
-[examples](examples.md)), byte for byte. The third, for a lightcone in
-Cartesian coordinates, names placeholder files: give it your own catalogues. Every key that applies to the run is
+[examples](examples.md)), byte for byte. The third, also run from the
+repository root, reconstructs and corrects the lightcone example given in
+Cartesian coordinates: its tracers and randoms converted with the example's
+cosmology, in `examples/data/`. Every key that applies to the run is
 set, those at their default included, and those without a default as
 `key =`.
 

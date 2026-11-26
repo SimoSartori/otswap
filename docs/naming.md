@@ -19,12 +19,12 @@ passed as `config=` or `correction=`; a flat
 
 | C++ | Python | Notes |
 |---|---|---|
-| `Config`, its fields | `Config`, `n_realizations`, `convergence`, `seed`, `cell_size`, `reject_crossings`, `max_unobserved_pixels_crossed`, `verbosity` | keyword `config` of `reconstruct_box` and `reconstruct_lightcone`, and of `Result.from_arrays` |
+| `Config`, its fields | `Config`, `n_realizations`, `convergence`, `seed`, `cell_size`, `reject_crossings`, `max_unobserved_pixels_crossed`, `verbosity` | keyword `config` of `reconstruct_box`, `reconstruct_lightcone` and `reconstruct_lightcone_cartesian`, and of `Result.from_arrays` |
 | `CorrectionConfig`, its fields | `CorrectionConfig`, `weight_by_realizations`, `verbosity` | keyword `correction` of `real_space_lightcone` and `real_space_box` |
 | `Verbosity` | `"silent"`, `"normal"`, `"detailed"` | the `verbosity` field; the `verbosity` keyword of `measure_mps_profile` |
 | `Config::log`, `CorrectionConfig::log`, the `log` of `measureMpsProfile` | — | Python prints to `sys.stdout` |
 | `RedshiftCut`, `min`, `max` | `RedshiftCut`, `min`, `max`; keyword `redshift_cut` | also a pair `(min, max)` |
-| `DistanceCut`, `min`, `max` | `DistanceCut`, `min`, `max`; keyword `distance_cut` | also a pair `(min, max)`; with `tracers=` only |
+| `DistanceCut`, `min`, `max` | `DistanceCut`, `min`, `max`; keyword `distance_cut` | also a pair `(min, max)`; of the `_cartesian` functions only |
 | `BoxLimits`, `lower`, `upper` | `BoxLimits`, `lower`, `upper`; keyword `box` | also a pair `((x0, y0, z0), (x1, y1, z1))` |
 | `Geometry` | `"box"`, `"lightcone"` | the `geometry` property |
 | `PixelOrdering` | keyword `nest` of `Mask.from_array` | |
@@ -55,7 +55,7 @@ passed as `config=` or `correction=`; a flat
 
 | C++ | Python | Notes |
 |---|---|---|
-| `reconstructBox`, two overloads | `reconstruct_box` | `mps` omitted to compute it; randoms omitted to draw them; `limits` is `box=` |
+| `reconstructBox`, two overloads | `reconstruct_box` | `mps` omitted to compute it; randoms omitted to draw them; `limits` is `box=`, `periodic` is `periodic=` |
 | `reconstructLightcone`, sky overloads | `reconstruct_lightcone` | `sky_area_deg2=` or `mask=`; `tracers_sky`, `randoms_sky`, `distances` and `angle_unit` required |
 | `reconstructLightcone`, Cartesian overloads | `reconstruct_lightcone_cartesian` | `sky_area_deg2=` or `mask=`; `tracers` and `randoms`; `distances=` optional; `distance_cut=`; `angle_unit` required, for the sky arrays of the result |
 | `measureMpsProfile`, sky overloads | `measure_mps_profile` | `sky_area_deg2=` or `mask=`; `verbosity` an argument, as no `Config` is taken |
@@ -76,11 +76,12 @@ passed as `config=` or `correction=`; a flat
 | — | `Result.from_arrays` | a result from arrays read back from a file |
 | `Result::mps`, NaN in a lightcone | `Result.mps`, None in a lightcone | |
 | `Result::box`, empty in a lightcone | `Result.box`, None in a lightcone | a copy in Python |
+| `Result::periodic` | `Result.periodic` | False in a lightcone |
 | `Result::outsideBox` | `Result.outside_box` | a bool view in Python, as `outside_mask` |
 | `Result::outsideDistanceCut` | `Result.outside_distance_cut` | a bool view in Python, as `outside_mask` |
 | `Result::lagrangianDistance` | `Result.lagrangian_distance` | None in a box |
 | `SelectionCounts::boxLimits` | `SelectionCounts.box_limits` | None when no limits were given |
-| `MpsProfile`, `at` | `MpsProfile`, `at` | Python's `at` takes arrays |
+| `MpsProfile`, `at` | `MpsProfile`, `at` | Python's `at` takes arrays; `value` a redshift or a distance, as the profile |
 | `SelectionCounts`, `message()` | `SelectionCounts`, `repr()` | |
 
 ## Redshift-space correction
@@ -89,7 +90,7 @@ passed as `config=` or `correction=`; a flat
 |---|---|---|
 | `realSpaceLightcone`, `realSpaceBox` | `real_space_lightcone`, `real_space_box` | |
 | `radialProjection`, `axisProjection` | `radial_projection`, `axis_projection` | |
-| `neighbourAverage`, `NeighbourAverage` | `neighbour_average`, `NeighbourAverage` | a struct; a named tuple |
+| `neighbourAverage`, `NeighbourAverage` | `neighbour_average`, `NeighbourAverage` | a struct; a named tuple. The periodic overload is `box=` with `periodic=True` |
 | `rsdFactor`, `rsdFactorBox` | `rsd_factor`, `rsd_factor_box` | |
 | `shiftRadially`, `shiftAlongAxis` | `shift_radially`, `shift_along_axis` | |
 | `BiasTable` | `BiasTable` | Python checks the table when it is built |
@@ -131,7 +132,7 @@ passed as `config=` or `correction=`; a flat
 
 The Python types are the C++ structs themselves, so another nanobind module
 can take and return them, naming the C++ types in its own signatures:
-`Config`, `CorrectionConfig`, `RedshiftCut`, `BoxLimits`, `Mask`,
+`Config`, `CorrectionConfig`, `RedshiftCut`, `DistanceCut`, `BoxLimits`, `Mask`,
 `DistanceTable`, `MpsProfile`, `BiasTable`, `Result` and `RealSpaceCatalog`.
 For example, `double f (const otswap::Result&)` takes an `otswap.Result`, and
 a function returning an `otswap::Config` returns an `otswap.Config`. The
@@ -143,9 +144,10 @@ module binds none of these types itself.
   used: it registers the types. The pairs `(min, max)` and
   `((x0, y0, z0), (x1, y1, z1))` are converted in the other module's
   functions too.
-- The layouts of the structs are part of the interface across 0.3.x: a field
+- The layouts of the structs are part of the interface across 0.4.x: a field
   added in a patch release would break a module built against the older
-  header.
+  header. A module built against the headers of 0.3 must be rebuilt for
+  0.4.
 - A `Config` or `CorrectionConfig` received from Python holds
   `log = &std::clog`; the other module sets it before using it.
 - A `Result` or `RealSpaceCatalog` made by the other module is in radians:

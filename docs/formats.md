@@ -95,6 +95,12 @@ written within that rounding; FITS stores the doubles themselves, and the
 profile and distance table of a lightcone are written with 17 digits in
 both. The complete file is lossless in both formats.
 
+A periodic box and a lightcone given in Cartesian coordinates are written in
+the same files, with what tells them apart: the keyword `PERIODIC` and the
+counts of wrapped objects for the former; for the latter, the distance cut,
+its flag column and a profile in distance, and no distance table when none
+was given. Each writer below lists them.
+
 In Python the groups are strings, the C++ names in snake case
 (`DisplacementGroup::TracerSky` is `"tracer_sky"`).
 

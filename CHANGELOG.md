@@ -1,5 +1,109 @@
 # Changelog
 
+## 0.4.0 — unreleased
+
+Changes marked **Breaking** require changes to code or builds that worked
+with 0.3.
+
+### Added
+
+- Periodic boxes. `reconstructBox` takes `periodic` after the limits
+  (Python `reconstruct_box(..., periodic=True)`), which it then requires;
+  each side must be an integer multiple of the shortest, within a relative
+  1e-12. Distances are minimum-image; tracers and given randoms outside the
+  limits are wrapped into them by whole periods instead of being left out;
+  `Result::tracers` holds the wrapped tracers, each displacement is the
+  minimum-image vector, in [−L/2, L/2) per axis within rounding, and
+  `lagrangian` is wrapped into the box. A computed mps is that of the volume
+  of the limits and every tracer. `Result::periodic` (`Result.periodic`)
+  records the flag; `SelectionCounts` gains `periodic`, `tracersWrapped` and
+  `randomsWrapped` (`tracers_wrapped`, `randoms_wrapped`), reported at
+  Normal as "wrapped <a> of <N> tracers into the periodic box ...".
+  `Result.from_arrays` takes `periodic=`.
+- Periodic correction of redshift-space distortions: `realSpaceBox`
+  (`real_space_box`) of a periodic result finds the neighbours across the
+  faces and wraps the corrected coordinate into the box. `neighbourAverage`
+  gains an overload with the box and the flag (Python `neighbour_average`
+  with `box=` and `periodic=True`). `shiftAlongAxis` still does not wrap.
+- Lightcones in comoving Cartesian coordinates, the observer at the origin,
+  without a cosmology: `reconstructLightcone(tracers, randoms, skyAreaDeg2
+  or mask, nBins, config, distances = nullptr, cut = {})` and the two
+  matching `measureMpsProfile` overloads (Python
+  `reconstruct_lightcone_cartesian`, `measure_mps_profile_cartesian`). The
+  mps is measured in bins of comoving distance from the origin, a profile in
+  distance (`MpsProfile::distance`, `distanceMin`, `distanceMax`); the mask
+  is applied on the angles of `pointToSky`. The optional distance table
+  plays no part in the reconstruction: it fills the redshifts of
+  `tracersSky` and `lagrangianSky`, NaN without it, and is kept in the
+  result. `Result::lagrangianDistance` (`lagrangian_distance`) holds the
+  distance of each mean Lagrangian position.
+- `DistanceCut` (Python `DistanceCut`, keyword `distance_cut`, or a pair
+  `(min, max)`), the cut in comoving distance of the Cartesian overloads.
+  Tracers outside it keep their row, flagged in `Result::outsideDistanceCut`
+  (`outside_distance_cut`); `SelectionCounts` gains `distanceCut`,
+  `tracersOutsideDistanceCut` and `randomsOutsideDistanceCut`.
+  `Result.from_arrays` takes `outside_distance_cut=`.
+- `realSpaceLightcone` (`real_space_lightcone`) corrects the result of a
+  Cartesian overload: a tracer's redshift is read from `tracersSky` when it
+  is not NaN, and otherwise derived from its distance with the distance
+  table given. Results of the sky overloads are unchanged.
+- `pointToSky` (Python `point_to_sky`): the distance, right ascension and
+  declination of a Cartesian point, without a distance table; the geometric
+  part of `toSky`, bit for bit.
+- Files. The displacement files write `PERIODIC = 1` for a periodic box,
+  with the box keywords at full precision in ASCII too, and the counts
+  `NTRWRAP` and `NRNWRAP`; for a lightcone given in Cartesian coordinates,
+  the column `outsideDistanceCut` (in the `Selection` group of the mean
+  file and last in the complete file), the keywords `DCUTMIN`, `DCUTMAX`,
+  `NTRDCUT` and `NRNDCUT`, and a profile in distance: the column `distance`
+  in place of `redshift`, the keywords `DISTMIN` and `DISTMAX` in place of
+  `ZMIN` and `ZMAX`, also in `writeMpsProfile`. Without a distance table no
+  `DISTANCE` part is written. The readers read all of these back, and the
+  files of otswap 0.3 as before.
+- The executable takes four new keys, 45 in all: `periodic` for a box,
+  `lightcone_input` (`sky` or `cartesian`) for a lightcone, and `d_min`,
+  `d_max`, the distance cut of a Cartesian lightcone. With
+  `lightcone_input = cartesian` the cosmology is optional unless
+  `perform_recons` is set. `examples/executable/lightcone_cartesian.ini`
+  runs the lightcone example on its catalogues converted to Cartesian
+  coordinates, which `examples/data/` now holds.
+
+### Changed
+
+- **Breaking:** requires meshsearch 0.3.0 or a later 0.3.x, was 0.2.1 or a
+  later 0.2.x; v0.3.0 is fetched when none is installed.
+- **Breaking:** the layouts of `Result`, `SelectionCounts` and `MpsProfile`
+  gain the fields above. A nanobind module or a program built against the
+  headers of 0.3 must be rebuilt.
+- **Breaking:** `MpsProfile::at` takes `value`, a redshift or a distance as
+  the profile is; Python code that called `at(z=...)` must call `at(value)`
+  or `at(value=...)`. It raises when a profile holds both redshift and
+  distance nodes.
+- `Config::cellSize` (`cell_size`) defaults to 3, was 4, and the
+  executable's `mesh_cellsize` with it. The cell size changes the speed
+  only: results are unchanged.
+- `writeDisplacementMean` in ASCII rounds the box keywords `BOXXLO` to
+  `BOXZHI` of a box that is not periodic outward to the 9 significant
+  digits of the coordinates, so the tracers as written lie within the
+  limits as written. FITS files, periodic boxes and the complete file keep
+  the limits exactly. The values of these keywords in ASCII mean files may
+  differ from those of 0.3 in the last digit.
+- `uniformInt` is defined inline in `otswap/Random.h`; its values are
+  unchanged.
+- `tools/wheels/build_deps.sh` downloads zlib from zlib.net, then its
+  fossils directory, then GitHub, with the same SHA-256.
+- The guide states that a `Result` must not be read from one thread while
+  another modifies it in place.
+
+### Removed
+
+- **Breaking:** the overloads of `reconstructLightcone` that took both
+  Cartesian and sky arrays, and the `tracers=` and `randoms=` arguments of
+  Python `reconstruct_lightcone`, which called them. Arrays made with
+  `toCartesian` and the same distance table gave the result of the sky
+  overload, which takes their place; for Cartesian coordinates without sky
+  ones, use the new Cartesian overloads.
+
 ## 0.3.0 — 2026-11-05
 
 ### Added

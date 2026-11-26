@@ -23,10 +23,23 @@ such as a simulation box, rather than inferred from its outermost tracers. The
 result records the box used: the limits, or the bounding box of the tracers and
 the given randoms.
 
-The box is not periodic: nothing flows through its faces, so modes on the
-scale of the box itself cannot be reconstructed, and the displacements are
-least reliable near the faces. A box cut from a periodic simulation is treated
-as a plain sub-volume.
+By default the box is not periodic: nothing flows through its faces, so modes
+on the scale of the box itself cannot be reconstructed, and the displacements
+are least reliable near the faces. A sub-volume cut from a periodic simulation
+is such a box.
+
+The whole volume of a periodic simulation is reconstructed as a periodic box:
+`periodic` (`periodic=True`) with the limits, which are then required. Each
+side must be an integer multiple of the shortest, as in a cube or a
+500 × 500 × 1000 cuboid. Every distance is then the minimum image, and nothing
+is left out: tracers and given randoms outside the limits are wrapped into
+them by whole periods and counted (`tracersWrapped`, `randomsWrapped`), and
+the result holds the wrapped tracers. Each displacement is the minimum-image
+vector, within [−L/2, L/2) on an axis of period L, and the mean Lagrangian
+position is wrapped into the box. The mps, when computed, is that of the
+volume of the limits and every tracer. The redshift-space correction of a
+periodic result finds its neighbours across the faces and wraps the corrected
+positions.
 
 **Lightcone.** Sky coordinates, converted with a
 {cpp:class}`otswap::DistanceTable` ({py:class}`otswap.DistanceTable`), and an
@@ -42,14 +55,30 @@ profile, bit for bit, is available without the randoms and without
 reconstructing, to choose `nBins` beforehand:
 {cpp:func}`otswap::measureMpsProfile`, {py:func}`otswap.measure_mps_profile`.
 
+A lightcone may also be given in comoving Cartesian coordinates, the observer
+at the origin: the Cartesian overloads of `reconstructLightcone` and
+`measureMpsProfile`, {py:func}`otswap.reconstruct_lightcone_cartesian` and
+{py:func}`otswap.measure_mps_profile_cartesian` in Python. They need no
+cosmology. The mps is measured in `nBins` bins of comoving distance from the
+origin, a profile in distance, and a distance cut
+({cpp:struct}`otswap::DistanceCut`, {py:class}`otswap.DistanceCut`) takes the
+place of the redshift cut. The mask is applied on the right ascension and
+declination of each point, {cpp:func}`otswap::pointToSky`
+({py:func}`otswap.point_to_sky`). A distance table may be given: it plays no
+part in the reconstruction, and only fills the redshifts of the result, NaN
+without it. The redshift-space correction needs one, for the growth rate; it
+takes a tracer's redshift from the result, or from its distance when the
+result has none.
+
 ## Coordinates and units
 
 - Cartesian coordinates and every length (the mps, box limits,
   displacements, σ) are in coordinate units: the unit of the tracers given in a
-  box, otswap assuming none; in a lightcone that of the distance table, Mpc/h
-  when it comes from the cosmology constructor, the unit of the table given
-  when it comes from a table. The files otswap writes give lengths no unit
-  for that reason.
+  box or in a lightcone given in Cartesian coordinates, otswap assuming none;
+  in a lightcone given on the sky that of the distance table, Mpc/h when it
+  comes from the cosmology constructor, the unit of the table given when it
+  comes from a table. A table given with Cartesian coordinates must be in
+  their unit. The files otswap writes give lengths no unit for that reason.
 - Sky coordinates are ordered right ascension, declination, redshift.
 - In C++ angles are in radians; {cpp:func}`otswap::skyToRadians` and
   {cpp:func}`otswap::skyToDegrees` convert a sky array. In Python every
@@ -83,12 +112,13 @@ After changing `valid` by hand, {cpp:func}`otswap::recomputeMeans`
 ({py:func}`otswap.recompute_means`) recomputes the fields that follow from it,
 as the reconstruction computes them.
 
-Tracers left out of a lightcone reconstruction, by its redshift cut or its
-mask, keep their row: they are flagged in `outsideRedshiftCut` and
-`outsideMask` (`outside_redshift_cut`, `outside_mask`), with NaN
-displacements and no valid realization. Tracers outside the limits of a box
-are flagged in the same way, in `outsideBox` (`outside_box`). Every output
-keeps one row per input object, in input order.
+Tracers left out of a lightcone reconstruction, by its redshift or distance
+cut or its mask, keep their row: they are flagged in `outsideRedshiftCut`,
+`outsideDistanceCut` and `outsideMask` (`outside_redshift_cut`,
+`outside_distance_cut`, `outside_mask`), with NaN displacements and no valid
+realization. Tracers outside the limits of a box that is not periodic are
+flagged in the same way, in `outsideBox` (`outside_box`). Every output keeps
+one row per input object, in input order.
 
 A mean displacement file read back with {cpp:func}`otswap::io::readDisplacementMean`
 ({py:func}`otswap.io.read_displacement_mean`) gives a result of one
@@ -129,7 +159,11 @@ changes nothing: set the threshold in the call that reconstructs.
 The seed used is `Result::config.seed` in C++, `Result.config.seed` in Python. The
 number of threads follows `OMP_NUM_THREADS`. The reconstructions, the mask
 filter, the redshift-space correction and the table readers and writers of
-`otswap.io` release the GIL while they run.
+`otswap.io` release the GIL while they run. A `Result` must not be read from
+one thread while another modifies it in place, as
+{cpp:func}`otswap::rejectMaskCrossings` and {cpp:func}`otswap::recomputeMeans`
+({py:func}`otswap.reject_mask_crossings`, {py:func}`otswap.recompute_means`)
+do.
 
 ## The parameters that matter
 
@@ -159,7 +193,7 @@ Each call reports, as `verbosity` says ({cpp:enum}`otswap::Verbosity`,
   or of a box, when limits were given, and in C++ the extrapolation of b(z),
   when it happened; then one line per call with its time and what was lost;
 - **detailed:** as normal, with the lines that explain it: the mps of a box
-  and its source, the mps(z) profile of a lightcone, the breakdown of the
+  and its source, the mps profile of a lightcone, the breakdown of the
   corrected and of the uncorrected tracers.
 
 C++ writes to `Config::log`, `std::clog` by default; Python to `sys.stdout`,
