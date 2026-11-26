@@ -12,8 +12,11 @@
   origin, instead of right ascension, declination and redshift. Its
   tracers and randoms are those of the lightcone and
   full_recons_lightcone examples, converted to Cartesian coordinates
-  with the same cosmology, and it does what both do: the
-  reconstruction, here with a cut on the distance, then the correction.
+  with the same cosmology, and it does what both do: it measures the
+  mean particle separation alone, to choose the bins, then runs the
+  reconstruction, here with a cut on the distance, and the correction.
+  It first finds the distance and the direction of each tracer, with
+  pointToSky, which is where the cut and the mask act.
 
   Without redshifts the mean particle separation is measured as a
   function of the comoving distance from the origin, in uniform distance
@@ -30,10 +33,12 @@
   to the folder output/ next to this file, created if missing.
 */
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "otswap/OT.h"
@@ -82,6 +87,45 @@ int main (int argc, char** argv)
     std::cout << "Mask: NSIDE " << mask.nside() << ", " << mask.skyAreaDeg2() << " deg^2" << std::endl;
 
 
+    // ---------------------------------------------------------------
+    // ------------ Find the distances and the directions ------------
+    // ---------------------------------------------------------------
+
+    // pointToSky gives, for one point, its distance from the origin, in
+    // coordinate units, and its right ascension and declination, in
+    // radians: the direction the mask is applied to, and the distance the
+    // distance cut and the mps bins are taken on. It needs no distance
+    // table. The range of the distances is where to choose the cut.
+    // otswap::skyToDegrees converts the angles of an array ordered right
+    // ascension, declination, then a third value left unchanged, here the
+    // distance: the degrees of Python's point_to_sky, bit for bit
+    std::vector<double> directions(3*nTracers);
+    std::vector<double> distance(nTracers);
+    for (std::size_t i = 0; i < nTracers; ++i) {
+      otswap::pointToSky(tracers[3*i], tracers[3*i+1], tracers[3*i+2],
+                         distance[i], directions[3*i], directions[3*i+1]);
+      directions[3*i+2] = distance[i];
+    }
+    directions = otswap::skyToDegrees(std::move(directions));
+
+    std::vector<double> ra(nTracers), dec(nTracers);
+    for (std::size_t i = 0; i < nTracers; ++i) {
+      ra[i] = directions[3*i];
+      dec[i] = directions[3*i+1];
+    }
+
+    std::cout << "Tracer distances: " << *std::min_element(distance.begin(), distance.end()) << " to "
+              << *std::max_element(distance.begin(), distance.end()) << " Mpc/h" << std::endl;
+
+    // One row per tracer, in input order: distance, RA, Dec
+    otswap::io::write(output + "/tracers_sky_lightcone_cartesian.dat",
+                      {{"distance", 'D', "distance from the origin", "", distance, {}},
+                       {"ra", 'D', "right ascension", "deg", ra, {}},
+                       {"dec", 'D', "declination", "deg", dec, {}}});
+
+    std::cout << "Written: output/tracers_sky_lightcone_cartesian.dat" << std::endl;
+
+
     // ----------------------------------------------------
     // ------------ Set the cosmological model ------------
     // ----------------------------------------------------
@@ -95,9 +139,9 @@ int main (int argc, char** argv)
     const otswap::DistanceTable distances(0.286, 0.7, -1., 0.);
 
 
-    // ------------------------------------------------
-    // ------------ Run the reconstruction ------------
-    // ------------------------------------------------
+    // --------------------------------------------
+    // ------------ Set the parameters ------------
+    // --------------------------------------------
 
     // A fixed seed, and the displacements crossing an unobserved pixel of
     // the mask rejected. 8 realizations, which the example randoms are
@@ -128,13 +172,51 @@ int main (int argc, char** argv)
     cut.min = 2200.;
     cut.max = 2450.;
 
+
+    // --------------------------------------------------------------
+    // ------------ Measure the mean particle separation ------------
+    // --------------------------------------------------------------
+
+    // The Cartesian measureMpsProfile measures mps(d) from the tracers
+    // alone, as the reconstruction does, from the same mask, bins and cut,
+    // and in a fraction of its time: the profile is Result::mpsProfile of
+    // the reconstruction below, bit for bit. Use it to choose nBins before
+    // a reconstruction. It needs no distance table
+    const otswap::MpsProfile profile =
+      otswap::measureMpsProfile(tracers, mask, nBins, cut, otswap::Verbosity::Normal, &std::cout);
+
+    std::cout << "mps(d): " << profile.mps.size() << " bins, mps from "
+              << *std::min_element(profile.mps.begin(), profile.mps.end()) << " to "
+              << *std::max_element(profile.mps.begin(), profile.mps.end()) << " Mpc/h" << std::endl;
+
+    // Without a mask, the overloads that take the sky area, in square
+    // degrees, leave out no object on the sky and filter no crossing: the
+    // catalogues must then lie within the footprint already. These do, so
+    // with the mask's area the profile is the same
+    const otswap::MpsProfile fromArea =
+      otswap::measureMpsProfile(tracers, mask.skyAreaDeg2(), nBins, cut, otswap::Verbosity::Silent);
+
+    std::cout << "The same profile from the sky area: " << (fromArea.mps == profile.mps ? "yes" : "no") << std::endl;
+
+    // One row per bin: its centre, in distance, its mps and its number of
+    // tracers, with the range and the representative mps as keywords
+    otswap::io::writeMpsProfile(output + "/mps_lightcone_cartesian.dat", profile);
+
+    std::cout << "Written: output/mps_lightcone_cartesian.dat" << std::endl;
+
+
+    // ------------------------------------------------
+    // ------------ Run the reconstruction ------------
+    // ------------------------------------------------
+
     // The table, given by pointer since it is optional, fills the
     // redshifts of the result
     const otswap::Result result = otswap::reconstructLightcone(tracers, randoms, mask, nBins, config, &distances, cut);
 
-    // The profile is in distance, in coordinate units (Mpc/h here)
-    std::cout << "mps(d): " << result.mpsProfile.mps.size() << " nodes, from " << result.mpsProfile.mps.front()
-              << " to " << result.mpsProfile.mps.back() << " Mpc/h" << std::endl;
+    // The profile is in distance, in coordinate units (Mpc/h here): the
+    // one measured above
+    std::cout << "The profile of the result is the one measured: "
+              << (result.mpsProfile.mps == profile.mps ? "yes" : "no") << std::endl;
 
 
     // ----------------------------------------------------------------

@@ -97,8 +97,8 @@ centroid.
 A survey gives sky coordinates. They are converted to comoving Cartesian
 coordinates with a redshift to distance table. The mean particle separation
 changes with redshift, so otswap measures it from the tracers, in redshift
-bins, and sets with it the radius of the first guess and the cells of the
-neighbour grids. A catalogue already in
+bins, and sets with it the radius of the first guess, tracer by tracer, and,
+through a single representative value, the cells of the neighbour grids. A catalogue already in
 comoving Cartesian coordinates, the observer at the origin, needs no
 cosmology: the mean particle separation is measured in bins of comoving
 distance from the observer, and a cut in distance replaces the cut in
@@ -154,7 +154,7 @@ the Lagrangian to the observed position, $\boldsymbol{\Psi}_\mathrm{OT}$, is
 irrotational (Brenier 1991), and in the linear regime its divergence is set
 by the density of the tracers it moves, $\nabla \cdot
 \boldsymbol{\Psi}_\mathrm{OT} = -\delta_g^s$ (Sartori et al. 2026,
-Appendix C). Along the line of sight, mode by mode,
+Appendix C, eq. (C.15)). Along the line of sight, mode by mode,
 
 $$
 \Psi_{\mathrm{OT},\parallel}(\mathbf{k}) = (b + f\mu^2) \, \Psi_\parallel(\mathbf{k}),
@@ -163,7 +163,7 @@ f \, \Psi_\parallel(\mathbf{k}) = \frac{f}{b + f\mu^2} \, \Psi_{\mathrm{OT},\par
 $$
 
 The correction is therefore mode dependent. Sartori et al. (2026) take
-$f/(b + f)$ (their eq. C.22, eq. 21 in the text), which corresponds to
+$f/(b + f)$ (their eq. (21), derived in Appendix C as eq. (C.22)), which corresponds to
 $\mu = 1$. otswap uses a single factor
 averaged over the modes. The line-of-sight displacement of a mode is
 proportional to $\mu$, so its power to $\mu^2$; the factor that relates the
@@ -179,7 +179,7 @@ $$
 = b + \frac{3}{5} f .
 $$
 
-This refines eq. C.22 and approximates the mode-dependent correction.
+This refines their eq. (21) and approximates the mode-dependent correction.
 otswap's mean displacement points the other way, from the observed to the
 reconstructed position, backward in time: $\mathbf{D} =
 -\boldsymbol{\Psi}_\mathrm{OT}$. Since $\mathbf{r} = \mathbf{s} - f \,
@@ -191,12 +191,21 @@ $$
       \langle \mathbf{D} \cdot \hat{\mathbf{l}} \rangle_i ,
 $$
 
-a positive $\Delta_i$ moving it away from the observer. $\langle\,\rangle_i$
-is a Gaussian average of width $\sigma$, in coordinate units, over the valid
-tracers within $3\sigma$ of $i$, which restricts the correction to the larger
-scales, where linear theory holds; the
-[guide](guide.md#choosing-the-parameters) gives a starting value. A tracer
-with no valid tracer within $3\sigma$ is not moved. In a lightcone the line
+a positive $\Delta_i$ moving it away from the observer in a lightcone, and
+towards increasing coordinate along the axis in a box.
+$\langle\,\rangle_i$ is a Gaussian average of width $\sigma$, in coordinate
+units, over the tracers within $3\sigma$ of $i$ that have at least one valid
+realization, which restricts the correction to the larger scales, where
+linear theory holds; the [guide](guide.md#choosing-the-parameters) gives a
+starting value. A tracer with no valid realization of its own is moved by the
+average of its neighbours; one with no such tracer within $3\sigma$ is not
+moved. With the option `weightByRealizations` (`weight_by_realizations`),
+each tracer of the average is also weighted by its number of valid
+realizations. In a periodic box the average is taken across the faces, with
+minimum-image distances, and the corrected coordinate is wrapped into the box.
+With $\sigma = 0$ there is no average: each tracer is moved by its own
+$\mathbf{D} \cdot \hat{\mathbf{l}}$, and one with no valid realization is not
+moved. In a lightcone the line
 of sight is each tracer's own direction from the observer, the tracer moves
 to the redshift of comoving distance $d(z_i) + \Delta_i$, $f$ comes from the
 distance table and $b(z)$ from a table of the tracers' bias; in a box the

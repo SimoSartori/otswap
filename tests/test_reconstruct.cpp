@@ -621,8 +621,9 @@ int main ()
 
     group("a redshift outside the distance table names the tracer or random and its row in the input array");
     {
-      // The cut drops the first 80 tracers and the first 10 randoms, so a
-      // row counted after the selection would differ from the input row.
+      // The cut drops the first 80 tracers and the first 10 randoms, among
+      // others, so a row counted after the selection would differ from the
+      // input row.
       const RedshiftCut cut {0.52, 2.};
       std::vector<double> randoms = randomSky;
       randoms.insert(randoms.end(), randomSky.begin(), randomSky.end());
@@ -644,10 +645,13 @@ int main ()
         reconstructLightcone(farTracers, randoms, skyAreaDeg2, nBins, distances, c, cut);
       }, "the tracer in row 1500 (from 0) of the tracer sky array: the redshift " + std::to_string(1.6) + range,
          "a tracer beyond the table, after dropped rows");
+      const std::string tracersOnly = " is outside the tabulated range [" + std::to_string(0.) + ", " +
+                                      std::to_string(1.5) + "]; the redshifts of the tracers kept "
+                                      "must lie in the distance table";
       throws_with([&] {
         measureMpsProfile(farTracers, skyAreaDeg2, nBins, distances, cut);
-      }, "the tracer in row 1500 (from 0) of the tracer sky array: the redshift " + std::to_string(1.6) + range,
-         "measureMpsProfile gives the same message");
+      }, "the tracer in row 1500 (from 0) of the tracer sky array: the redshift " + std::to_string(1.6) +
+         tracersOnly, "measureMpsProfile gives the same message, naming the tracers only");
     }
 
     group("an error of the neighbour search reaches the caller of every lightcone overload as an Error");

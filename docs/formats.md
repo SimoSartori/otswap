@@ -135,8 +135,9 @@ Angles in the files are in degrees. The Python readers take a required
 
 A periodic box and a lightcone given in Cartesian coordinates are written in
 the same files, with what tells them apart: the keyword `PERIODIC` and the
-counts of wrapped objects for the former; for the latter, the distance cut,
-the column `outsideDistanceCut`, written for every Cartesian result, and a
+counts of wrapped objects, each when not 0, for the former; for the latter,
+the distance cut, the column `outsideDistanceCut`, written for every
+Cartesian result (the column `outsideRedshiftCut` is then all 0), and a
 profile in distance. A Cartesian result reconstructed without a distance table
 has NaN in its redshift columns and no distance table part. Each writer below
 lists what it writes.

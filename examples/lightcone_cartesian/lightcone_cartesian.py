@@ -10,8 +10,11 @@
 in comoving Cartesian coordinates, with the observer at the origin, instead
 of right ascension, declination and redshift. Its tracers and randoms are
 those of the lightcone and full_recons_lightcone examples, converted to
-Cartesian coordinates with the same cosmology, and it does what both do: the
-reconstruction, here with a cut on the distance, then the correction.
+Cartesian coordinates with the same cosmology, and it does what both do: it
+measures the mean particle separation alone, to choose the bins, then runs
+the reconstruction, here with a cut on the distance, and the correction. It
+first finds the distance and the direction of each tracer, with point_to_sky,
+which is where the cut and the mask act.
 
 Without redshifts the mean particle separation is measured as a function of
 the comoving distance from the origin, in uniform distance bins, and the mask
@@ -67,6 +70,27 @@ def main():
 
     print(f"Mask: NSIDE {mask.nside}, {mask.sky_area_deg2:g} deg^2")
 
+    # ---------------------------------------------------------------
+    # ------------ Find the distances and the directions ------------
+    # ---------------------------------------------------------------
+
+    # point_to_sky gives, for each point, its distance from the origin, in
+    # coordinate units, and its right ascension and declination, here in
+    # degrees: the direction the mask is applied to, and the distance the
+    # distance cut and the mps bins are taken on. It needs no distance
+    # table. The range of the distances is where to choose the cut
+    tracers_sky = otswap.point_to_sky(tracers, angle_unit="deg")
+
+    print(f"Tracer distances: {tracers_sky[:, 0].min():g} to {tracers_sky[:, 0].max():g} Mpc/h")
+
+    # One row per tracer, in input order: distance, RA, Dec
+    otswap.io.write(output / "tracers_sky_lightcone_cartesian.dat",
+                    [otswap.io.Column("distance", tracers_sky[:, 0], description="distance from the origin"),
+                     otswap.io.Column("ra", tracers_sky[:, 1], description="right ascension", unit="deg"),
+                     otswap.io.Column("dec", tracers_sky[:, 2], description="declination", unit="deg")])
+
+    print("Written: output/tracers_sky_lightcone_cartesian.dat")
+
     # ----------------------------------------------------
     # ------------ Set the cosmological model ------------
     # ----------------------------------------------------
@@ -78,9 +102,9 @@ def main():
     # distances too: the default range, z = 0 to 10, leaves room for that
     distances = otswap.DistanceTable.flat(0.286, 0.7, w0=-1.0, wa=0.0)
 
-    # ------------------------------------------------
-    # ------------ Run the reconstruction ------------
-    # ------------------------------------------------
+    # --------------------------------------------
+    # ------------ Set the parameters ------------
+    # --------------------------------------------
 
     # A fixed seed, and the displacements crossing an unobserved pixel of the
     # mask rejected. 8 realizations, which the example randoms are enough
@@ -97,21 +121,55 @@ def main():
     # out of the reconstruction: the randoms are dropped, and the tracers
     # keep their row, flagged in Result.outside_distance_cut. The catalogue
     # spans 2126 to 2500 Mpc/h. The default, None, cuts nothing; a
-    # (d_min, d_max) pair is accepted too.
-    #
-    # distances fills the redshifts of the result. angle_unit is required:
-    # it is the unit of the angles in the result's sky coordinates
+    # (d_min, d_max) pair is accepted too
     config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, reject_crossings=True,
                            max_unobserved_pixels_crossed=0, verbosity="normal")
     n_bins = 30
     distance_cut = otswap.DistanceCut(2200.0, 2450.0)
+
+    # --------------------------------------------------------------
+    # ------------ Measure the mean particle separation ------------
+    # --------------------------------------------------------------
+
+    # measure_mps_profile_cartesian measures mps(d) from the tracers alone,
+    # as the reconstruction does, from the same mask, bins and cut, and in a
+    # fraction of its time: the profile is Result.mps_profile of the
+    # reconstruction below, bit for bit. Use it to choose n_bins before a
+    # reconstruction. It needs no distance table
+    profile = otswap.measure_mps_profile_cartesian(tracers, mask=mask, n_bins=n_bins,
+                                                   distance_cut=distance_cut)
+
+    print(f"mps(d): {len(profile.mps)} bins, mps from {profile.mps.min():g} to {profile.mps.max():g} Mpc/h")
+
+    # Without a mask, the keyword sky_area_deg2 gives the sky area, in square
+    # degrees: no object is then left out on the sky and no crossing is
+    # filtered, so the catalogues must lie within the footprint already.
+    # These do, so with the mask's area the profile is the same
+    from_area = otswap.measure_mps_profile_cartesian(tracers, sky_area_deg2=mask.sky_area_deg2, n_bins=n_bins,
+                                                     distance_cut=distance_cut, verbosity="silent")
+
+    print(f"The same profile from the sky area: {'yes' if np.array_equal(from_area.mps, profile.mps) else 'no'}")
+
+    # One row per bin: its centre, in distance, its mps and its number of
+    # tracers, with the range and the representative mps as keywords
+    otswap.io.write_mps_profile(output / "mps_lightcone_cartesian.dat", profile)
+
+    print("Written: output/mps_lightcone_cartesian.dat")
+
+    # ------------------------------------------------
+    # ------------ Run the reconstruction ------------
+    # ------------------------------------------------
+
+    # distances fills the redshifts of the result. angle_unit is required:
+    # it is the unit of the angles in the result's sky coordinates
     result = otswap.reconstruct_lightcone_cartesian(tracers, randoms, mask=mask, n_bins=n_bins,
                                                     distances=distances, angle_unit="deg",
                                                     distance_cut=distance_cut, config=config)
 
-    # The profile is in distance, in coordinate units (Mpc/h here)
-    profile = result.mps_profile
-    print(f"mps(d): {len(profile.mps)} nodes, from {profile.mps[0]:g} to {profile.mps[-1]:g} Mpc/h")
+    # The profile is in distance, in coordinate units (Mpc/h here): the one
+    # measured above
+    same_profile = np.array_equal(result.mps_profile.mps, profile.mps)
+    print(f"The profile of the result is the one measured: {'yes' if same_profile else 'no'}")
 
     # ----------------------------------------------------------------
     # ------------ Reconstruct without the distance table ------------

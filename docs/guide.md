@@ -63,10 +63,15 @@ constant**, cubic or not, such as a sub-volume of a simulation.
 4. Reconstruct with {cpp:func}`otswap::reconstructBox`
    ({py:func}`otswap.reconstruct_box`).
 5. Write the mean displacements, or every realization ([Files](#files)).
+6. For a catalogue in redshift space, move the tracers to real space with
+   {cpp:func}`otswap::realSpaceBox` ({py:func}`otswap.real_space_box`), which
+   takes the growth rate at the box's redshift from a distance table
+   ([The redshift-space correction](#the-redshift-space-correction)).
 
-The [box example](examples.md#box) runs these steps with limits, and the
-[correction in a box](examples.md#redshift-space-correction-in-a-box)
-without them:
+The [box example](examples.md#box) runs steps 1 to 5 with limits, and the
+[correction in a box](examples.md#redshift-space-correction-in-a-box) steps
+1, 2, 4 and 6, without limits. The snippet shows steps 3 and 4; the example reads the
+catalogues and sets the `Config` before it, and writes the files after it:
 
 ::::{tab-set}
 :sync-group: lang
@@ -102,7 +107,9 @@ limits, the box is the bounding box of the tracers and the given randoms, or
 of the tracers alone when the randoms are drawn. Drawn randoms fill the box.
 `Result::box` (`Result.box`) records the box used.
 
-**The mps.** Unless it is given (`mps`), it is $(V/N)^{1/3}$, with $V$ the
+**The mps.** Unless it is given (the Python keyword `mps`; in C++, the
+overload of {cpp:func}`otswap::reconstructBox` that takes it after the
+randoms), it is $(V/N)^{1/3}$, with $V$ the
 volume of the box and $N$ the tracers inside it; `Result::mps`
 (`Result.mps`) records the value used. Give it when the mean density of the
 catalogue is known independently of the extent of its tracers and randoms.
@@ -125,9 +132,14 @@ A sub-volume cut from such a simulation is a box, not a periodic box.
 3. Reconstruct with {cpp:func}`otswap::reconstructBox`
    ({py:func}`otswap.reconstruct_box`).
 4. Write the mean displacements, or every realization ([Files](#files)).
+5. For a catalogue in redshift space, move the tracers to real space with
+   {cpp:func}`otswap::realSpaceBox` ({py:func}`otswap.real_space_box`), as in
+   a box ([The redshift-space correction](#the-redshift-space-correction)).
 
-The [periodic box example](examples.md#periodic-box) runs these steps and
-then corrects the halos for redshift-space distortions:
+The [periodic box example](examples.md#periodic-box) runs these steps, the
+correction included. The snippet shows steps 2 and 3, for a cube of side
+`side`, 1000 in the example; `tracers` and `config` are set before it, as in
+the box example:
 
 ::::{tab-set}
 :sync-group: lang
@@ -182,16 +194,29 @@ every side. A box of other proportions can still be reconstructed without
 3. Read the tracers and the randoms, which are required: they carry the
    survey's geometry, selection function and completeness, which otswap does
    not model ([Choosing the parameters](#choosing-the-parameters), "Randoms").
-4. Choose the number of redshift bins of the mps, `nBins` (`n_bins`), with
-   {cpp:func}`otswap::measureMpsProfile` ({py:func}`otswap.measure_mps_profile`).
-5. To reconstruct a slice of the catalogue, set a redshift cut,
+   C++ takes the angles in radians ({cpp:func}`otswap::skyToRadians` converts
+   them); Python in the unit given by `angle_unit`.
+4. To reconstruct a slice of the catalogue, set a redshift cut,
    {cpp:struct}`otswap::RedshiftCut` ({py:class}`otswap.RedshiftCut`, or a
    pair).
+5. Choose the number of redshift bins of the mps, `nBins` (`n_bins`), with
+   {cpp:func}`otswap::measureMpsProfile` ({py:func}`otswap.measure_mps_profile`),
+   given the same cut, the same mask or area and the same distance table as
+   the reconstruction. It checks the tracers only; the randoms are checked
+   by the reconstruction.
 6. Reconstruct with {cpp:func}`otswap::reconstructLightcone`
    ({py:func}`otswap.reconstruct_lightcone`).
 7. Write the mean displacements, or every realization ([Files](#files)).
+8. For a catalogue in redshift space, move the tracers to real space with
+   {cpp:func}`otswap::realSpaceLightcone`
+   ({py:func}`otswap.real_space_lightcone`), given the same distance table
+   and the bias b(z) of the tracers
+   ([The redshift-space correction](#the-redshift-space-correction)).
 
-The [lightcone example](examples.md#lightcone) runs these steps:
+The [lightcone example](examples.md#lightcone) runs steps 1 to 7, and the
+[correction in a lightcone](examples.md#redshift-space-correction-in-a-lightcone)
+steps 1 to 3, 6 and 8. The snippet shows step 6; `mask`, `n_bins`, the cut,
+`distances` and `config` are set before it in the example:
 
 ::::{tab-set}
 :sync-group: lang
@@ -241,21 +266,31 @@ observer at the origin**, such as a mock catalogue built in a simulation.
 1. Read the tracers and the randoms as Cartesian coordinates; the randoms are
    required, as on the sky.
 2. Read the mask, or know the sky area. The mask is applied to the direction
-   of each point, {cpp:func}`otswap::pointToSky` ({py:func}`otswap.point_to_sky`).
-3. Choose the number of distance bins of the mps with the Cartesian
-   overload of {cpp:func}`otswap::measureMpsProfile`
-   ({py:func}`otswap.measure_mps_profile_cartesian`).
-4. To reconstruct a shell of the catalogue, set a distance cut,
+   of each point, {cpp:func}`otswap::pointToSky` ({py:func}`otswap.point_to_sky`),
+   which also gives its distance from the origin.
+3. To reconstruct a shell of the catalogue, set a distance cut,
    {cpp:struct}`otswap::DistanceCut` ({py:class}`otswap.DistanceCut`).
-5. Optionally, give a distance table, whose distances must be in the unit of
-   the coordinates ([The distance table](#the-distance-table)).
+4. Choose the number of distance bins of the mps with the Cartesian
+   overload of {cpp:func}`otswap::measureMpsProfile`
+   ({py:func}`otswap.measure_mps_profile_cartesian`), given the same cut and
+   the same mask or area as the reconstruction.
+5. Give a distance table, whose distances must be in the unit of the
+   coordinates ([The distance table](#the-distance-table)). The
+   reconstruction does not need it; the correction does.
 6. Reconstruct with the Cartesian overload of
    {cpp:func}`otswap::reconstructLightcone`
    ({py:func}`otswap.reconstruct_lightcone_cartesian`).
 7. Write the mean displacements, or every realization ([Files](#files)).
+8. For a catalogue in redshift space, move the tracers to real space with
+   {cpp:func}`otswap::realSpaceLightcone`
+   ({py:func}`otswap.real_space_lightcone`), given the distance table and the
+   bias b(z) of the tracers
+   ([The redshift-space correction](#the-redshift-space-correction)).
 
 The [Cartesian lightcone example](examples.md#lightcone-in-cartesian-coordinates)
-runs these steps, with the table, then again without it:
+runs these steps, the reconstruction with the table and again without it.
+The snippet shows step 6; `mask`, `n_bins`, the cut, `distances` and `config`
+are set before it in the example:
 
 ::::{tab-set}
 :sync-group: lang
@@ -335,10 +370,15 @@ and interpolates linearly between its nodes. It is built in one of two ways:
 
 ::::
 
-**The table is never extrapolated.** The redshifts of the tracers and randoms
-kept, and the corrected positions of the redshift-space correction, must lie
-in its range; otherwise the call raises, naming the row. A mean Lagrangian
-position beyond the table gets a NaN redshift, without error.
+**The table is never extrapolated.** For a lightcone on the sky, the
+redshifts of the tracers and randoms kept must lie in its range; otherwise the
+call raises, naming the object and its row. In the reconstruction of a
+Cartesian lightcone, a position beyond the table gets a NaN redshift, without
+error. In the redshift-space correction of a lightcone, every tracer the
+reconstruction kept must lie in the table, moved or not, and so must each
+corrected position, or the call raises; in a box, only the box's redshift
+must. A mean
+Lagrangian position beyond the table gets a NaN redshift, without error.
 
 **Its distances must be in the coordinate units.** For a lightcone on the sky
 they define them (Mpc/h from a cosmology). For a lightcone in Cartesian
@@ -359,9 +399,12 @@ mean, NaN when there is none. `lagrangian`, the tracer plus its mean
 displacement, follows from it; the [method](method.md#realizations) page
 explains what it approximates.
 
-After changing `valid` by hand, {cpp:func}`otswap::recomputeMeans`
-({py:func}`otswap.recompute_means`) recomputes the fields that follow from it,
-as the reconstruction computes them.
+After a change to `valid`, {cpp:func}`otswap::recomputeMeans`
+({py:func}`otswap.recompute_means`) recomputes in place the fields that follow
+from it, as the reconstruction computes them. In Python the arrays of a
+`Result` are read-only: to change `valid`, change a copy and build a new
+result with {py:meth}`otswap.Result.from_arrays`, which computes the means in
+the same way but records no mps, profile or selection counts.
 
 Every output keeps one row per input object, in input order: a tracer left
 out by a box, a cut or a mask keeps its row, flagged, with NaN displacements

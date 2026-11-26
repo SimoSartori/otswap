@@ -207,8 +207,9 @@ namespace otswap {
     /// parameters".
     double convergence = 1.e-3;
 
-    /// Seed of the generator. 0 draws one from std::random_device, and the
-    /// result records the seed drawn (Result::config).
+    /// Seed of the random streams, 0 to 2^32 - 1. 0 draws one from
+    /// std::random_device, and the result records the seed drawn
+    /// (Result::config).
     unsigned seed = 0;
 
     /// Grid cell size, in units of the representative mean particle

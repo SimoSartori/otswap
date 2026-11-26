@@ -29,8 +29,10 @@ with 0.3.
   covers that reduced side. Not written to files; NaN, None in Python, for a
   result not made by a reconstruction.
 - Examples `periodic_box`, a reconstruction and correction of halos in
-  redshift space in a periodic box, and `lightcone_cartesian`, in C++ and
-  Python, and `examples/executable/periodic_box.ini`; the data
+  redshift space in a periodic box, and `lightcone_cartesian`, which also
+  finds each tracer's distance and direction with `pointToSky` and
+  measures the mps profile alone, in C++ and Python, and
+  `examples/executable/periodic_box.ini`; the data
   `periodic_halos.dat`, real- and redshift-space positions.
 - Periodic correction of redshift-space distortions: `realSpaceBox`
   (`real_space_box`) of a periodic result finds the neighbours across the
@@ -119,7 +121,9 @@ with 0.3.
 - `uniformInt` is defined inline in `otswap/Random.h`; its values are
   unchanged.
 - The error for a redshift outside the distance table names the tracer or
-  random and its row in the input arrays. The correction of a Cartesian
+  random and its row in the input arrays; from `measureMpsProfile`, which
+  takes no randoms, it says the redshifts of the tracers kept must lie in
+  the table. The correction of a Cartesian
   lightcone result raises, naming the tracer, when its distance lies
   outside the table, and suggests a table of wider range.
 - The examples `box`, `lightcone`, `full_recons_box` and
@@ -129,6 +133,7 @@ with 0.3.
   reads it back; the lightcone example measures the mps profile alone and
   reads the mean file back. Their parameter files in `examples/executable/`
   set `periodic` or `lightcone_input`.
+- Messages say "catalogue", where some said "catalog".
 
 ### Removed
 
@@ -162,7 +167,11 @@ with 0.3.
 - The method page writes the redshift-space correction with the mean
   displacement D = −Ψ_OT and the line of sight l̂, as `otswap/RSD.h` and the
   module docstring do, and describes the first guess and the box as
-  implemented.
+  implemented. It cites the equations of Sartori et al. (2026) by their
+  numbers in arXiv:2601.15378v1, and describes the neighbour average in a
+  periodic box, with weights and with σ = 0.
+- Each path of the guide ends with the redshift-space correction, linking
+  its example, and sets the cut before the choice of the bins.
 
 ## 0.3.0 — 2026-11-05
 

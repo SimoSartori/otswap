@@ -65,7 +65,7 @@ namespace {
   /// kNeighbourhoodRadiusInMps mean separations holds at mean density,
   /// (4/3) * pi * 3^3 = 113.097..., truncated to 113. It is also the size
   /// of the list the swap partners are drawn from, and one less than the
-  /// smallest catalog accepted.
+  /// smallest catalogue accepted.
   constexpr unsigned kNeighbours =
     (unsigned)((4. / 3.) * 3.14159265358979323846 *
                kNeighbourhoodRadiusInMps * kNeighbourhoodRadiusInMps *
@@ -236,7 +236,7 @@ otswap::Result otswap::internal::reconstruct (const std::vector<double>& tracers
   const bool generate = randoms.empty();
 
   if (nObjects < min_objects())
-    throw Error("the catalog holds " + std::to_string(nObjects) + " objects; at least " +
+    throw Error("the catalogue holds " + std::to_string(nObjects) + " objects; at least " +
                 std::to_string(min_objects()) + " are required, because each tracer needs " +
                 std::to_string(kNeighbours) + " distinct neighbours");
 
@@ -609,7 +609,7 @@ namespace {
     const std::size_t nObjects = internal::check_coordinates(tracers, "the tracer array");
     const std::size_t nRandoms = internal::check_coordinates(randoms, "the random array", true);
     if (nObjects > (std::size_t)std::numeric_limits<unsigned>::max())
-      throw Error("the catalog holds " + std::to_string(nObjects) + " objects; it must hold at most " +
+      throw Error("the catalogue holds " + std::to_string(nObjects) + " objects; it must hold at most " +
                   std::to_string(std::numeric_limits<unsigned>::max()));
 
     const bool reporting = config.log != nullptr && config.verbosity != Verbosity::Silent;

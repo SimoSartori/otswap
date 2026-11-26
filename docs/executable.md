@@ -149,8 +149,10 @@ change nothing, so a parameter file stays valid when an input changes format.
 The cosmology gives a {cpp:class}`otswap::DistanceTable` over redshifts 0
 to 10, with distances in Mpc/h. In a lightcone on the sky it turns redshifts
 into distances; in a box it is used only for the growth rate at `redshift`,
-so a box without `perform_recons` takes none of these keys. A lightcone
-beyond redshift 10 fails with the library's message.
+so a box without `perform_recons` takes none of these keys. A lightcone on
+the sky beyond redshift 10, or a correction that needs a position or a box
+redshift beyond it, fails with the library's message; a Cartesian reconstruction gives such
+tracers a NaN redshift.
 
 A lightcone with `lightcone_input = cartesian` needs no cosmology to be
 reconstructed: the reconstruction uses distances only. Giving `Omega_matter`

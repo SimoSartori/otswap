@@ -409,7 +409,7 @@ def write_displacement_mean(
     within the box as written; a periodic box keeps its limits exactly. FITS
     stores the values themselves. Keywords: those of the reconstruction,
     listed with ``write_displacement_complete`` (PERIODIC, NTRWRAP and
-    NRNWRAP for a periodic box), and MPSPART = 1 and DISTPART = 1 when the
+    NRNWRAP for a periodic box, the counts each omitted when 0), and MPSPART = 1 and DISTPART = 1 when the
     profile and the table are written.
     In FITS the table is named DISPLACEMENTS.
 
@@ -664,8 +664,16 @@ def write_real_space_catalog(
     - ``"cartesian"``: tracX, tracY, tracZ, ``RealSpaceCatalog.cartesian``;
     - ``"valid_realizations"``: nValidRec;
     - ``"neighbours"``: nNeighbours, nRealizationsAveraged;
-    - ``"shift"``: shift, rsdFactor;
-    - ``"status"``: status, as ``RealSpaceCatalog.status``.
+    - ``"shift"``: shift (coordinate units), rsdFactor;
+    - ``"status"``: status, as ``RealSpaceCatalog.status``, the value of
+      ``CorrectionStatus`` (0 to 3).
+
+    The shift and the factor are written when ``"shift"`` is listed in
+    ``groups``. The columns tracX..tracZ and tracRA..tracRed hold the
+    corrected positions here, where the displacement files hold the observed
+    ones; a lightcone tracer moves along its line of sight, so tracRA and
+    tracDec keep the observed angles. The file has no reader of its own: ``read`` reads its columns by
+    name.
 
     Parameters
     ----------
@@ -684,8 +692,9 @@ def write_real_space_catalog(
     Notes
     -----
     Floating values are written with 9 significant digits in ASCII.
-    Keywords: SIGMA, WEIGHTED; NEXTRAP for a lightcone; AXIS, ZBOX and BIAS
-    for a box.
+    Keywords: SIGMA, WEIGHTED (0 or 1); NEXTRAP for a lightcone; AXIS, ZBOX
+    and BIAS for a box. A periodic box has no PERIODIC keyword here; its
+    corrected coordinate along the axis is wrapped into the box.
     """
 
 
@@ -695,6 +704,7 @@ def write_mps_profile(file: Path, profile: MpsProfile) -> None:
     (the representative value). A profile in distance has the column
     distance (the bin centre, in coordinate units) in place of redshift, and
     the keywords DISTMIN and DISTMAX in place of ZMIN and ZMAX.
-    ``MpsProfile.at`` gives the profile anywhere. Raises if the profile is
+    ``MpsProfile.at`` gives the profile anywhere. The file has no reader of
+    its own: ``read`` reads its columns by name. Raises if the profile is
     empty or malformed, holds both redshift and distance nodes, or as
     ``write``."""

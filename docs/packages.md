@@ -1,8 +1,10 @@
 # Using otswap from another package
 
-This page is for the authors of a package built on otswap: a C++ program
-that links the library, or a Python extension that takes and returns
-otswap's types. A user of the Python package alone needs none of it.
+This page is for the authors of a package built on otswap, in three
+sections: a C++ program that links the library; a Python extension that
+takes and returns otswap's types; and, on macOS, a Python extension with
+OpenMP code of its own, imported beside otswap. A user of the Python package
+alone needs none of it.
 
 ## From C++ with CMake
 
@@ -19,12 +21,16 @@ in turn: meshsearch 0.3 (0.3.0 or a later 0.3.x), cfitsio (honouring
 `CFITSIO_ROOT`, and `ZLIB_ROOT` for a static cfitsio) and, when otswap was
 built with it, OpenMP. **The program must use the OpenMP runtime family otswap
 was built with**: libgomp for a library built with GCC, LLVM's libomp for
-one built with Clang. With Apple's Clang, the package looks for Homebrew's
-libomp unless `OpenMP_ROOT` is set.
+one built with Clang. With Apple's Clang, unless `OpenMP_ROOT` is set, as a
+CMake or an environment variable, the package takes Homebrew's libomp
+(`brew install libomp`) from `/opt/homebrew/opt/libomp` or
+`/usr/local/opt/libomp`; without either, `find_package(otswap)` fails on
+OpenMP.
 
-The public structs (`Config`, `Result`, `RealSpaceCatalog` and the others)
-keep their layout across the patch releases of a minor version; code
-compiled against the headers of an earlier minor version must be rebuilt.
+The version given to `find_package` accepts the patch releases of that minor
+version only: 0.4 accepts 0.4.x. The public structs (`Config`, `Result`,
+`RealSpaceCatalog` and the others) keep their layout across them; code
+compiled against the headers of another minor version must be rebuilt.
 
 ## From another nanobind module
 
@@ -36,6 +42,23 @@ signatures: `Config`, `CorrectionConfig`, `RedshiftCut`, `DistanceCut`,
 `otswap.Result`, and a function returning an `otswap::Config` returns an
 `otswap.Config`. The other module binds none of these types itself.
 
+The module includes otswap's headers and links the library, which come from
+an installed otswap ([From C++ with CMake](#from-c-with-cmake)) or a build of
+it from source: the wheel holds no otswap header, library or CMake file. With
+CMake, nanobind found as otswap's own bindings find it:
+
+```cmake
+find_package(otswap 0.4 CONFIG REQUIRED)
+find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+execute_process(COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+  OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
+find_package(nanobind CONFIG REQUIRED)
+nanobind_add_module(my_module NB_STATIC my_module.cpp)
+target_link_libraries(my_module PRIVATE otswap::otswap)
+```
+
+At run time the module uses the otswap wheel of the same minor version.
+
 - **The same nanobind.** Both modules are built with nanobind 3.1.0 and the
   same nanobind ABI (the same compiler family and C++ standard library), and
   neither defines `NB_DOMAIN`.
@@ -43,10 +66,10 @@ signatures: `Config`, `CorrectionConfig`, `RedshiftCut`, `DistanceCut`,
   before the other module's functions are used. The pairs `(min, max)` and
   `((x0, y0, z0), (x1, y1, z1))` are then converted in the other module's
   functions too.
-- **The same minor version.** The layouts of the structs are part of the
-  interface across 0.4.x: a field added in a patch release would break a
-  module built against the older header. A module built against the headers
-  of an earlier minor release must be rebuilt.
+- **The same minor version.** The headers the module is built against and
+  the otswap it runs with share the layouts of the structs, which hold
+  across the patch releases of a minor version only (see the C++ section): a
+  module built against the headers of 0.3 must be rebuilt for 0.4.
 - **The log stream.** A `Config` or `CorrectionConfig` received from Python
   holds `log = &std::clog`; the other module sets it before using it.
 - **Angles.** A `Result` or `RealSpaceCatalog` made by the other module is
@@ -95,7 +118,8 @@ A package built with CMake links the same file as follows.
    `otswap >= 0.4, < 0.5` in `build-system.requires` and in `dependencies`.
 2. Before `find_package(OpenMP)`, it takes `OpenMP_ROOT` from otswap
    whenever otswap gives one, in a wheel build and in a build from source
-   alike:
+   alike. `Python_EXECUTABLE` is set by scikit-build-core, and otherwise by
+   `find_package(Python COMPONENTS Interpreter)`:
 
    ```cmake
    execute_process(
@@ -112,16 +136,23 @@ A package built with CMake links the same file as follows.
    for two packages installed side by side in one `site-packages`:
 
    ```cmake
-   set_target_properties(my_extension PROPERTIES
-     INSTALL_RPATH "@loader_path/../otswap/openmp/lib")
+   if (APPLE)
+     set_target_properties(my_extension PROPERTIES
+       INSTALL_RPATH "@loader_path/../otswap/openmp/lib")
+   endif()
    ```
 
-   With otswap installed elsewhere (another `--target`, an editable
+   The path holds for an extension placed directly in its package
+   directory, one level below `site-packages`; each level deeper adds one
+   `../`. With otswap installed elsewhere (another `--target`, an editable
    install), that rpath finds nothing.
 4. Its wheel repair leaves the file where it is: with delocate,
    `delocate-wheel --exclude libomp`. A copy in the package's own `.dylibs/`
    is a second runtime.
 5. It imports otswap before its own extension.
+
+On Linux none of this is needed: `otswap.openmp_root()` returns None, so
+step 2 leaves `OpenMP_ROOT` alone, and step 3 applies to macOS only.
 
 This covers packages that follow it. Another package that ships its own
 libomp, and is imported in the same process, can still clash with otswap and

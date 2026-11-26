@@ -175,11 +175,13 @@ Reconstructs and corrects the lightcone of the two lightcone examples given
 in comoving Cartesian coordinates, the observer at the origin: the mean
 particle separation is measured in distance bins, a cut on the comoving
 distance keeps a shell of the catalogue, and the mask acts on the angles of
-the objects. It shows three variants: the reconstruction with the distance
-table, which fills the redshifts; the same without the table, which gives the
-same displacements with NaN redshifts; and the correction, which needs the
-table for the growth rate and the bias at the tracers' redshifts. The cut keeps
-the distances 2200 to 2450 Mpc/h.
+the objects. It first finds the distance and the direction of each tracer
+with {py:func}`otswap.point_to_sky`, and measures the mean particle separation
+alone, from the mask and from the sky area. It then shows three variants: the
+reconstruction with the distance table, which fills the redshifts; the same
+without the table, which gives the same displacements with NaN redshifts; and
+the correction, which needs the table for the growth rate and the bias at the
+tracers' redshifts. The cut keeps the distances 2200 to 2450 Mpc/h.
 
 Reads:
 
@@ -188,7 +190,10 @@ Reads:
 - {repo-file}`examples/data/lightcone_mask.fits`
 - {repo-file}`examples/data/lightcone_bias.dat`
 
-Writes `output/displacement_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_displacement_mean`, and its
+Writes `output/tracers_sky_lightcone_cartesian.dat`, the distance, right ascension and declination of
+each tracer, with {py:func}`otswap.io.write`; `output/mps_lightcone_cartesian.dat`, with
+{py:func}`otswap.io.write_mps_profile`; `output/displacement_lightcone_cartesian.dat`, with
+{py:func}`otswap.io.write_displacement_mean`, and its
 twin files `.mps.dat` and `.distances.dat`, the mps(d) profile and the distance table;
 `output/displacement_lightcone_cartesian_no_table.dat`, the result without the table, and its twin
 `.mps.dat`; and `output/reconstructed_catalogue_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_real_space_catalog`; their columns
