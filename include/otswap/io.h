@@ -72,8 +72,8 @@
  *  tables.
  *
  *  The writers of a Result and of a RealSpaceCatalog write one row per
- *  input object (the complete displacement file, one per realization and
- *  object), in input order, tracers left out of the reconstruction
+ *  input object, in input order (the complete displacement file: one row
+ *  per realization and object), tracers left out of the reconstruction
  *  included, with NaN where nothing was computed, so row i of a file
  *  describes object i of the input. The id column, where written, holds
  *  the object's ID (Result::ids, RealSpaceCatalog::ids), or i when no IDs
@@ -715,7 +715,8 @@ namespace otswap {
      *  The shift and the factor are written when Shift is listed in @p
      *  groups. The columns tracX..tracZ and tracRA..tracRed hold the
      *  corrected positions here, where the displacement files hold the
-     *  observed ones. The file has no reader of its own: io::read reads its
+     *  observed ones; a lightcone tracer moves along its line of sight, so
+     *  tracRA and tracDec keep the observed angles. The file has no reader of its own: io::read reads its
      *  columns by name.
      *
      *  'D' values are written with 9 significant digits in ASCII. Keywords:

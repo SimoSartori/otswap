@@ -33,13 +33,15 @@ sight::
 
     shift_i = f(z_i) / (b(z_i) + 3 f(z_i) / 5) * <D . l_hat>_i
 
-with D the mean displacement of the reconstruction
-(``Result.mean_displacement``, from the observed to the reconstructed
-position, the opposite of the optimal transport displacement Psi_OT of the
-method page), l_hat the line of sight, f the linear growth rate, b the
-linear bias and < > a Gaussian average over the neighbouring tracers. A
-positive shift moves the tracer away from the observer. ``real_space_lightcone`` and ``real_space_box`` run the
-whole chain; the four steps are also available on their own.
+the Delta_i of the method page, with D the mean displacement of the
+reconstruction (``Result.mean_displacement``, from the observed to the
+reconstructed position, the opposite of the optimal transport displacement
+Psi_OT of the method page), l_hat the line of sight, f the linear growth
+rate, b the linear bias and < > a Gaussian average over the neighbouring
+tracers. A positive shift moves the tracer away from the observer in a
+lightcone, and towards increasing coordinate along the axis in a box.
+``real_space_lightcone`` and ``real_space_box`` run the whole chain; the four
+steps are also available on their own.
 """
 
 from enum import IntEnum
@@ -131,8 +133,8 @@ class Config:
     parameters"."""
 
     seed: int
-    """Seed of the random streams; 0 draws one at random, and
-    ``Result.config.seed`` records the seed used."""
+    """Seed of the random streams, 0 to 2**32 - 1; 0 draws one at random,
+    and ``Result.config.seed`` records the seed used."""
 
     cell_size: float
     """Grid cell size in units of the mps; positive, default 3. Affects

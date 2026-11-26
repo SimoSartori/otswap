@@ -198,7 +198,7 @@ namespace {
                     std::to_string(profile.count[i]) + " tracers, below the " +
                     std::to_string(kMinTracersPerBin) + " needed for its density to be "
                     "meaningful to " + std::to_string(kMpsPrecision * 100.) +
-                    " per cent; this catalog of " + std::to_string(nObjects) +
+                    " per cent; this catalogue of " + std::to_string(nObjects) +
                     " tracers supports at most " + std::to_string(supported) + " bins");
 
     const double skyFraction = skyAreaDeg2 / kFullSkyDeg2;
@@ -225,10 +225,12 @@ namespace {
 
   /// The Cartesian positions of the rows keep of a sky array, in that
   /// order. A redshift outside the table is an error that names the kind
-  /// of object and its row in the array given by the caller.
+  /// of object and its row in the array given by the caller; objects
+  /// names what must lie in the table ("tracers", or "tracers and randoms").
   std::vector<double> kept_to_cartesian (const std::vector<double>& sky,
                                          const std::vector<std::size_t>& keep,
                                          const char* kind,
+                                         const char* objects,
                                          const otswap::DistanceTable& distances)
   {
     std::vector<double> cartesian(3 * keep.size());
@@ -242,7 +244,7 @@ namespace {
       catch (const otswap::Error& e) {
         throw otswap::Error(std::string("the ") + kind + " in row " + std::to_string(i) +
                             " (from 0) of the " + kind + " sky array: " + e.what() +
-                            "; the redshifts of the tracers and randoms kept must lie in the "
+                            "; the redshifts of the " + objects + " kept must lie in the "
                             "distance table");
       }
       otswap::internal::to_cartesian(sky[3*i], sky[3*i+1], distance,
@@ -586,7 +588,7 @@ namespace {
     const std::size_t nRandoms = internal::check_coordinates(randoms, "the random array");
 
     if (nObjects > (std::size_t)std::numeric_limits<unsigned>::max())
-      throw Error("the catalog holds " + std::to_string(nObjects) + " objects; it must hold at most " +
+      throw Error("the catalogue holds " + std::to_string(nObjects) + " objects; it must hold at most " +
                   std::to_string(std::numeric_limits<unsigned>::max()));
 
     const internal::Selection randomSelection = select_cartesian(randoms, cut, mask);
@@ -689,7 +691,7 @@ namespace {
     const std::size_t nRandoms = internal::check_sky(randomsSky, "the random sky array");
 
     if (nObjects > (std::size_t)std::numeric_limits<unsigned>::max())
-      throw Error("the catalog holds " + std::to_string(nObjects) + " objects; it must hold at most " +
+      throw Error("the catalogue holds " + std::to_string(nObjects) + " objects; it must hold at most " +
                   std::to_string(std::numeric_limits<unsigned>::max()));
 
     check_cut(cut);
@@ -721,9 +723,9 @@ namespace {
     const std::string selected = reporting ? counts.message() : std::string();
     if (reporting) internal::write_lines(*config.log, selected);
 
-    std::vector<double> convertedTracers = kept_to_cartesian(tracersSky, keepTracers, "tracer", distances);
+    std::vector<double> convertedTracers = kept_to_cartesian(tracersSky, keepTracers, "tracer", "tracers and randoms", distances);
     const std::vector<double> convertedRandoms =
-      kept_to_cartesian(randomsSky, keepRandoms, "random", distances);
+      kept_to_cartesian(randomsSky, keepRandoms, "random", "tracers and randoms", distances);
 
     MpsProfile profile = internal::mps_profile(ts, skyAreaDeg2, nBins, distances);
 
@@ -817,7 +819,7 @@ namespace {
       internal::write_lines(*log, out.str());
     }
 
-    kept_to_cartesian(tracersSky, keep, "tracer", distances);
+    kept_to_cartesian(tracersSky, keep, "tracer", "tracers", distances);
 
     const bool dropTracers = keep.size() != nObjects;
     const std::vector<double> keptSky = dropTracers ? internal::rows(tracersSky, keep) : std::vector<double>();

@@ -87,7 +87,9 @@ target_link_libraries(your_target PRIVATE otswap::otswap)
 
 Configure your project with `-DCMAKE_PREFIX_PATH=/path/to/prefix`. otswap can
 also be built as part of your project, with `add_subdirectory` or
-FetchContent, and the same target.
+FetchContent, and the same target. The dependencies the package looks for, and
+the OpenMP runtime the program must share with it, are in
+[Using otswap from another package](https://simosartori.github.io/otswap/packages.html).
 <!-- docs:install-end -->
 
 ## Reproducibility
@@ -121,7 +123,8 @@ an analysis.
 `examples/` holds six examples, each in C++ and in Python, with the data to
 run them: reconstructions in a box, a periodic box, a lightcone on the sky and
 a lightcone in Cartesian coordinates, and the redshift-space correction in a
-box and in a lightcone. The documentation walks through them.
+box and in a lightcone; the periodic box and Cartesian lightcone examples
+correct too. The documentation walks through them.
 `examples/executable/` holds four commented parameter files (box, periodic box,
 lightcone, Cartesian lightcone) for the `otswap` executable, which runs a
 reconstruction and the correction with no code to write; it is built from

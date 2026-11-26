@@ -115,7 +115,7 @@ namespace otswap {
     void check_random_supply (std::size_t nRandoms, std::size_t nObjects,
                               unsigned nRealizations);
 
-    /// The smallest catalog accepted: one more than the neighbours held
+    /// The smallest catalogue accepted: one more than the neighbours held
     /// per tracer. Defined in Reconstruct.cpp.
     std::size_t min_objects ();
 

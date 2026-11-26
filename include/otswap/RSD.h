@@ -28,15 +28,15 @@
  *
  *    shift_i = f(z_i) / (b(z_i) + 3 f(z_i) / 5)  <D . l_hat>_i ,
  *
- *  where D is the mean displacement of the reconstruction
- *  (Result::meanDisplacement, from the observed to the reconstructed
- *  position, the opposite of the optimal transport displacement Psi_OT of
- *  the method page), l_hat the line of sight, f the linear growth rate, b
- *  the linear bias of the tracers, and < > a Gaussian average over the
- *  neighbouring objects. A positive shift moves the object away from the
- *  observer. realSpaceLightcone
- *  and realSpaceBox run the whole chain; its four steps are also available
- *  on their own.
+ *  the Delta_i of the method page, where D is the mean displacement of the
+ *  reconstruction (Result::meanDisplacement, from the observed to the
+ *  reconstructed position, the opposite of the optimal transport
+ *  displacement Psi_OT of the method page), l_hat the line of sight, f the
+ *  linear growth rate, b the linear bias of the tracers, and < > a Gaussian
+ *  average over the neighbouring objects. A positive shift moves the object
+ *  away from the observer in a lightcone, and towards increasing coordinate
+ *  along the axis in a box. realSpaceLightcone and realSpaceBox run the
+ *  whole chain; its four steps are also available on their own.
  *
  *  Included by otswap/OT.h; either header may be included first.
  *

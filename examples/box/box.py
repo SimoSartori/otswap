@@ -164,11 +164,11 @@ def main():
 
     # A catalogue usually names its objects by an ID column, read exactly by
     # otswap.io.read with integer_columns, and set as Result.ids. These
-    # files have none, so here the line of each halo in its file, counted
-    # from 1, stands for it. The reconstruction sets no IDs and no
-    # computation reads them: the writers put them in a first column, id,
-    # and real_space_box and real_space_lightcone copy them into the
-    # corrected catalogue. None, or exactly 0..N-1, means none
+    # files have none, so here the position of each halo among the data rows
+    # of its file, counted from 1, stands for it. The reconstruction sets no
+    # IDs and no computation reads them: the writers put them in a first
+    # column, id, and real_space_box and real_space_lightcone copy them into
+    # the corrected catalogue. None, or exactly 0..N-1, means none
     result.ids = np.arange(1, len(tracers) + 1)
 
     # write_displacement_complete writes every realization of every tracer,
@@ -195,11 +195,11 @@ def main():
     # ------------ Check the number of realizations ------------
     # ----------------------------------------------------------
 
-    # otswap.recompute_means recomputes valid_realizations, mean_displacement
-    # and the Lagrangian positions from displacement and valid, for instance
-    # after a filter of one's own has cleared some entries of valid. The
-    # arrays of a Result are read-only in Python: Result.from_arrays builds
-    # a new one from edited arrays, its means computed as recompute_means
+    # The arrays of a Result are read-only in Python, so a filter of one's
+    # own, clearing some entries of valid, works on a copy:
+    # Result.from_arrays builds a new result from the edited arrays, and
+    # computes valid_realizations, mean_displacement and the Lagrangian
+    # positions from displacement and valid, as otswap.recompute_means
     # computes them. Here it keeps the first half of the realizations. The
     # rms difference between the mean over half of them and the mean over
     # all of them shows how much the mean still depends on their number: the

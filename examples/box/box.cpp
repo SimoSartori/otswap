@@ -197,11 +197,11 @@ int main (int argc, char** argv)
 
     // A catalogue usually names its objects by an ID column, read exactly
     // by the overload of io::read that takes integer columns, and set as
-    // Result::ids. These files have none, so here the line of each halo in
-    // its file, counted from 1, stands for it. The reconstruction sets no
-    // IDs and no computation reads them: the writers put them in a first
-    // column, id, and realSpaceBox and realSpaceLightcone copy them into
-    // the corrected catalogue. An empty ids, or exactly 0..N-1, means none
+    // Result::ids. These files have none, so here the position of each halo
+    // among the data rows of its file, counted from 1, stands for it. The
+    // reconstruction sets no IDs and no computation reads them: the writers
+    // put them in a first column, id, and realSpaceBox and
+    // realSpaceLightcone copy them into the corrected catalogue. An empty ids, or exactly 0..N-1, means none
     result.ids.resize(nTracers);
     for (std::size_t i = 0; i < nTracers; ++i) result.ids[i] = (std::int64_t)i + 1;
 
