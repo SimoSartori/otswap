@@ -12,6 +12,20 @@ license = "GPL-2.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "Simone Sartori" }]
 dependencies = ["numpy"]
+# The licence is declared by the SPDX expression above alone: a 'License ::'
+# classifier next to it is rejected by the build backend.
+classifiers = [
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+]
 
 [project.urls]
 Documentation = "https://simosartori.github.io/otswap/"
