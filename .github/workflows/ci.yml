@@ -2,7 +2,8 @@ name: CI
 
 # Builds and tests the C++ library, the Python module and the CMake package
 # on every push to main and every pull request: with GCC and clang on Linux and with Apple
-# clang on macOS, warnings as errors.
+# clang on macOS, warnings as errors; then the module alone on Python 3.10,
+# 3.12 and 3.14.
 
 on:
   push:
@@ -225,3 +226,49 @@ jobs:
           grep -q "otswap: using meshsearch 0.3" found.log
           test ! -d build-found/_deps/meshsearch-src
           cmake --build build-found --parallel
+
+  python:
+    name: python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+        python: ["3.10", "3.12", "3.14"]
+
+    # The module built from source, in a clean environment, on the oldest, a
+    # middle and the newest Python the wheels cover. The bit-identity tests
+    # against the C++ library run in the job above and are skipped here.
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+
+      # GCC, the default compiler on Linux, brings libgomp.
+      - name: Install cfitsio
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libcfitsio-dev
+
+      - name: Install cfitsio and libomp
+        if: runner.os == 'macOS'
+        run: |
+          brew install cfitsio libomp
+          echo "CFITSIO_ROOT=$(brew --prefix cfitsio)" >> "$GITHUB_ENV"
+
+      - name: Build and install the module
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install ".[test]"
+
+      # Run from outside the source tree, so that the installed module is the
+      # one imported.
+      - name: Test
+        working-directory: ${{ runner.temp }}
+        run: >-
+          "$RUNNER_TEMP/venv/bin/python" -m pytest
+          "$GITHUB_WORKSPACE/tests/test_otswap.py"
+          "$GITHUB_WORKSPACE/tests/test_rsd.py"
+          "$GITHUB_WORKSPACE/tests/test_determinism.py"
+          -p no:cacheprovider -rs
