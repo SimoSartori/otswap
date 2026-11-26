@@ -52,7 +52,11 @@ Reconstruction
 
 .. autoapifunction:: otswap.reconstruct_lightcone
 
+.. autoapifunction:: otswap.reconstruct_lightcone_cartesian
+
 .. autoapifunction:: otswap.measure_mps_profile
+
+.. autoapifunction:: otswap.measure_mps_profile_cartesian
 
 .. autoapifunction:: otswap.reject_mask_crossings
 

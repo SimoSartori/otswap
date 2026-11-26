@@ -652,20 +652,26 @@ otswap::RealSpaceCatalog otswap::realSpaceLightcone (const Result& result,
     return catalog;
   }
 
-  // A result of a Cartesian overload, whose profile is in distance: each
-  // tracer's redshift comes from its distance, by the table given here; its
-  // right ascension and declination are those of tracersSky.
-  const bool cartesian = !result.mpsProfile.distance.empty();
+  // A tracer's redshift is read from tracersSky when it is there; a tracer
+  // whose redshift is NaN, as in a result of a Cartesian overload built
+  // without a table, takes it from its distance from the origin, by the
+  // table given here. Right ascension and declination are those of tracersSky.
   std::vector<double> sky = result.tracersSky;
   const std::vector<double> positions = rows_of(result.tracers, keep);
-  if (cartesian) internal::check_coordinates(positions, "the tracer array of the result");
-  else internal::check_sky(rows_of(sky, keep), "the tracer sky array of the result");
+  {
+    std::vector<double> checked = rows_of(sky, keep);
+    bool derived = false;
+    for (std::size_t k = 0; k < m; ++k)
+      if (std::isnan(checked[3*k+2])) { checked[3*k+2] = 0.; derived = true; }
+    if (derived) internal::check_coordinates(positions, "the tracer array of the result");
+    internal::check_sky(checked, "the tracer sky array of the result");
+  }
 
   std::vector<double> distance(m), factor(m);
   for (std::size_t k = 0; k < m; ++k) {
     const std::size_t i = keep[k];
     const std::string who = "object " + std::to_string(i) + " (from 0)";
-    if (cartesian) {
+    if (std::isnan(sky[3*i+2])) {
       double ra = 0., dec = 0.;
       pointToSky(positions[3*k], positions[3*k+1], positions[3*k+2], distance[k], ra, dec);
       try {

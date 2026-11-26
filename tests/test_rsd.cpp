@@ -915,10 +915,22 @@ int main ()
       const Result tabled = reconstructLightcone(cart, cartRandoms, 800., 1, config, &table, dcut);
       const RealSpaceCatalog movedTabled = realSpaceLightcone(tabled, table, BiasTable{{0.3, 0.6}, {1.2, 1.6}}, 10.,
                                                               quietCorrection);
-      check(same_bits(moved.sky, movedTabled.sky) && same_bits(moved.cartesian, movedTabled.cartesian) &&
-            moved.status == movedTabled.status,
-            "on a Cartesian result, the redshifts come from the distances and the table given to it: the same "
-            "catalogue whether the reconstruction had a table or not");
+      bool near = moved.status == movedTabled.status;
+      for (std::size_t i = 0; i < n; ++i)
+        if (moved.status[i] != CorrectionStatus::LeftOut)
+          for (std::size_t c = 0; c < 3; ++c)
+            near = near && close(moved.cartesian[3*i+c], movedTabled.cartesian[3*i+c], 1e-9);
+      check(near, "a Cartesian result with redshifts from its own table gives the catalogue of one without, "
+                  "within rounding");
+      Result cleared = tabled;
+      cleared.mpsProfile = MpsProfile();
+      for (std::size_t i = 0; i < n; ++i) cleared.tracersSky[3*i+2] = kNaN;
+      const RealSpaceCatalog movedCleared = realSpaceLightcone(cleared, table, BiasTable{{0.3, 0.6}, {1.2, 1.6}},
+                                                               10., quietCorrection);
+      check(same_bits(moved.sky, movedCleared.sky) && same_bits(moved.cartesian, movedCleared.cartesian) &&
+            moved.status == movedCleared.status,
+            "a tracer with no redshift takes it from its distance: the same catalogue, bit for bit, whatever "
+            "the geometry of the result");
     }
 
     const Result none = reconstructLightcone(sky, randomsSky, 800., 1, table, config);

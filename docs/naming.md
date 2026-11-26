@@ -56,8 +56,10 @@ passed as `config=` or `correction=`; a flat
 | C++ | Python | Notes |
 |---|---|---|
 | `reconstructBox`, two overloads | `reconstruct_box` | `mps` omitted to compute it; randoms omitted to draw them; `limits` is `box=` |
-| `reconstructLightcone`, four overloads | `reconstruct_lightcone` | `sky_area_deg2=` or `mask=`; `tracers_sky` and `randoms_sky`, or `tracers=` and `randoms=` for the Cartesian overloads, whose `distances=` is optional |
-| `measureMpsProfile`, four overloads | `measure_mps_profile` | `sky_area_deg2=` or `mask=`; `tracers_sky`, or `tracers=` for the Cartesian overloads; `verbosity` an argument, as no `Config` is taken |
+| `reconstructLightcone`, sky overloads | `reconstruct_lightcone` | `sky_area_deg2=` or `mask=`; `tracers_sky`, `randoms_sky`, `distances` and `angle_unit` required |
+| `reconstructLightcone`, Cartesian overloads | `reconstruct_lightcone_cartesian` | `sky_area_deg2=` or `mask=`; `tracers` and `randoms`; `distances=` optional; `distance_cut=`; `angle_unit` required, for the sky arrays of the result |
+| `measureMpsProfile`, sky overloads | `measure_mps_profile` | `sky_area_deg2=` or `mask=`; `verbosity` an argument, as no `Config` is taken |
+| `measureMpsProfile`, Cartesian overloads | `measure_mps_profile_cartesian` | `tracers`; `distance_cut=`; no table, no angle unit |
 | `rejectMaskCrossings` | `reject_mask_crossings` | |
 | `recomputeMeans` | `recompute_means` | |
 
