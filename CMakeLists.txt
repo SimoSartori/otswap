@@ -334,7 +334,8 @@ if (OTSWAP_BUILD_TESTS)
     foreach (parameters examples/executable/box examples/executable/lightcone
                         examples/executable/lightcone_cartesian
                         examples/executable/periodic_box
-                        tests/executable/example_box tests/executable/example_lightcone)
+                        tests/executable/example_box tests/executable/example_lightcone
+                        tests/executable/example_lightcone_cartesian)
       string(REPLACE "/" "_" parameters_name ${parameters})
       add_test(NAME executable_keys_${parameters_name}
         COMMAND ${CMAKE_COMMAND}

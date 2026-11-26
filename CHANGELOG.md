@@ -112,6 +112,8 @@ with 0.3.
   differ from those of 0.3 in the last digit.
 - `uniformInt` is defined inline in `otswap/Random.h`; its values are
   unchanged.
+- The error for a redshift outside the distance table names the tracer or
+  random and its row in the input arrays.
 - The package metadata lists classifiers: Python 3.10 to 3.14, Linux and
   macOS, astronomy and physics. The supported Python versions are
   unchanged.
