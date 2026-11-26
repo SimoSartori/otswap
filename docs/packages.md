@@ -15,7 +15,7 @@ target_link_libraries(your_target PRIVATE otswap::otswap)
 ```
 
 `otswap::otswap` is a static library. Its CMake package finds what it needs
-in turn: meshsearch of the same minor version, cfitsio (honouring
+in turn: meshsearch 0.3 (0.3.0 or a later 0.3.x), cfitsio (honouring
 `CFITSIO_ROOT`, and `ZLIB_ROOT` for a static cfitsio) and, when otswap was
 built with it, OpenMP. **The program must use the OpenMP runtime family otswap
 was built with**: libgomp for a library built with GCC, LLVM's libomp for
