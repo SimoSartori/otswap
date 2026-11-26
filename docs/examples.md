@@ -1,6 +1,6 @@
 # Examples
 
-Four examples, each a C++ program and a Python script that do the same thing:
+Six examples, each a C++ program and a Python script that do the same thing:
 the same inputs, parameters and seed, and the same output file, byte for
 byte. Each folder in {repo-tree}`examples` is a CMake project of its own,
 built against an installed otswap.
@@ -170,6 +170,84 @@ and keywords are on the [file formats](formats.md) page.
 :sync: cpp
 
 ```{literalinclude} ../examples/full_recons_lightcone/full_recons_lightcone.cpp
+:language: cpp
+```
+:::
+
+::::
+
+## Periodic box
+
+Reconstructs the displacement field of halos in a cube of a simulation, with
+periodic boundary conditions: the box is given by its limits, every distance
+is the minimum image, and nothing is cut at the faces. No randoms are given:
+otswap draws them in the box. The result reports the cell side of the
+neighbour grids actually used, which in a periodic box divides the shortest
+side.
+
+Reads:
+
+- {repo-file}`examples/data/periodic_halos.dat`
+
+Writes `output/displacement_periodic_box.dat`, with {py:func}`otswap.io.write_displacement_mean`; its columns
+and keywords, those of the periodic box included, are on the [file formats](formats.md) page.
+
+::::{tab-set}
+:sync-group: lang
+
+:::{tab-item} Python
+:sync: python
+
+```{literalinclude} ../examples/periodic_box/periodic_box.py
+:language: python
+```
+:::
+
+:::{tab-item} C++
+:sync: cpp
+
+```{literalinclude} ../examples/periodic_box/periodic_box.cpp
+:language: cpp
+```
+:::
+
+::::
+
+## Lightcone in Cartesian coordinates
+
+Reconstructs and corrects the lightcone of the two lightcone examples given
+in comoving Cartesian coordinates, the observer at the origin: the mean
+particle separation is measured in distance bins, and the mask acts on the
+angles of the objects. The reconstruction and the correction are those of the
+sky examples, from one run.
+
+Reads:
+
+- {repo-file}`examples/data/lightcone_tracers_cartesian.dat`
+- {repo-file}`examples/data/lightcone_randoms_cartesian.dat`
+- {repo-file}`examples/data/lightcone_mask.fits`
+- {repo-file}`examples/data/lightcone_bias.dat`
+
+Writes `output/displacement_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_displacement_mean`, and its
+twin files `.mps.dat` and `.distances.dat`, the mps(d) profile and the distance table, and
+`output/reconstructed_catalogue_lightcone_cartesian.dat`, with {py:func}`otswap.io.write_real_space_catalog`; their columns
+and keywords are on the [file formats](formats.md) page.
+
+::::{tab-set}
+:sync-group: lang
+
+:::{tab-item} Python
+:sync: python
+
+```{literalinclude} ../examples/lightcone_cartesian/lightcone_cartesian.py
+:language: python
+```
+:::
+
+:::{tab-item} C++
+:sync: cpp
+
+```{literalinclude} ../examples/lightcone_cartesian/lightcone_cartesian.cpp
 :language: cpp
 ```
 :::

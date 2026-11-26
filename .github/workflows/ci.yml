@@ -155,7 +155,7 @@ jobs:
       # Each example is a project of its own, built against the moved package.
       - name: Build the C++ examples
         run: |
-          for d in box lightcone full_recons_lightcone full_recons_box; do
+          for d in box lightcone full_recons_lightcone full_recons_box periodic_box lightcone_cartesian; do
             cmake -S examples/$d -B build-examples/$d -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/moved" \
               -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_CXX_FLAGS="-Wall -Wextra"
             cmake --build build-examples/$d
@@ -164,7 +164,7 @@ jobs:
       # With a fixed seed the C++ and the Python examples write the same files.
       - name: Run the examples, C++ then Python, and compare their outputs
         run: |
-          for d in box lightcone full_recons_lightcone full_recons_box; do
+          for d in box lightcone full_recons_lightcone full_recons_box periodic_box lightcone_cartesian; do
             "./build-examples/$d/$d"
             mv "examples/$d/output" "examples/$d/output-cpp"
             python "examples/$d/$d.py"
@@ -180,12 +180,18 @@ jobs:
           otswap="$RUNNER_TEMP/moved/bin/otswap"
           "$otswap" examples/executable/box.ini
           "$otswap" examples/executable/lightcone.ini
+          "$otswap" examples/executable/periodic_box.ini
+          "$otswap" examples/executable/lightcone_cartesian.ini
           "$otswap" tests/executable/example_box.ini
           "$otswap" tests/executable/example_lightcone.ini
           cmp examples/executable/output/reconstructed_catalogue_box.dat \
             examples/full_recons_box/output-cpp/reconstructed_catalogue_box.dat
           cmp examples/executable/output/reconstructed_catalogue_lightcone.dat \
             examples/full_recons_lightcone/output-cpp/reconstructed_catalogue_lightcone.dat
+          cmp examples/executable/output/reconstructed_catalogue_lightcone_cartesian.dat \
+            examples/lightcone_cartesian/output-cpp/reconstructed_catalogue_lightcone_cartesian.dat
+          cmp examples/executable/output/displacement_mean_periodic_box.dat \
+            examples/periodic_box/output-cpp/displacement_periodic_box.dat
           cmp build-executable-examples/displacement_mean_box.dat examples/box/output-cpp/displacement_box.dat
           cmp build-executable-examples/displacement_mean_lightcone.dat \
             examples/lightcone/output-cpp/displacement_lightcone.dat

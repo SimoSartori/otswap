@@ -77,6 +77,7 @@ passed as `config=` or `correction=`; a flat
 | `Result::mps`, NaN in a lightcone | `Result.mps`, None in a lightcone | |
 | `Result::box`, empty in a lightcone | `Result.box`, None in a lightcone | a copy in Python |
 | `Result::periodic` | `Result.periodic` | False in a lightcone |
+| `Result::cellSide` | `Result.cell_side` | the cell side of the neighbour grids used; None when not made by a reconstruction |
 | `Result::outsideBox` | `Result.outside_box` | a bool view in Python, as `outside_mask` |
 | `Result::outsideDistanceCut` | `Result.outside_distance_cut` | a bool view in Python, as `outside_mask` |
 | `Result::lagrangianDistance` | `Result.lagrangian_distance` | None in a box |

@@ -174,7 +174,9 @@ do.
   bring the mean Lagrangian position closer to the centroid of the tracer's
   Laguerre cell, and need N more randoms each.
 - **`cellSize`** (`cell_size`), default 3 mps: affects the speed only, never
-  the result.
+  the result. In a periodic box the cells divide the shortest side a whole
+  number of times, so the side used can be smaller: `Result::cellSide`
+  (`Result.cell_side`) reports it.
 - **σ of the redshift-space correction:** for coordinates in Mpc/h, 10 Mpc/h
   is a reasonable starting
   value; the best value depends on the sample, and should be checked in each
