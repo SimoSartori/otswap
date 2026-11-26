@@ -243,8 +243,9 @@ Cartesian coordinates: its tracers and randoms converted with the example's
 cosmology, in `examples/data/`, with its cut on the distance; it writes the
 mean displacement, its twin files and the corrected catalogue of the
 `lightcone_cartesian` example, byte for byte, under the executable's file
-names. The fourth reconstructs the halos of the `periodic_box` example in
-their periodic box, and writes its mean displacement. Every key that applies
+names. The fourth reconstructs and corrects the halos of the `periodic_box`
+example in their periodic box, and writes its mean displacement and its
+corrected catalogue, byte for byte, under the executable's file names. Every key that applies
 to the run is set, those at their default included, and those without a
 default as `key =`.
 

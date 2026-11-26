@@ -26,8 +26,10 @@ with 0.3.
   side a whole number of times; the error for a grid too large to address
   covers that reduced side. Not written to files; NaN, None in Python, for a
   result not made by a reconstruction.
-- Examples `periodic_box` and `lightcone_cartesian`, in C++ and Python, and
-  `examples/executable/periodic_box.ini`; the data `periodic_halos.dat`.
+- Examples `periodic_box`, a reconstruction and correction of halos in
+  redshift space in a periodic box, and `lightcone_cartesian`, in C++ and
+  Python, and `examples/executable/periodic_box.ini`; the data
+  `periodic_halos.dat`, real- and redshift-space positions.
 - Periodic correction of redshift-space distortions: `realSpaceBox`
   (`real_space_box`) of a periodic result finds the neighbours across the
   faces and wraps the corrected coordinate into the box. `neighbourAverage`

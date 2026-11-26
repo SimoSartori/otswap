@@ -206,8 +206,10 @@ jobs:
             cmp examples/executable/output/displacement_mean_zspace_lightcone_cartesian$twin.dat \
               examples/lightcone_cartesian/output-cpp/displacement_lightcone_cartesian$twin.dat
           done
-          cmp examples/executable/output/displacement_mean_periodic_box.dat \
+          cmp examples/executable/output/displacement_mean_zspace_periodic_box.dat \
             examples/periodic_box/output-cpp/displacement_periodic_box.dat
+          cmp examples/executable/output/reconstructed_catalogue_periodic_box.dat \
+            examples/periodic_box/output-cpp/reconstructed_catalogue_periodic_box.dat
           cmp build-executable-examples/displacement_mean_box.dat examples/box/output-cpp/displacement_box.dat
           for twin in "" .mps .distances; do
             cmp build-executable-examples/displacement_mean_lightcone$twin.dat \
