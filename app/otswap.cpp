@@ -76,7 +76,9 @@ namespace {
 
   /// When a key applies to a run of one geometry: never, always, or only
   /// with a switch on.
-  enum class Applies { Never, Always, PerformRecons, RandomFile, RejectCrossings };
+  /// SkyInput and CartesianInput are for the lightcone column only: the
+  /// run's lightcone_input is sky, or cartesian.
+  enum class Applies { Never, Always, PerformRecons, RandomFile, RejectCrossings, SkyInput, CartesianInput };
 
   struct Key {
     const char* name;
@@ -88,18 +90,21 @@ namespace {
   /// order of read_run's typed reads, after the switches.
   const Key kKeys[] = {
     {"geometry",                      Applies::Always,        Applies::Always},
+    {"lightcone_input",               Applies::Never,         Applies::Always},
     {"verbosity",                     Applies::Always,        Applies::Always},
     {"tracer_file",                   Applies::Always,        Applies::Always},
     {"column_tracer",                 Applies::Always,        Applies::Always},
     {"id_column",                     Applies::Always,        Applies::Always},
     {"random_file",                   Applies::Always,        Applies::Always},
     {"column_random",                 Applies::RandomFile,    Applies::Always},
-    {"units",                         Applies::Never,         Applies::Always},
+    {"units",                         Applies::Never,         Applies::SkyInput},
     {"delimiter",                     Applies::Always,        Applies::Always},
     {"comment",                       Applies::Always,        Applies::Always},
     {"veto_mask_filename",            Applies::Never,         Applies::Always},
-    {"z_min",                         Applies::Never,         Applies::Always},
-    {"z_max",                         Applies::Never,         Applies::Always},
+    {"z_min",                         Applies::Never,         Applies::SkyInput},
+    {"z_max",                         Applies::Never,         Applies::SkyInput},
+    {"d_min",                         Applies::Never,         Applies::CartesianInput},
+    {"d_max",                         Applies::Never,         Applies::CartesianInput},
     {"Omega_matter",                  Applies::PerformRecons, Applies::Always},
     {"little_h",                      Applies::PerformRecons, Applies::Always},
     {"w0",                            Applies::PerformRecons, Applies::Always},
@@ -134,6 +139,7 @@ namespace {
   /// The switches that decide which keys apply, read before the others.
   struct Switches {
     bool lightcone = false;
+    bool cartesian = false;
     bool performRecons = false;
     bool randomFile = false;
     bool rejectCrossings = false;
@@ -169,6 +175,14 @@ namespace {
         case Applies::RejectCrossings:
           if (!run.rejectCrossings)
             messages.push_back(at + "does not apply to a run without reject_mask_crossings");
+          break;
+        case Applies::SkyInput:
+          if (run.cartesian)
+            messages.push_back(at + "does not apply to a lightcone with lightcone_input = cartesian");
+          break;
+        case Applies::CartesianInput:
+          if (!run.cartesian)
+            messages.push_back(at + "does not apply to a lightcone with lightcone_input = sky");
           break;
       }
     }
@@ -314,7 +328,9 @@ namespace {
 
     std::string maskFile;
     otswap::RedshiftCut cut;
+    otswap::DistanceCut distanceCut;
 
+    bool cosmology = false;
     double omegaM = 0., h = 0., w0 = kDefaultW0, wa = kDefaultWa;
 
     unsigned bins = 0;
@@ -363,21 +379,40 @@ namespace {
       run.randomFile = f.get<std::string>("random_file");
       run.randomColumns = p.three<std::string>("column_random");
     }
-    if (lightcone)
+    if (lightcone && !switches.cartesian)
       run.degrees = p.word("units", {"degrees", "radians"}) == "degrees";
     run.delimiter = f.get<char>("delimiter", run.delimiter);
     run.comment = f.get<char>("comment", run.comment);
 
     if (lightcone) {
       run.maskFile = f.get<std::string>("veto_mask_filename");
-      if (p.given("z_min")) run.cut.min = f.get<double>("z_min");
-      if (p.given("z_max")) run.cut.max = f.get<double>("z_max");
-      if (p.given("z_min") && p.given("z_max") && run.cut.max < run.cut.min)
-        p.fail("z_max", p.written("z_max") + " is below z_min, " + p.written("z_min") + ", at line " +
-               p.line("z_min"));
+      if (!switches.cartesian) {
+        if (p.given("z_min")) run.cut.min = f.get<double>("z_min");
+        if (p.given("z_max")) run.cut.max = f.get<double>("z_max");
+        if (p.given("z_min") && p.given("z_max") && run.cut.max < run.cut.min)
+          p.fail("z_max", p.written("z_max") + " is below z_min, " + p.written("z_min") + ", at line " +
+                 p.line("z_min"));
+      }
+      else {
+        if (p.given("d_min")) run.distanceCut.min = f.get<double>("d_min");
+        if (p.given("d_max")) run.distanceCut.max = f.get<double>("d_max");
+        if (p.given("d_min") && p.given("d_max") && run.distanceCut.max < run.distanceCut.min)
+          p.fail("d_max", p.written("d_max") + " is below d_min, " + p.written("d_min") + ", at line " +
+                 p.line("d_min"));
+      }
     }
 
-    if (lightcone || recons) {
+    // The cosmology builds the distance table. A Cartesian lightcone needs
+    // none to reconstruct: it is built when given, and then fills the
+    // tracers' redshifts, and it is required when the correction runs.
+    run.cosmology = recons || (lightcone && (!switches.cartesian || p.given("Omega_matter") ||
+                                             p.given("little_h")));
+    if (lightcone && !run.cosmology)
+      for (const char* key : {"w0", "wa"})
+        if (f.has(key))
+          p.fail(key, "needs Omega_matter and little_h; the cosmology of a Cartesian lightcone is "
+                 "given in full or not at all");
+    if (run.cosmology) {
       run.omegaM = f.get<double>("Omega_matter");
       p.require("Omega_matter", run.omegaM > 0. && run.omegaM <= 1., "in (0, 1]");
       run.h = f.get<double>("little_h");
@@ -505,9 +540,11 @@ namespace {
     switches.lightcone = p.word("geometry", {"box", "lightcone"}) == "lightcone";
     switches.performRecons = parameters.get<bool>("perform_recons", false);
     switches.randomFile = p.given("random_file");
-    if (switches.lightcone)
+    if (switches.lightcone) {
+      switches.cartesian = p.word("lightcone_input", {"sky", "cartesian"}, "sky") == "cartesian";
       switches.rejectCrossings = parameters.get<bool>("reject_mask_crossings",
                                                       otswap::Config{}.rejectCrossings);
+    }
 
     std::vector<std::string> irrelevant = irrelevant_keys(parameters, file, switches);
     if (!irrelevant.empty()) {
@@ -535,7 +572,7 @@ namespace {
       p.fail("output_dir", "cannot create the directory " + run.outputDir + ": " + error.message());
 
     std::optional<otswap::DistanceTable> distances;
-    if (run.switches.lightcone || run.switches.performRecons)
+    if (run.cosmology)
       distances.emplace(run.omegaM, run.h, run.w0, run.wa);
     std::optional<otswap::Mask> mask;
     if (run.switches.lightcone) mask.emplace(run.maskFile);
@@ -557,14 +594,18 @@ namespace {
       tracers = otswap::io::read(run.tracerFile, run.tracerColumns, run.delimiter, run.comment).values;
     if (run.randomFile)
       randoms = otswap::io::read(*run.randomFile, run.randomColumns, run.delimiter, run.comment).values;
-    if (run.switches.lightcone && run.degrees) {
+    if (run.switches.lightcone && !run.switches.cartesian && run.degrees) {
       tracers = otswap::skyToRadians(std::move(tracers));
       randoms = otswap::skyToRadians(std::move(randoms));
     }
 
     otswap::Result result =
       run.switches.lightcone
-        ? otswap::reconstructLightcone(tracers, randoms, *mask, run.bins, *distances, run.config, run.cut)
+        ? (run.switches.cartesian
+             ? otswap::reconstructLightcone(tracers, randoms, *mask, run.bins, run.config,
+                                            distances ? &*distances : nullptr, run.distanceCut)
+             : otswap::reconstructLightcone(tracers, randoms, *mask, run.bins, *distances, run.config,
+                                            run.cut))
         : run.mps ? otswap::reconstructBox(tracers, randoms, *run.mps, run.config, run.limits, run.periodic)
                   : otswap::reconstructBox(tracers, randoms, run.config, run.limits, run.periodic);
     if (run.idColumn) result.ids = std::move(ids);
@@ -583,7 +624,7 @@ namespace {
       wrote(path("displacement_mean_" + zspace));
       if (run.switches.lightcone && run.extension == "dat") {
         wrote(path("displacement_mean_" + zspace, ".mps"));
-        wrote(path("displacement_mean_" + zspace, ".distances"));
+        if (distances) wrote(path("displacement_mean_" + zspace, ".distances"));
       }
     }
     if (run.printComplete) {
@@ -591,7 +632,7 @@ namespace {
       wrote(path("displacement_complete_" + zspace));
       if (run.switches.lightcone && run.extension == "dat") {
         wrote(path("displacement_complete_" + zspace, ".mps"));
-        wrote(path("displacement_complete_" + zspace, ".distances"));
+        if (distances) wrote(path("displacement_complete_" + zspace, ".distances"));
       }
     }
     if (run.printMps && !run.printMean && !run.printComplete) {

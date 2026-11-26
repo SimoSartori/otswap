@@ -384,6 +384,16 @@ namespace otswap {
    *  also the d(z_i) of step 4. The right ascension and declination are
    *  always those of tracersSky.
    *
+   *  A tracer that has a redshift is moved from the distance
+   *  @p distances gives at that redshift, one without from its position's
+   *  distance, so a Cartesian result built with a distance table and the
+   *  same result built without one can differ in the corrected positions.
+   *  The two distances are the same to rounding, since redshifts and
+   *  distances are interpolated linearly between the same nodes of the
+   *  table: the difference is of the order of 1e-15 in relative terms at
+   *  most, and the corrected positions of the lightcone example are
+   *  identical.
+   *
    *  On a Result read by io::readDisplacementComplete the correction is
    *  that of the reconstruction itself, bit for bit, but for the right
    *  ascension and declination of RealSpaceCatalog::sky, which match
