@@ -38,16 +38,17 @@ Solving the full variational problem is demanding. otswap builds instead on
 the pairwise-swapping concept of the Particle Interchange Zel'dovich
 Approximation, PIZA (Croft & Gaztañaga 1997), further refined by Elyiv et al.
 (2015): pairs are swapped so as to reduce the total cost. The scheme of
-Sartori et al. (2026), developed independently and implemented in
-CosmoBolognaLib (Marulli et al. 2016), swaps quartets rather than pairs. It
+Sartori et al. (2026), implemented in CosmoBolognaLib (Marulli et al. 2016),
+swaps quartets rather than pairs. It
 works in two phases.
 
 1. **First guess.** A local first guess matches each tracer to a nearby free
    random: each starting tracer first with its nearest free random, so that
    every tracer leaves this phase with a partner, then up to 31 pairs per
    starter, within 8 mean particle separations.
-2. **Local search.** Each sweep visits every tracer, takes three of its 113
-   nearest tracers, tries the 24 permutations of the four partners and keeps
+2. **Local search.** Each sweep visits every tracer, draws three at random
+   among its 113 nearest tracers, the number a sphere of radius 3 mean
+   particle separations holds at mean density, tries the 24 permutations of the four partners and keeps
    the best. The sweeps continue until the fraction of successful swaps in a
    sweep, swaps per tracer visited, no longer exceeds a chosen threshold,
    `convergence`.
@@ -71,10 +72,13 @@ minimum-image vector, at most half a period on each axis.
 The reconstruction is repeated on independent sets of $N$ points extracted
 from the random catalogue. A tracer's displacement is the mean, over the
 realizations valid for it, of the vector from the tracer to its partner; the
-mask filter below can make a realization invalid for a tracer. As the number
-of realizations grows, the mean Lagrangian position tends to the centroid of
-the equal-volume Laguerre cell that optimal transport assigns to the tracer:
-the Lagrangian volume from which the observed object has evolved.
+mask filter below can make a realization invalid for a tracer. The mean
+Lagrangian position approximates the centroid of the equal-volume Laguerre
+cell that optimal transport assigns to the tracer: the Lagrangian volume from
+which the observed object has evolved. It would tend to that centroid as the
+number of realizations grows if each assignment were optimal; the local search
+gives an approximate assignment, and the mean an approximation of the
+centroid.
 
 ## The lightcone
 
@@ -99,13 +103,13 @@ number of pixels.
 A tracer's mean displacement points to the centroid of the Lagrangian volume
 it evolved from, so the displacement field estimates the large-scale motion
 that carried each tracer from the initial state to where it is observed.
-otswap provides
-two uses of it.
+The displacement field has two uses.
 
 ### The input of a void finder
 
-The displacement field is the input of the Back-in-time Void Finder, which
-identifies voids dynamically from it (Sartori et al. 2026).
+The displacement field is the input of the Back-in-time Void Finder, a
+separate package built on otswap, which identifies voids dynamically from it
+(Sartori et al. 2026).
 
 ### Redshift-space correction
 
@@ -171,17 +175,19 @@ $$
 
 where otswap's displacement points from the observed to the reconstructed
 position, backward in time, which accounts for the sign, and
-$\langle\,\rangle_i$ is a gaussian average of width $\sigma$ over the tracers
-around $i$, which keeps the correction on the scales where linear theory
-holds. In a lightcone the line of sight is each tracer's own direction, and
-the tracer moves to the redshift of comoving distance $d(z_i) + s_i$; in a box
-it is a Cartesian axis. $f$ comes from the distance table and $b(z)$ from a
-table of the tracers' bias.
+$\langle\,\rangle_i$ is a gaussian average of width $\sigma$, in coordinate
+units, over the valid tracers within $3\sigma$ of $i$, which keeps the
+correction on the scales where linear theory holds; a tracer with no valid
+tracer within $3\sigma$ is not moved. In a lightcone the line of sight is each
+tracer's own direction, the tracer moves to the redshift of comoving distance
+$d(z_i) + s_i$, $f$ comes from the distance table and $b(z)$ from a table of
+the tracers' bias; in a box the line of sight is a Cartesian axis, and $f$ and
+$b$ are those of the box's single redshift.
 
 ## Parameters
 
 The choice of the parameters is discussed in Appendix B of Sartori et al.
-(2026). The guide lists the ones that matter and what each one changes.
+(2026); the [guide](guide.md#choosing-the-parameters) gives advice on each.
 
 ## References
 

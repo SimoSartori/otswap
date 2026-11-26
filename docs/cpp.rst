@@ -211,11 +211,10 @@ otswap/Maths.h
 otswap/Random.h
 ---------------
 
-Not included by ``otswap/OT.h``. Random draws over ``std::mt19937`` that give
-the same values on every supported platform and compiler, unlike the standard
-distributions and ``std::shuffle``. Their algorithms are fixed: no later
-version changes them, so a program that draws with them keeps its values when
-otswap is updated.
+Not included by ``otswap/OT.h``.
+
+.. doxygenfile:: Random.h
+   :sections: briefdescription detaileddescription
 
 .. doxygenfunction:: otswap::uniformInt
 

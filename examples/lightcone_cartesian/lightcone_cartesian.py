@@ -69,8 +69,10 @@ def main():
     # ----------------------------------------------------
 
     # The table gives the linear growth rate f(z) of the correction, and the
-    # redshifts of the result. It must cover the corrected distances too:
-    # the default range, z = 0 to 10, leaves room for that
+    # redshifts of the result. Its distances are in Mpc/h, so the
+    # coordinates must be in Mpc/h too: the unit of the coordinates is that
+    # of any distance table used with them. It must cover the corrected
+    # distances too: the default range, z = 0 to 10, leaves room for that
     distances = otswap.DistanceTable.flat(0.286, 0.7, w0=-1.0, wa=0.0)
 
     # ------------------------------------------------
@@ -78,7 +80,10 @@ def main():
     # ------------------------------------------------
 
     # 8 realizations, a convergence threshold of 1e-2, a fixed seed, and the
-    # displacements crossing an unobserved pixel of the mask rejected.
+    # displacements crossing an unobserved pixel of the mask rejected. 8
+    # realizations, which the example randoms are enough for, and 1e-2 keep
+    # the example fast; for an analysis, start from the defaults, 30 and
+    # 1e-3 (the guide's section "Choosing the parameters").
     #
     # The mean particle separation is measured in 30 distance bins of equal
     # width, each with enough tracers. A cut on the comoving distance, the
@@ -128,7 +133,10 @@ def main():
 
     # The mean displacement, with the mps(d) profile and the distance table
     # in twin files, and the corrected catalogue; the columns are those of
-    # the lightcone and full_recons_lightcone examples. The writers are the
+    # the lightcone and full_recons_lightcone examples, but the mean file
+    # adds the column outsideDistanceCut, and the profile is binned in
+    # distance: a column distance and the keywords DISTMIN and DISTMAX, in
+    # coordinate units, instead of the redshift ones. The writers are the
     # C++ library's, so the files are the C++ example's, byte for byte
     otswap.io.write_displacement_mean(output / "displacement_lightcone_cartesian.dat", result)
     otswap.io.write_real_space_catalog(output / "reconstructed_catalogue_lightcone_cartesian.dat", catalogue)

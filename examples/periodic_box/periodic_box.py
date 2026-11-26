@@ -7,9 +7,9 @@
 
 """This example explains how to reconstruct the displacement field of halos
 in a cube with periodic boundary conditions, such as a simulation box. The
-box is given by its limits; every distance is then the minimum image, so
-nothing is cut at the faces and the displacements are as reliable at the
-faces as inside, and modes on the scale of the box are reconstructed.
+box is given by its limits; every distance is then the minimum image, so no
+face is a boundary: a tracer near a face may be matched to a random near the
+opposite one, as anywhere else in the box.
 
 Each side of a periodic box must be an integer multiple of the shortest one,
 so a cube, or a cuboid such as 500 x 500 x 1000, is accepted. Tracers
@@ -59,10 +59,13 @@ def main():
 
     # n_realizations: independent realizations, each on its own set of
     # randoms. With no randoms given, as here, otswap draws them itself,
-    # uniformly in the box, a different set for each realization.
+    # uniformly in the box, a different set for each realization; 8
+    # realizations keep the example fast.
     #
     # convergence: the sweeps stop once the fraction of successful swaps in
-    # a sweep no longer exceeds this threshold; the default is 1e-3.
+    # a sweep no longer exceeds this threshold; 1e-2 keeps the example fast.
+    # For an analysis, start from the defaults, 30 realizations and 1e-3:
+    # the guide's section "Choosing the parameters" advises on both.
     #
     # seed: a fixed seed makes the run reproducible, whatever the number of
     # threads.
@@ -105,8 +108,9 @@ def main():
 
     # One row per tracer, in the order of the input: its position, its mean
     # Lagrangian position, wrapped into the box, the mean displacement and
-    # the number of valid realizations, with a header giving the units, the
-    # box, the periodicity and the parameters of the run. The writer is the
+    # the number of valid realizations, with a header describing the columns
+    # (lengths in coordinate units), the box, the periodicity and the
+    # parameters of the run. The writer is the
     # C++ library's, so the file is the C++ example's, byte for byte
     otswap.io.write_displacement_mean(output / "displacement_periodic_box.dat", result)
 

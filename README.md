@@ -3,45 +3,49 @@
 <!-- docs:about-start -->
 otswap reconstructs the Lagrangian displacement field of a catalogue of
 large-scale structure tracers, such as galaxies, quasars or dark matter
-haloes, by discrete optimal transport. Each tracer is paired one to one
+halos, by discrete optimal transport. Each tracer is paired one to one
 with a point drawn from a random catalogue that samples the same volume
-uniformly, standing for the homogeneous initial conditions, so that the
-sum of squared comoving distances between paired points is minimal. The
-pairing starts from a local first guess, which matches each tracer to a
-nearby free random, and is then refined by sweeps of local swaps: for
-four neighbouring tracers, all 24 permutations of their partners are
-tried and the cheapest is kept, until the fraction of successful swaps
-in a sweep no longer exceeds a chosen threshold.
+uniformly, standing for the homogeneous initial conditions, the pairing
+being chosen to make the sum of squared distances between paired points
+small. The pairing starts from a local first guess, which matches each
+tracer to a nearby free random, and is then refined by sweeps of local
+swaps: for four neighbouring tracers, all 24 permutations of their
+partners are tried and the cheapest is kept, until the fraction of
+successful swaps in a sweep no longer exceeds a chosen threshold. This
+local search gives an approximate solution of the assignment problem, not
+the exact optimum (see the [method](https://simosartori.github.io/otswap/method.html)
+page).
 
 The reconstruction is repeated on independent sets of N points extracted
 from the random catalogue. A tracer's displacement is the mean, over
-these realizations, of the vector from the tracer to its partner. As the
-number of realizations grows, the mean Lagrangian position tends to the
-centroid of the equal-volume Laguerre cell that optimal transport
-assigns to the tracer: the Lagrangian volume from which the observed
-object has evolved.
+these realizations, of the vector from the tracer to its partner; the
+mean Lagrangian position approximates the centroid of the Lagrangian
+volume from which the observed object has evolved, as the method page
+explains.
 
 otswap is built for survey data as much as for simulations. It handles
-boxes and lightcones; in a lightcone the footprint enters through a
+boxes, periodic or not, and lightcones given on the sky or in comoving
+Cartesian coordinates; in a lightcone the footprint enters through a
 HEALPix mask and through a random catalogue reproducing the selection
-function, with an optional redshift cut, and displacements crossing
-unobserved regions are rejected. From the reconstructed displacements it
-corrects the catalogue for redshift-space distortions, given a fiducial
-cosmology and a bias b(z), and it writes its results as ASCII or FITS
-tables. Results are identical bit for bit on every supported platform
-and compiler, whatever the number of threads (see Reproducibility).
-C++17, with a Python package on the same code.
+function, with an optional cut in redshift or distance, and
+displacements crossing unobserved regions are rejected. From the
+reconstructed displacements it corrects the catalogue for redshift-space
+distortions, given a fiducial cosmology and a bias b(z), and it writes
+its results as ASCII or FITS tables. Results are identical bit for bit
+on every supported platform and compiler, whatever the number of
+threads. C++17, with a Python package on the same code.
 <!-- docs:about-end -->
 
 It is the middle of three packages: it depends on
 [meshsearch](https://github.com/SimoSartori/meshsearch) for its neighbour
 searches, and the Back-in-time Void Finder will be built on it. A version of
-it is included in CosmoBolognaLib; otswap depends on nothing from it.
+it is included in CosmoBolognaLib, on which it does not depend.
 
 Documentation, for both APIs: **<https://simosartori.github.io/otswap/>**
 
 ## Install
 
+<!-- docs:install-start -->
 ```
 pip install otswap
 ```
@@ -87,6 +91,7 @@ target_link_libraries(your_target PRIVATE otswap::otswap)
 Configure your project with `-DCMAKE_PREFIX_PATH=/path/to/prefix`. otswap can
 also be built as part of your project, with `add_subdirectory` or
 FetchContent, and the same target.
+<!-- docs:install-end -->
 
 ## Reproducibility
 
@@ -97,8 +102,7 @@ the result, so any run can be repeated. Every translation unit is compiled with
 `-ffp-contract=off`, and the math functions the results depend on come from a
 vendored copy of the FreeBSD msun library rather than from the platform
 library, so the same inputs give the same bits on every supported platform and
-compiler. Every translation unit is also compiled with `-fno-math-errno`, which
-makes the code faster without changing any result.
+compiler.
 <!-- docs:reproducibility-end -->
 
 ## Tests
@@ -125,10 +129,12 @@ print(result.mean_displacement[:3])
 otswap.io.write_displacement_mean("displacements.dat", result)
 ```
 
-`examples/` holds four examples, each in C++ and in Python, with the data to
-run them: box and lightcone reconstructions, and the redshift-space correction
-in each geometry. The documentation walks through them. `examples/executable/`
-holds a commented parameter file per geometry for the `otswap` executable,
+`examples/` holds six examples, each in C++ and in Python, with the data to
+run them: reconstructions in a box, a periodic box, a lightcone on the sky and
+a lightcone in Cartesian coordinates, and the redshift-space correction in a
+box and in a lightcone. The documentation walks through them.
+`examples/executable/` holds four commented parameter files (box, periodic box,
+lightcone, Cartesian lightcone) for the `otswap` executable,
 which runs a reconstruction and the correction with no code to write:
 
 ```
@@ -137,14 +143,10 @@ otswap examples/executable/box.ini
 
 ## Python
 
-Coordinates are NumPy arrays of shape (N, 3). Cartesian coordinates, and
-every length, are in coordinate units: the unit of the tracers given in a box,
-that of the distance table in a lightcone (Mpc/h from `DistanceTable.flat`);
-sky coordinates are ordered right ascension, declination, redshift, with
-the angular unit given explicitly by `angle_unit`. Inputs are converted to
-float64; the reconstruction works on its own copy of them. The number of
-threads follows `OMP_NUM_THREADS`, and the reconstruction functions release the
-GIL while they run. Tables are read and written by `otswap.io`.
+Coordinates are NumPy arrays of shape (N, 3), sky coordinates ordered right
+ascension, declination, redshift, with the angular unit given explicitly by
+`angle_unit`; lengths are in coordinate units, as the guide's "Coordinates and
+units" describes. Tables are read and written by `otswap.io`.
 
 ## Citing
 

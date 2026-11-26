@@ -67,17 +67,8 @@ namespace otswap {
      *  @brief A parameter file: one `key = value` per line, read once by the
      *  constructor and typed at each read.
      *
-     *  Syntax:
-     *  - one `key = value` per line; a key holds letters, digits and `_`, does
-     *    not start with a digit, and is case-sensitive; each key at most once;
-     *  - outside double quotes, `#` opens a comment that runs to the end of the
-     *    line, also after a value; blank and comment lines are skipped;
-     *  - a value is a list of elements separated by spaces or tabs; double
-     *    quotes group an element that holds spaces, tabs or `#`, and do not
-     *    change its meaning (`"5"` is 5, `"true"` is true); there is no escape,
-     *    so an element cannot hold a double quote; single quotes, braces and
-     *    commas are ordinary characters;
-     *  - `key =` gives an empty list, `key = ""` one empty element.
+     *  The syntax (keys, comments, quoting, lists) is described on the
+     *  documentation page "File formats", section "Parameter files".
      *
      *  A scalar read requires exactly one element; a std::vector read takes
      *  every element. The types are std::string, bool (`true` or `false`), int,
@@ -96,8 +87,8 @@ namespace otswap {
 
       /// A key of the file and the line, from 1, that sets it.
       struct Entry {
-        std::string key;
-        std::size_t line;
+        std::string key;    ///< the key
+        std::size_t line;   ///< the line, from 1, that sets it
       };
 
       /// Reads and checks the syntax of the whole file.

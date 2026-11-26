@@ -12,25 +12,9 @@ applies to both.
 
 ## Install
 
-```
-pip install otswap
-```
-
-For the C++ library, build and install it with CMake; it needs GCC or Clang
-(C, and C++17) and cfitsio, uses OpenMP when found, and fetches meshsearch
-when it is not installed:
-
-```
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-cmake --install build --prefix /path/to/prefix
-```
-
-and use it from your own CMake project:
-
-```cmake
-find_package(otswap 0.3 CONFIG REQUIRED)
-target_link_libraries(your_target PRIVATE otswap::otswap)
+```{include} ../README.md
+:start-after: <!-- docs:install-start -->
+:end-before: <!-- docs:install-end -->
 ```
 
 ## In a few lines
@@ -50,7 +34,7 @@ import otswap
 config = otswap.Config(n_realizations=8, seed=12345)
 
 result = otswap.reconstruct_box(tracers, config=config)
-print(result.mean_displacement[0])
+print(result.mean_displacement[0])   # tracer 0
 otswap.io.write_displacement_mean("displacements.dat", result)
 ```
 :::
@@ -59,6 +43,7 @@ otswap.io.write_displacement_mean("displacements.dat", result)
 :sync: cpp
 
 ```cpp
+#include <iostream>
 #include "otswap/OT.h"
 
 otswap::Config config;
@@ -66,7 +51,8 @@ config.nRealizations = 8;
 config.seed = 12345;
 
 otswap::Result result = otswap::reconstructBox(tracers, {}, config);
-std::cout << result.meanDisplacement[0] << '\n';
+std::cout << result.meanDisplacement[0] << ' ' << result.meanDisplacement[1]
+          << ' ' << result.meanDisplacement[2] << '\n';   // tracer 0
 otswap::io::writeDisplacementMean("displacements.dat", result);
 ```
 :::

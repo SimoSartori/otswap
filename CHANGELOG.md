@@ -39,7 +39,8 @@ with 0.3.
   matching `measureMpsProfile` overloads (Python
   `reconstruct_lightcone_cartesian`, `measure_mps_profile_cartesian`). The
   mps is measured in bins of comoving distance from the origin, a profile in
-  distance (`MpsProfile::distance`, `distanceMin`, `distanceMax`); the mask
+  distance (`MpsProfile::distance`, `distanceMin`, `distanceMax`; Python
+  `distance`, `distance_min`, `distance_max`); the mask
   is applied on the angles of `pointToSky`. The optional distance table
   plays no part in the reconstruction: it fills the redshifts of
   `tracersSky` and `lagrangianSky`, NaN without it, and is kept in the
@@ -49,7 +50,9 @@ with 0.3.
   `(min, max)`), the cut in comoving distance of the Cartesian overloads.
   Tracers outside it keep their row, flagged in `Result::outsideDistanceCut`
   (`outside_distance_cut`); `SelectionCounts` gains `distanceCut`,
-  `tracersOutsideDistanceCut` and `randomsOutsideDistanceCut`.
+  `tracersOutsideDistanceCut` and `randomsOutsideDistanceCut`
+  (`distance_cut`, `tracers_outside_distance_cut`,
+  `randoms_outside_distance_cut`).
   `Result.from_arrays` takes `outside_distance_cut=`.
 - `realSpaceLightcone` (`real_space_lightcone`) corrects the result of a
   Cartesian overload: a tracer's redshift is read from `tracersSky` when it
@@ -83,13 +86,24 @@ with 0.3.
 - **Breaking:** the layouts of `Result`, `SelectionCounts` and `MpsProfile`
   gain the fields above. A nanobind module or a program built against the
   headers of 0.3 must be rebuilt.
-- **Breaking:** `MpsProfile::at` takes `value`, a redshift or a distance as
-  the profile is; Python code that called `at(z=...)` must call `at(value)`
-  or `at(value=...)`. It raises when a profile holds both redshift and
-  distance nodes.
+- **Breaking:** the CMake package answers requests for 0.4
+  (`find_package(otswap 0.4 CONFIG)`); a request for 0.3,
+  `find_package(otswap 0.3 CONFIG)`, does not find 0.4.0.
+- **Breaking (Python):** `MpsProfile.at` takes `value`, a redshift or a
+  distance as the profile is: code that called `at(z=...)` must call
+  `at(value)` or `at(value=...)`; positional calls are unaffected. In C++
+  only the parameter name of `MpsProfile::at` changed. `at` raises when a
+  profile holds both redshift and distance nodes.
 - `Config::cellSize` (`cell_size`) defaults to 3, was 4, and the
   executable's `mesh_cellsize` with it. The cell size changes the speed
-  only: results are unchanged.
+  only: results are unchanged. The files of a run with the default record
+  `CELLSIZE = 3`.
+- `CorrectionStatus::LeftOut` (`LEFT_OUT`) also covers the tracers left out
+  by the distance cut.
+- The displacement writers refuse a periodic result whose flags are not
+  consistent (not a box, no limits, a tracer flagged outside the box);
+  `writeMpsProfile` refuses a profile holding both redshift and distance
+  nodes.
 - `writeDisplacementMean` in ASCII rounds the box keywords `BOXXLO` to
   `BOXZHI` of a box that is not periodic outward to the 9 significant
   digits of the coordinates, so the tracers as written lie within the
@@ -98,6 +112,11 @@ with 0.3.
   differ from those of 0.3 in the last digit.
 - `uniformInt` is defined inline in `otswap/Random.h`; its values are
   unchanged.
+- The package metadata lists classifiers: Python 3.10 to 3.14, Linux and
+  macOS, astronomy and physics. The supported Python versions are
+  unchanged.
+- Continuous integration builds and tests the Python package in a clean
+  environment with Python 3.10, 3.12 and 3.14, on Linux and macOS.
 - `tools/wheels/build_deps.sh` downloads zlib from zlib.net, then its
   fossils directory, then GitHub, with the same SHA-256.
 - The guide states that a `Result` must not be read from one thread while

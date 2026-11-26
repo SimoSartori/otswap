@@ -23,9 +23,9 @@ described on the [file formats](formats.md#parameter-files) page: one
 holds spaces. `key =`, with no value, means "none" for the keys whose default
 is none (`id_column`, `random_file` in a box, `z_min`, `z_max`, `d_min`, `d_max`, `box_min`,
 `box_max`, `mps`), the same as leaving the key out; any other key needs a
-value. Two commented files, one per geometry, are in
-{repo-tree}`examples/executable`, at the end of this page, with a third for a
-lightcone given in Cartesian coordinates.
+value. Four commented files, for a box, a periodic box, a lightcone on the sky
+and a lightcone in Cartesian coordinates, are in
+{repo-tree}`examples/executable`, at the end of this page.
 
 ## What it does
 
@@ -88,7 +88,9 @@ to stderr, in lines that start with `otswap: ` and not with
 
 A key that is not listed here is an error (`unknown key`), and so is a key
 that does not apply to the run (`does not apply to a box`, `to a lightcone`,
-or `to a run without <switch>`): an applies-to column below marks with *B*
+or `to a run without <switch>`, and, for a key of the other kind of lightcone
+input, `does not apply to a lightcone with lightcone_input = sky` or `=
+cartesian`): an applies-to column below marks with *B*
 the keys of a box, with *L* those of a lightcone, and with a switch those
 that apply only when it is on: `perform_recons = true`, `random_file` set,
 `reject_mask_crossings = true`, or, for a lightcone, `lightcone_input = sky`
@@ -151,44 +153,40 @@ and `little_h`, both or neither, builds the table, which then fills the
 redshift of each tracer, written in the displacement files with the table
 itself; without it the redshifts are NaN. The cosmology is required with
 `perform_recons`, whose correction needs the growth rate f(z) and the bias
-b(z) at the tracers' redshifts. The corrected positions of a Cartesian run
-with the table and without it agree to rounding.
+b(z) at the tracers' redshifts.
 
 ### Reconstruction
 
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
-| `Nrec` | unsigned | 30 | B, L | the number of realizations, at least 1 |
-| `threshold` | double | 1e-3 | B, L | the convergence threshold of the swap loop, strictly between 0 and 1 |
+| `Nrec` | unsigned | 30 | B, L | the number of realizations, at least 1; see the [guide](guide.md#choosing-the-parameters) |
+| `threshold` | double | 1e-3 | B, L | the convergence threshold of the swap loop, strictly between 0 and 1; see the [guide](guide.md#choosing-the-parameters) |
 | `seed` | unsigned | 0 | B, L | the seed of the random streams; 0 draws one, written in the displacement files |
 | `mesh_cellsize` | double | 3 | B, L | the grid cell size, in mean particle separations, positive; it changes the speed only |
-| `bins` | unsigned | required | L | the bins of the mean particle separation profile, at least 1: redshift bins on the sky, distance bins with `lightcone_input = cartesian` |
+| `bins` | unsigned | required | L | the bins of the mean particle separation profile, at least 1: redshift bins on the sky, distance bins with `lightcone_input = cartesian`; see the [guide](guide.md#choosing-the-parameters) |
 | `reject_mask_crossings` | bool | true | L | reject a displacement whose path crosses unobserved pixels |
-| `max_unobserved_pixels_crossed` | unsigned | 0 | L with `reject_mask_crossings` | the unobserved pixels in a row a path may cross; 0 rejects at the first |
+| `max_unobserved_pixels_crossed` | unsigned | 0 | L with `reject_mask_crossings` | the unobserved pixels in a row a path may cross; 0 rejects at the first; see the [guide](guide.md#choosing-the-parameters) |
 | `box_min` | 3 doubles | none | B | the lower x, y, z of the box, in coordinate units; with `box_max` or not at all |
 | `box_max` | 3 doubles | none | B | the upper x, y, z, each above `box_min`'s |
-| `mps` | double | none, measured | B | the mean particle separation, in coordinate units, positive |
-| `periodic` | bool | false | B | the box is periodic: tracers and randoms outside it are wrapped into it, distances are minimum-image; requires `box_min` and `box_max`, each side an integer multiple of the shortest |
+| `mps` | double | none: (V/N)^(1/3) | B | the mean particle separation, in coordinate units, positive |
+| `periodic` | bool | false | B | the box is periodic: tracers and randoms outside it are wrapped into it, distances are minimum-image; requires `box_min` and `box_max`, each side an integer multiple of the shortest; see the [guide](guide.md#choosing-the-parameters) |
 
 Without `box_min` and `box_max` the box is the bounding box of the tracers and
 the randoms of `random_file`, or of the tracers alone without it. The
-[guide](guide.md) describes each parameter of the reconstruction.
+[guide](guide.md#choosing-the-parameters) gives advice on choosing the
+parameters.
 
 ### RSD correction
 
 | Key | Type | Default | Applies to | Meaning |
 |---|---|---|---|---|
 | `perform_recons` | bool | false | B, L | correct the tracers for redshift-space distortions after the reconstruction |
-| `rsd_smoothing_scale` | double | required | B, L with `perform_recons` | the width σ of the gaussian average of the displacements, in coordinate units (Mpc/h in a lightcone), non-negative; 0 for no average |
-| `rsd_weight_by_realizations` | bool | false | B, L with `perform_recons` | weight each neighbour by its number of valid realizations |
+| `rsd_smoothing_scale` | double | required | B, L with `perform_recons` | the width σ of the gaussian average of the displacements, in coordinate units: Mpc/h in a lightcone on the sky, the unit of the input coordinates otherwise; non-negative, 0 for no average; see the [guide](guide.md#choosing-the-parameters) |
+| `rsd_weight_by_realizations` | bool | false | B, L with `perform_recons` | weight each neighbour by its number of valid realizations; see the [guide](guide.md#choosing-the-parameters) |
 | `redshift` | double | required | B with `perform_recons` | the box's redshift, in [0, 10] |
 | `bias` | double | required | B with `perform_recons` | the tracers' linear bias, positive |
 | `los_axis` | unsigned | required | B with `perform_recons` | the line of sight: 0, 1 or 2 for x, y or z |
 | `bias_file` | string | required | L with `perform_recons` | the bias b(z): ASCII columns 0 and 1, redshift and bias, or a FITS table with `REDSHIFT` and `BIAS` |
-
-For coordinates in Mpc/h, 10 Mpc/h is a reasonable starting value for
-`rsd_smoothing_scale`, but the
-best value depends on the sample and should be checked in each analysis.
 
 ### Output
 

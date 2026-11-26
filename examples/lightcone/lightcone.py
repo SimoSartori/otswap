@@ -95,11 +95,15 @@ def main():
     # n_realizations: independent realizations. Each one consumes as many
     # randoms as there are tracers, disjoint from those of the others, so
     # the randoms kept must number at least n_realizations times the
-    # tracers kept.
+    # tracers kept. The catalogue read here holds 242,548 randoms for 29,579
+    # tracers, all kept by the mask and the redshift cut: enough for 8
+    # realizations.
     #
     # convergence: the sweeps stop once the fraction of successful swaps in a
     # sweep, swaps per tracer visited, no longer exceeds this threshold.
-    # Larger values are faster and less accurate; the default is 1e-3.
+    # Larger values are faster and less accurate; 1e-2 keeps the example
+    # fast. For an analysis, start from the defaults, 30 realizations and
+    # 1e-3: the guide's section "Choosing the parameters" advises on both.
     #
     # seed: a fixed seed makes the run reproducible; 0 draws a new seed at
     # each run, and result.config.seed records the one drawn. The number
@@ -179,8 +183,9 @@ def main():
     # and those of its mean Lagrangian position, in degrees, its Cartesian
     # position, its mean Lagrangian position and its mean displacement, in
     # Mpc/h, its number of valid realizations and the two selection flags,
-    # with a header giving the units and the parameters of the run, and, in
-    # two twin files, the mps(z) profile and the distance table, so that
+    # with a header describing the columns (angles in degrees, lengths in
+    # coordinate units) and the parameters of the run, and, in two twin
+    # files, the mps(z) profile and the distance table, so that
     # otswap.io.read_displacement_mean reads the file back whole. A tracer
     # left out, or without a valid realization, has NaN Lagrangian
     # coordinates and displacement. The writer is the C++ library's, so the

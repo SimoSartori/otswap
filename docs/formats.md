@@ -57,10 +57,12 @@ The other inputs:
 - **A bias table:** b(z) at redshift nodes, read by
   {cpp:func}`otswap::io::readBiasTable` and {py:func}`otswap.io.read_bias_table`:
   FITS from the columns `REDSHIFT` and `BIAS`, ASCII from the first two
-  columns.
+  columns; the bias is dimensionless.
 - **A distance table:** computed from a flat cosmology, or built from the
   caller's own columns ({py:meth}`otswap.DistanceTable.from_table`), for
-  example read with `read`.
+  example read with `read`. Its distances set the coordinate units of a lightcone given
+  on the sky (Mpc/h from the cosmology); with Cartesian coordinates they must
+  be in the unit of the coordinates.
 
 ## The two layouts
 
@@ -86,14 +88,11 @@ The two displacement files have their readers, which rebuild a `Result`:
 
 | C++ | Python | Reads |
 |---|---|---|
-| `io::readDisplacementMean` | `io.read_displacement_mean` | a mean displacement file, of this version or of otswap 0.2, as a `Result` of one realization holding the mean |
-| `io::readDisplacementComplete` | `io.read_displacement_complete` | a complete displacement file, of this version or of otswap 0.1 |
+| `io::readDisplacementMean` | `io.read_displacement_mean` | a mean displacement file of otswap 0.2 or later, as a `Result` of one realization holding the mean |
+| `io::readDisplacementComplete` | `io.read_displacement_complete` | a complete displacement file of otswap 0.1 or later |
 
-The mean file is written with 9 significant digits in ASCII, so the
-positions, displacements and sky coordinates read back from it are those
-written within that rounding; FITS stores the doubles themselves, and the
-profile and distance table of a lightcone are written with 17 digits in
-both. The complete file is lossless in both formats.
+The complete file is lossless in both formats; the precision of the mean file
+is given under {cpp:func}`otswap::io::writeDisplacementMean` below.
 
 A periodic box and a lightcone given in Cartesian coordinates are written in
 the same files, with what tells them apart: the keyword `PERIODIC` and the

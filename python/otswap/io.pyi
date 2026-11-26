@@ -393,7 +393,8 @@ def write_displacement_mean(
     - ``"displacement"``: displX, displY, displZ, ``Result.mean_displacement``;
     - ``"valid_realizations"``: nValidRec;
     - ``"selection"``: outsideRedshiftCut, outsideMask (0 or 1), and
-      outsideDistanceCut for a result of Cartesian tracers (as in
+      outsideDistanceCut for a lightcone result whose ``mps_profile`` is in
+      distance or that flags a tracer in ``outside_distance_cut`` (as in
       ``write_displacement_complete``); lightcone only;
     - ``"outside_box"``: outsideBox (0 or 1), ``Result.outside_box``; box only.
 
@@ -421,7 +422,7 @@ def write_displacement_mean(
         from its configuration's, if its count of realizations averaged is 0,
         or above 1 while it holds several realizations, if a box result's box
         differs from the limits recorded in its selection, or if the profile
-        written does not have one mps and one count per redshift; or as
+        written does not have one mps and one count per node; or as
         ``write``.
 
     Notes
@@ -453,8 +454,8 @@ def write_displacement_complete(
 ) -> None:
     """Write every realization of a result, losslessly, with what a reader
     needs to rebuild it: one row per realization and tracer, ordered
-    [realization][object]; and, for a lightcone, its mps(z) profile and its
-    distance table.
+    [realization][object]; and, for a lightcone, its mps profile and its
+    distance table when it holds one.
 
     Columns: realization; id (``Result.ids`` as in
     ``write_displacement_mean``); for a lightcone, tracRA, tracDec (degrees,
@@ -483,7 +484,7 @@ def write_displacement_complete(
         realizations, if a box result's box differs from the limits recorded
         in its selection, if a periodic result is not a box result, has no
         recorded limits or flags a tracer in ``outside_box``, if the profile
-        written does not have one mps and one count per redshift, or as
+        written does not have one mps and one count per node, or as
         ``write``.
 
     Notes
@@ -500,8 +501,8 @@ def write_displacement_complete(
     normal or detailed): the configuration; MPS for a box; BOXXLO, BOXXHI,
     BOXYLO, BOXYHI, BOXZLO, BOXZHI, ``Result.box`` when it is set, and
     BOXLIM = 1 when it holds the limits given to ``reconstruct_box``;
-    PERIODIC = 1 when the box is periodic (written with BOXLIM, absent
-    otherwise, as in files of otswap 0.3); ZCUTMIN
+    PERIODIC = 1 when the box is periodic (written with BOXLIM, absent for
+    a box that is not periodic); ZCUTMIN
     and ZCUTMAX for the finite bounds of a redshift cut, DCUTMIN and DCUTMAX
     for those of a distance cut, MASK = 1 when a mask
     selected the objects, FILTNSID and MAXPIXCR when a mask filter was
@@ -513,8 +514,10 @@ def write_displacement_complete(
     when the profile and the table are written.
 
     The profile (redshift, MPS, nTracers, with the keywords ZMIN, ZMAX and
-    MPSREPR of ``write_mps_profile``) and the table (redshift, distance and,
-    when the table has one, growthRate, with the keywords ZMIN and ZMAX) are
+    MPSREPR of ``write_mps_profile``; for a profile in distance, distance in
+    place of redshift and DISTMIN, DISTMAX in place of ZMIN, ZMAX) and the
+    table (redshift, distance and, when the table has one, growthRate, with
+    the keywords ZMIN and ZMAX) are
     written with 17 digits in ASCII, each with its own PRODUCT, complete
     displacements mps profile and complete displacements distance table. In
     FITS they are the HDUs MPSPROF and DISTANCE, after the main table
@@ -526,7 +529,9 @@ def write_displacement_complete(
     replaces a ``write_mps_profile`` file of that name, and is replaced by it
     when that is written later. Each is written when ``lightcone_tables`` is
     true and the result is a lightcone that holds it; a result made by
-    ``Result.from_arrays`` holds a table but no profile.
+    ``Result.from_arrays`` holds a table but no profile, and one of
+    ``reconstruct_lightcone_cartesian`` without ``distances`` a profile but
+    no table, so DISTANCE is then absent.
     """
 
 
@@ -534,13 +539,15 @@ def read_displacement_complete(file: Path, *, angle_unit: AngleUnit) -> Result:
     """Read a file written by ``write_displacement_complete`` back into a
     ``Result``, its sky arrays in ``angle_unit``.
 
-    Read as written: the geometry, ``ids``, ``n_realizations_mean``
-    (NRECMEAN, 1 when absent), the configuration, ``tracers``,
-    ``tracers_sky``, ``displacement``, ``valid``, the three flags, the
-    selection counts, the box, the mps(z) profile and the distance table.
-    Recomputed, as ``recompute_means`` does: the valid
-    realizations, ``mean_displacement``, ``lagrangian`` and
-    ``lagrangian_sky``. ``ids`` reads as having no IDs when the file's IDs
+    Read as written: the geometry, ``periodic``, ``ids``,
+    ``n_realizations_mean`` (NRECMEAN, 1 when absent), the configuration
+    (the fields a file does not record take the current defaults),
+    ``tracers``, ``tracers_sky``, ``displacement``, ``valid``, the four
+    flags (``outside_distance_cut`` when its column is present), the
+    selection counts, the box, the mps profile and the distance table.
+    Recomputed, as ``recompute_means`` does: the valid realizations,
+    ``mean_displacement``, ``lagrangian``, ``lagrangian_sky`` and
+    ``lagrangian_distance``. ``ids`` reads as having no IDs when the file's IDs
     are 0..n_objects-1. The columns of the tracer, id and flags are taken
     from realization 0.
 
@@ -576,7 +583,8 @@ def read_displacement_complete(file: Path, *, angle_unit: AngleUnit) -> Result:
     -----
     Every value reads back identical but ``tracers_sky``, whose right
     ascension and declination are equal within the rounding of the
-    conversion to degrees and back; NaN reads back as NaN, with its sign and
+    conversion to degrees and back, and ``cell_side``, which is not written
+    and reads as None; NaN reads back as NaN, with its sign and
     payload in FITS only. ``real_space_lightcone`` on the result read gives
     the catalogue of the reconstruction bit for bit, but for its right
     ascension and declination, equal within that rounding.
@@ -615,8 +623,10 @@ def read_displacement_mean(file: Path, *, angle_unit: AngleUnit) -> Result:
     (``lagrangian_sky``, in a lightcone), outsideRedshiftCut, outsideMask and
     outsideDistanceCut (lightcone), outsideBox (box). Without them a flag is all false,
     ``lagrangian`` is ``tracers`` + ``mean_displacement``, and
-    ``lagrangian_sky`` is computed from them with the distance table, as
-    ``recompute_means`` does, or is None without the table. The mps(z)
+    ``lagrangian_sky`` and ``lagrangian_distance`` are computed from it as
+    ``recompute_means`` does: with the distance table, or with NaN redshifts
+    for a profile in distance, and None with neither. In a lightcone,
+    ``lagrangian_distance`` is always computed from ``lagrangian``. The mps
     profile and the distance table are read when the file declares them
     (MPSPART, DISTPART), from the extensions or twin files of
     ``write_displacement_mean``; a file of otswap 0.2 has neither.
