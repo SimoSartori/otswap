@@ -17,7 +17,7 @@ The correction of tracer i is a shift along its line of sight,
 
 with f the linear growth rate, b the tracers' linear bias, and
 <Psi . r_hat>_i the line-of-sight component of the reconstructed mean
-displacement, averaged with a gaussian of width sigma over the tracers
+displacement, averaged with a Gaussian of width sigma over the tracers
 around i. The tracer keeps its right ascension and declination, and moves to
 the redshift of comoving distance d(z_i) + s_i.
 
@@ -82,13 +82,12 @@ def main():
     # ------------ Run the reconstruction ------------
     # ------------------------------------------------
 
-    # As in the lightcone example, without a redshift cut: 8 realizations,
-    # a convergence threshold of 1e-2, a fixed seed, 30 redshift bins for
-    # the mean particle separation, and the displacements crossing an
-    # unobserved pixel of the mask rejected. 8 realizations, which the
-    # example randoms are enough for, and 1e-2 keep the example fast; for an
-    # analysis, start from the defaults, 30 and 1e-3 (the guide's section
-    # "Choosing the parameters")
+    # As in the lightcone example, without a redshift cut: a fixed seed, 30
+    # redshift bins for the mean particle separation, and the displacements
+    # crossing an unobserved pixel of the mask rejected. 8 realizations,
+    # which the example randoms are enough for, and a convergence threshold
+    # of 1e-2 keep the example fast; for an analysis, start from the
+    # defaults, 30 and 1e-3 (the guide's section "Choosing the parameters")
     config = otswap.Config(n_realizations=8, convergence=1e-2, seed=12345, reject_crossings=True,
                            max_unobserved_pixels_crossed=0, verbosity="normal")
     result = otswap.reconstruct_lightcone(tracers_sky, randoms_sky, mask=mask, n_bins=30,
@@ -108,8 +107,8 @@ def main():
     # ------------ Correct the redshift-space distortions ------------
     # ----------------------------------------------------------------
 
-    # sigma, the width of the gaussian average in Mpc/h: 10 Mpc/h is a
-    # reasonable starting value, to be checked in each analysis (the
+    # sigma, the width of the Gaussian average in Mpc/h: 10 Mpc/h is a
+    # starting value, and the value must be calibrated on the sample (the
     # guide's section "Choosing the parameters"). The options are an
     # otswap.CorrectionConfig: with weight_by_realizations=True, each
     # neighbour would be weighted by its number of valid realizations.
@@ -145,11 +144,10 @@ def main():
 
     # One row per tracer, in the order of the input: the right ascension and
     # declination, unchanged within the rounding of the file, and the
-    # corrected redshift; the corrected
-    # Cartesian position; the number of valid realizations, the two
-    # diagnostics of the average and the status of the tracer; NaN positions
-    # for an uncorrected tracer. The writer is the C++ library's, so the file
-    # is the C++ example's, byte for byte
+    # corrected redshift; the corrected Cartesian position; the number of
+    # valid realizations, the two diagnostics of the average and the status
+    # of the tracer; NaN positions for an uncorrected tracer. The writer is
+    # the C++ library's, so the file is the C++ example's, byte for byte
     otswap.io.write_real_space_catalog(output / "reconstructed_catalogue_lightcone.dat", catalogue)
 
     print("Written: output/reconstructed_catalogue_lightcone.dat")

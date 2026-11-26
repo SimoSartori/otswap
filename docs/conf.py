@@ -48,7 +48,10 @@ autoapi_file_patterns = ["*.pyi", "*.py"]
 autoapi_generate_api_docs = False
 autoapi_add_toctree_entry = False
 autoapi_options = ["members", "undoc-members", "show-inheritance"]
+# Members in the order of the stubs. The autoapi directives of python.rst
+# take autodoc's ordering, so both settings are needed.
 autoapi_member_order = "bysource"
+autodoc_member_order = "bysource"
 
 napoleon_numpy_docstring = True
 napoleon_google_docstring = False

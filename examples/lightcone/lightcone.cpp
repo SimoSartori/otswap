@@ -70,7 +70,7 @@ int main (int argc, char** argv)
     // declination and redshift for each object, the flat layout every
     // otswap function takes. The catalogues give the angles in degrees,
     // and otswap takes radians: skyToRadians converts them with the factor
-    // numpy.deg2rad and otswap's Python interface use
+    // that otswap's Python interface uses
     const std::vector<double> tracersSky =
       otswap::skyToRadians(otswap::io::read(data + "/lightcone_tracers.dat", {"0", "1", "2"}).values);
     const std::vector<double> randomsSky =

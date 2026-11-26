@@ -31,12 +31,14 @@ Tables are read and written by the submodule ``otswap.io``.
 The redshift-space correction of tracer i is a shift along its line of
 sight::
 
-    s_i = f(z_i) / (b(z_i) + 3 f(z_i) / 5) * <Psi . r_hat>_i
+    shift_i = f(z_i) / (b(z_i) + 3 f(z_i) / 5) * <D . l_hat>_i
 
-with Psi the reconstructed displacement (``Result.mean_displacement``, from
-the observed to the reconstructed position), r_hat the line of sight, f the
-linear growth rate, b the linear bias and < > a gaussian average over the
-neighbouring tracers. ``real_space_lightcone`` and ``real_space_box`` run the
+with D the mean displacement of the reconstruction
+(``Result.mean_displacement``, from the observed to the reconstructed
+position, the opposite of the optimal transport displacement Psi_OT of the
+method page), l_hat the line of sight, f the linear growth rate, b the
+linear bias and < > a Gaussian average over the neighbouring tracers. A
+positive shift moves the tracer away from the observer. ``real_space_lightcone`` and ``real_space_box`` run the
 whole chain; the four steps are also available on their own.
 """
 
@@ -129,8 +131,8 @@ class Config:
     parameters"."""
 
     seed: int
-    """Seed of the random streams; 0 draws one at random. With a fixed seed
-    the result is the same bit for bit whatever the number of threads."""
+    """Seed of the random streams; 0 draws one at random, and
+    ``Result.config.seed`` records the seed used."""
 
     cell_size: float
     """Grid cell size in units of the mps; positive, default 3. Affects
@@ -211,9 +213,14 @@ class RedshiftCut:
 class DistanceCut:
     """A closed range of comoving distance from the origin, in coordinate
     units, for ``reconstruct_lightcone_cartesian`` and
-    ``measure_mps_profile_cartesian``, as ``otswap::DistanceCut``: the counterpart of
-    ``RedshiftCut``. The default, (-inf, +inf), cuts nothing. Wherever a
-    DistanceCut is taken, a ``(min, max)`` pair is accepted too.
+    ``measure_mps_profile_cartesian``, as ``otswap::DistanceCut``: the
+    counterpart of ``RedshiftCut``. The default, (-inf, +inf), cuts nothing.
+    Wherever a DistanceCut is taken, a ``(min, max)`` pair is accepted too.
+
+    The cut tests the distance of the given positions, tracers and randoms,
+    before the reconstruction: the tracers outside it keep their row,
+    flagged in ``Result.outside_distance_cut``, and the randoms outside it
+    are dropped. A mean Lagrangian position may lie outside it.
 
     ``min`` and ``max`` are read/write; the call that reads the cut checks
     them (neither NaN, ``min`` not above ``max``). ``repr`` and equality as
@@ -256,9 +263,9 @@ class Result:
     in degrees before the filter is not updated.
 
     The type is ``otswap::Result`` itself, so another nanobind module can take
-    and return it (see "Use from another nanobind module" on the "Names side
-    by side" page of the documentation). The angle unit is kept by the module,
-    not in the object: a result made by another module is in radians. Each
+    and return it (see "Using otswap from another package" in the
+    documentation). The angle unit is kept by the module, not in the object:
+    a result made by another module is in radians. Each
     array getter checks the size of the C++ array first, and raises
     ``otswap.Error`` for a malformed result, which only another module can
     make. No attribute can be added to a result.
@@ -327,8 +334,9 @@ class Result:
 
         Notes
         -----
-        ``valid_realizations``, ``mean_displacement``, ``lagrangian`` and
-        ``lagrangian_sky`` are computed as ``recompute_means`` computes them,
+        ``valid_realizations``, ``mean_displacement``, ``lagrangian``,
+        ``lagrangian_sky`` and ``lagrangian_distance`` are computed as
+        ``recompute_means`` computes them,
         so arrays read back exactly give the reconstruction's values, bit for
         bit. The profile, the mps and the selection counts are not
         reconstructed: ``mps`` and ``mps_profile`` are None; ``box`` is the
@@ -433,11 +441,11 @@ class Result:
     @property
     def cell_side(self) -> Optional[float]:
         """The cell side of the neighbour grids actually used, in coordinate
-        units: ``config.cell_size`` times the mps (for a lightcone, its
-        representative value) or, in a periodic box, the largest side not
-        above that which divides the shortest side of the box a whole number
-        of times. None for a result not made by a reconstruction. Not written
-        to files."""
+        units. It is ``config.cell_size`` times the mps (for a lightcone, its
+        representative value). In a periodic box it is the largest side, not
+        above that value, that divides the shortest side of the box a whole
+        number of times. None for a result not made by a reconstruction. Not
+        written to files."""
 
     @property
     def box(self) -> Optional["BoxLimits"]:
@@ -542,12 +550,16 @@ class Result:
 
 class MpsProfile:
     """The mean particle separation of a lightcone as a function of
-    redshift, measured by ``reconstruct_lightcone``, or alone by
-    ``measure_mps_profile``: the tracers kept in
+    redshift or of comoving distance.
+
+    Measured by ``reconstruct_lightcone``, or alone by
+    ``measure_mps_profile``, a profile in redshift: the tracers kept in
     ``n_bins`` uniform redshift bins over [``redshift_min``,
     ``redshift_max``], mps = (N / V)^(-1/3) in each, joined linearly and
     extrapolated linearly beyond the outermost bins. Each bin must hold at
-    least 278 tracers, for a 2% accuracy on its mps. Read-only.
+    least 278 tracers, for a 2% accuracy on its mps; a refused number of
+    bins comes with an upper bound, the number of tracers kept divided by
+    278, and a sparse tail may need fewer. Read-only.
 
     Measured by ``reconstruct_lightcone_cartesian``, or alone by
     ``measure_mps_profile_cartesian``, a profile in comoving distance from
@@ -738,10 +750,13 @@ class DistanceTable:
     ) -> "DistanceTable":
         """Tabulate a flat cosmology with dark energy w(a) = w0 + wa (1 - a).
 
-        Comoving distances are in Mpc/h. The growth rate f = dlnD/dlna comes
-        from integrating the linear growth equation. The range must cover
-        every redshift to be converted, including reconstructed positions,
-        which can fall slightly outside the range of the data.
+        Comoving distances are in Mpc/h, so ``h`` cancels out of them and is
+        only checked. The growth rate f = dlnD/dlna comes from integrating
+        the linear growth equation. The range must cover every redshift of
+        the tracers and randoms kept and of the corrected positions of the
+        redshift-space correction, which can fall slightly outside the range
+        of the data; a mean Lagrangian position beyond it gets a NaN
+        redshift, without error.
 
         Raises
         ------
@@ -899,13 +914,16 @@ class Mask:
     at NSIDE 16384."""
 
     def __init__(self, fits_file: str) -> None:
-        """NSIDE and ORDERING are read from the file header; RING and NESTED
-        are both supported, and any numeric column type. The values are read
-        a block of rows at a time, so reading needs memory for the mask's
-        bytes only. A null value of an integer column is unobserved. Raises
-        if the file cannot be opened or read, if it is not a full-sky HEALPix
-        map in that layout, if NSIDE exceeds 2**29, or if the ordering is
-        NESTED and NSIDE is not a power of 2."""
+        """A full-sky HEALPix map in a FITS file: a binary table in HDU 2
+        whose first column holds the values, 1024 to a row (so NSIDE is a
+        multiple of 16); other columns are ignored. NSIDE and ORDERING are
+        read from the header; RING and NESTED are both supported, and any
+        numeric column type. A cut-sky (partial) map is refused. The path is
+        a str. The values are read a block of rows at a time, so reading needs
+        memory for the mask's bytes only. A null value of an integer column is
+        unobserved. Raises if the file cannot be opened or read, if it is not
+        a full-sky HEALPix map in that layout, if NSIDE exceeds 2**29, or if
+        the ordering is NESTED and NSIDE is not a power of 2."""
 
     @staticmethod
     def from_array(values: ArrayLike, nest: bool = False) -> "Mask":
@@ -1024,7 +1042,8 @@ def reconstruct_box(
     periodic : bool, optional
         Whether the box is periodic, with ``box`` required: a whole
         simulation box with periodic boundary conditions; a sub-volume cut
-        from one is not periodic. Each side must be an integer multiple of
+        from one is not periodic (advice on the choice: the guide, section
+        "Choosing the parameters"). Each side must be an integer multiple of
         the shortest, within a relative 1e-12 (a cube, or for instance
         500 x 500 x 1000). The tracers and the given randoms outside the box
         are wrapped into it, not removed: ``Result.tracers`` holds the
@@ -1034,10 +1053,8 @@ def reconstruct_box(
         displacements lie in [-L/2, L/2) on each axis, of period L, and
         ``Result.lagrangian`` is wrapped into the box. Without ``mps``, the
         mean particle separation is (V / N)^(1/3) of the box with N all the
-        tracers. Advice on the choice: the guide, section "Choosing the
-        parameters".
-        With ``periodic``, ``"normal"`` prints in
-        place of the box lines::
+        tracers. With ``periodic``, ``"normal"`` prints in place of the box
+        lines::
 
             otswap: wrapped <a> of <N> tracers into the periodic box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
             otswap: wrapped <b> of <M> randoms into the periodic box [<x0>, <x1>] x [<y0>, <y1>] x [<z0>, <z1>]
@@ -1060,8 +1077,9 @@ def reconstruct_box(
     Raises
     ------
     Error
-        If an array is not of shape (N, 3), if the tracer array is empty, if
-        the randoms are too few, if any coordinate is not finite, or if
+        If an array is not of shape (N, 3), if fewer than 114 tracers are
+        reconstructed (those inside ``box``, when given), if the randoms are
+        too few, if any coordinate is not finite, or if
         ``mps`` is not positive; without ``mps`` and ``box``, also if the
         tracers span no volume (all of them in one plane, on one line or at
         one point).
@@ -1184,11 +1202,14 @@ def reconstruct_lightcone(
         ``sky_area_deg2`` and ``mask`` are given.
     Error
         If a bound of the cut is NaN or its minimum exceeds its maximum, or
-        if too few tracers or randoms remain inside the cut and the mask;
-        the message gives the counts kept and dropped.
+        if too few tracers or randoms remain inside the cut and the mask
+        (fewer than 114 tracers, or fewer randoms than ``n_realizations``
+        times the tracers kept); the message gives the counts kept and
+        dropped.
     Error
         If a bin holds too few tracers for its density to be meaningful, the
-        message reporting how many bins the catalogue supports, or if the
+        message giving an upper bound on the number of bins (see
+        ``MpsProfile``), or if the
         profile extrapolates to an mps that is not positive at a tracer's
         redshift.
     Error
@@ -1592,8 +1613,8 @@ def openmp_root() -> Optional[str]:
 
     A package with OpenMP code of its own gives this directory to CMake as
     ``OpenMP_ROOT``, so that its extension loads the same runtime as otswap;
-    see "Linking the same OpenMP runtime". The version of the runtime may
-    change between minor releases of otswap."""
+    see "Using otswap from another package" in the documentation. The
+    version of the runtime may change between minor releases of otswap."""
 
 
 def radial_projection(displacement: ArrayLike, positions: ArrayLike) -> NDArray[np.float64]:
@@ -1657,7 +1678,7 @@ def neighbour_average(
     valid_realizations : array_like, shape (N,)
         Non-negative integers, such as ``Result.valid_realizations``.
     sigma : float
-        Width of the gaussian, in the unit of the positions; finite and
+        Width of the Gaussian, in the unit of the positions; finite and
         non-negative. Advice on the choice: the guide, section "Choosing the
         parameters".
     weight_by_realizations : bool, optional
@@ -1750,7 +1771,7 @@ def real_space_lightcone(
     space to real space.
 
     For each tracer: the projection of ``result.mean_displacement`` on its line
-    of sight, at ``result.tracers``, the gaussian average of width ``sigma``
+    of sight, at ``result.tracers``, the Gaussian average of width ``sigma``
     over the tracers with a valid realization, times f / (b + 3 f / 5) at its
     observed redshift; the tracer keeps its right ascension and declination
     and moves to the redshift of comoving distance d(z) + shift. A tracer
@@ -1769,8 +1790,9 @@ def real_space_lightcone(
         A lightcone result, which carries its tracers; ``sky`` comes back in
         its ``angle_unit``.
     distances : DistanceTable
-        Must carry the growth rate, and cover the corrected distances as well
-        as the observed ones.
+        The table the result was reconstructed with, or one with the same
+        distances, in the unit of the coordinates. Must carry the growth
+        rate, and cover the corrected distances as well as the observed ones.
     bias : BiasTable
         The b(z) table, as in ``rsd_factor``; warns ``ExtrapolationWarning``
         once if b(z) is extrapolated.
@@ -1779,12 +1801,12 @@ def real_space_lightcone(
         choice: the guide, section "Choosing the parameters".
     correction : CorrectionConfig, optional
         ``weight_by_realizations``: weight each neighbour by its number of
-        valid realizations as well (see ``CorrectionConfig``). ``verbosity``: what the call prints; see
-        ``Verbosity``. ``"normal"`` prints the line
-        of the call; ``"detailed"`` before it how many of the corrected moved
-        with their neighbours' average, having no valid realization, and how
-        many of the uncorrected were left out of the reconstruction or had no
-        valid tracer within 3 sigma.
+        valid realizations as well (see ``CorrectionConfig``).
+        ``verbosity``: what the call prints; see ``Verbosity``. ``"normal"``
+        prints the line of the call; ``"detailed"`` before it how many of the
+        corrected moved with their neighbours' average, having no valid
+        realization, and how many of the uncorrected were left out of the
+        reconstruction or had no valid tracer within 3 sigma.
 
     Raises
     ------
@@ -1804,8 +1826,8 @@ def real_space_lightcone(
     Notes
     -----
     Tracers outside the reconstruction's redshift or distance cut or mask
-    are not corrected, take no part in any average, and have status 3. The catalogue
-    carries the result's ``ids``.
+    are not corrected, take no part in any average, and have status 3. The
+    catalogue carries the result's ``ids``.
 
     On a result read by ``otswap.io.read_displacement_complete`` the
     correction is that of the reconstruction itself, bit for bit, but for the
@@ -1830,10 +1852,29 @@ def real_space_box(
     at ``redshift`` with the constant ``bias``, and the shift along the axis.
 
     Unless ``result.periodic``, positions are not wrapped. For a periodic
-    result the neighbours are found across the faces with minimum-image distances, and
-    the corrected coordinate along the axis is wrapped into the box. Tracers outside the
-    reconstruction's box limits are not corrected, take no part in any
-    average, and have status 3. The catalogue carries the result's ``ids``.
+    result the neighbours are found across the faces with minimum-image
+    distances, and the corrected coordinate along the axis is wrapped into
+    the box. Tracers outside the reconstruction's box limits are not
+    corrected, take no part in any average, and have status 3. The catalogue
+    carries the result's ``ids``.
+
+    Parameters
+    ----------
+    result : Result
+        A box result, which carries its tracers.
+    axis : int
+        The line of sight: 0, 1 or 2 for x, y or z.
+    redshift : float
+        The box's redshift, at which the growth rate is taken.
+    distances : DistanceTable
+        A table carrying the growth rate at ``redshift``.
+    bias : float
+        The tracers' linear bias; finite and positive.
+    sigma : float
+        Width of the average, in coordinate units; 0 for none. Advice on the
+        choice: the guide, section "Choosing the parameters".
+    correction : CorrectionConfig, optional
+        As in ``real_space_lightcone``.
 
     Raises
     ------

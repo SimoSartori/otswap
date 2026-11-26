@@ -14,7 +14,8 @@ search is one too: its message starts with `meshsearch: `, and in C++ the
 original `meshsearch::Error` is nested in it (`std::rethrow_if_nested`
 recovers it). The extrapolation of b(z) beyond its table is not an error:
 Python issues an `ExtrapolationWarning`, C++ reports it and counts it in
-`nExtrapolated`.
+`nExtrapolated`. A correction raises for the whole call, with no partial
+catalogue, when one corrected position falls outside the distance table.
 
 | C++ | Python | Notes |
 |---|---|---|
@@ -65,7 +66,7 @@ Python issues an `ExtrapolationWarning`, C++ reports it and counts it in
 |---|---|---|
 | `reconstructBox`, two overloads | `reconstruct_box` | `mps` omitted to compute it; randoms omitted to draw them; `limits` is `box=`, `periodic` is `periodic=` |
 | `reconstructLightcone`, sky overloads | `reconstruct_lightcone` | `sky_area_deg2=` or `mask=`; `tracers_sky`, `randoms_sky`, `distances` and `angle_unit` required |
-| `reconstructLightcone`, Cartesian overloads | `reconstruct_lightcone_cartesian` | `sky_area_deg2=` or `mask=`; `tracers` and `randoms`; `distances=` optional; `distance_cut=`; `angle_unit` required, for the sky arrays of the result |
+| `reconstructLightcone`, Cartesian overloads | `reconstruct_lightcone_cartesian` | `sky_area_deg2=` or `mask=`; `tracers` and `randoms`; `distances=` optional; `distance_cut=`; `angle_unit` required, for the sky arrays of the result. In C++ the optional table comes after the `Config`, as a pointer, unlike the sky overloads |
 | `measureMpsProfile`, sky overloads | `measure_mps_profile` | `sky_area_deg2=` or `mask=`; `verbosity` an argument, as no `Config` is taken |
 | `measureMpsProfile`, Cartesian overloads | `measure_mps_profile_cartesian` | `tracers`; `distance_cut=`; no table, no angle unit |
 | `rejectMaskCrossings` | `reject_mask_crossings` | |
@@ -88,7 +89,7 @@ Python issues an `ExtrapolationWarning`, C++ reports it and counts it in
 | `Result::cellSide` | `Result.cell_side` | the cell side of the neighbour grids used; None when not made by a reconstruction |
 | `Result::outsideBox` | `Result.outside_box` | a bool view in Python, as `outside_mask` |
 | `Result::outsideDistanceCut` | `Result.outside_distance_cut` | a bool view in Python, as `outside_mask` |
-| `Result::lagrangianDistance` | `Result.lagrangian_distance` | None in a box |
+| `Result::lagrangianDistance` | `Result.lagrangian_distance` | None in a box; in no file: `pointToSky` (`point_to_sky`) of the Lagrangian columns gives it |
 | `SelectionCounts::boxLimits` | `SelectionCounts.box_limits` | None when no limits were given |
 | `MpsProfile`, `at` | `MpsProfile`, `at` | Python's `at` takes arrays; `value` a redshift or a distance, as the profile |
 | `SelectionCounts`, `message()` | `SelectionCounts`, `repr()` | |
@@ -129,51 +130,10 @@ Python issues an `ExtrapolationWarning`, C++ reports it and counts it in
 
 | C++ | Python | Notes |
 |---|---|---|
-| — | `openmp_root` | the directory of the OpenMP runtime of a macOS wheel, or None; see "Linking the same OpenMP runtime" |
+| — | `openmp_root` | the directory of the OpenMP runtime of a macOS wheel, or None; see [Using otswap from another package](packages.md#linking-the-same-openmp-runtime) |
 
 ## Random draws
 
 | C++ | Python | Notes |
 |---|---|---|
 | `uniformInt`, `uniformReal`, `shuffle` | — | C++ only, in `otswap/Random.h`; the same values on every platform and compiler |
-
-## Use from another nanobind module
-
-The Python types are the C++ structs themselves, so another nanobind module
-can take and return them, naming the C++ types in its own signatures:
-`Config`, `CorrectionConfig`, `RedshiftCut`, `DistanceCut`, `BoxLimits`, `Mask`,
-`DistanceTable`, `MpsProfile`, `BiasTable`, `Result` and `RealSpaceCatalog`.
-For example, `double f (const otswap::Result&)` takes an `otswap.Result`, and
-a function returning an `otswap::Config` returns an `otswap.Config`. The
-module binds none of these types itself.
-
-- Both modules are built with nanobind 3.1.0 and the same nanobind ABI (the
-  same compiler family and C++ standard library), and neither defines
-  `NB_DOMAIN`. `import otswap` comes before the other module's functions are
-  used: it registers the types. The pairs `(min, max)` and
-  `((x0, y0, z0), (x1, y1, z1))` are converted in the other module's
-  functions too.
-- The layouts of the structs are part of the interface across 0.4.x: a field
-  added in a patch release would break a module built against the older
-  header. A module built against the headers of an earlier minor release
-  must be rebuilt.
-- A `Config` or `CorrectionConfig` received from Python holds
-  `log = &std::clog`; the other module sets it before using it.
-- A `Result` or `RealSpaceCatalog` made by the other module is in radians:
-  its `angle_unit` is `"rad"`. The unit of one made by otswap from angles in
-  degrees is kept by otswap, not in the object.
-- Take a `Result` as `const otswap::Result&`. One changed in place behind
-  otswap's back keeps the degree arrays already read from it; to filter in
-  place, call otswap's own functions.
-- An `otswap::Error` thrown by otswap's Python functions reaches Python as
-  `otswap.Error`. One thrown where the other module calls otswap in C++ is
-  that module's to translate: otswap's translator does not recognise it
-  with every standard library (with libc++, two modules that each link
-  otswap do not share the type information of `otswap::Error`), and it then
-  arrives as a plain `RuntimeError`. The recommended way is to catch it
-  where the module calls otswap and rethrow the module's own error, its
-  message prefixed by `"otswap: "`, as otswap does with the errors of
-  meshsearch. For a malformed `Result` or catalogue, which only another
-  module can make, the library's consistency messages name the C++ members
-  (`meanDisplacement`), and the array properties raise `otswap.Error` naming
-  the Python ones (`mean_displacement`).

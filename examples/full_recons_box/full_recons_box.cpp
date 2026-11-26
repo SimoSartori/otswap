@@ -8,7 +8,7 @@
 /*
   This example explains how to correct a catalogue in box geometry for
   redshift-space distortions with the OT reconstruction. The tracers
-  are given in redshift space, distorted along one Cartesian axis, the
+  are given in redshift space, distorted along the y axis (axis 1), the
   line of sight. The example runs the reconstruction of the box example
   on them, then moves each tracer along that axis to the position it
   would have in real space.
@@ -19,15 +19,16 @@
 
   with f the linear growth rate at the box's redshift z, b the tracers'
   linear bias, and <Psi_axis>_i the component along the axis of the
-  reconstructed mean displacement, averaged with a gaussian of width
+  reconstructed mean displacement, averaged with a Gaussian of width
   sigma over the tracers around i.
 
-  The box is not periodic, here or in the reconstruction: nothing flows
-  through its faces, so modes on the scale of the box itself are not
-  reconstructed, and the corrected positions are not wrapped. A box cut
-  from a periodic simulation is treated as a plain sub-volume; a whole
-  simulation box with periodic boundary conditions is reconstructed with
-  the periodic option: see the periodic_box example.
+  Without the periodic option, the box is not periodic, here or in the
+  reconstruction: nothing flows through its faces, so modes on the scale
+  of the box itself are not reconstructed, and the corrected positions
+  are not wrapped. A box cut from a periodic simulation is treated as a
+  plain sub-volume; a whole simulation box with periodic boundary
+  conditions is reconstructed, and corrected, with the periodic option:
+  see the periodic_box example.
 
   Usage: full_recons_box [data_dir]. The catalogues are read from
   data_dir, by default the examples' data folder; the output is written
@@ -83,14 +84,14 @@ int main (int argc, char** argv)
     // ------------ Run the reconstruction ------------
     // ------------------------------------------------
 
-    // As in the box example, but without box limits: 8 realizations, a
-    // convergence threshold of 1e-2, a fixed seed, and the mean particle
-    // separation of the bounding box of the tracers and randoms, computed
-    // by otswap and reported with Detailed. 8 realizations, which the example randoms are enough for,
-    // and 1e-2 keep the example fast; for an analysis, start from the
-    // defaults, 30 and 1e-3 (the guide's section "Choosing the
-    // parameters"). The report goes to std::cout, in order with this
-    // program's lines
+    // As in the box example, but without box limits: a fixed seed, and the
+    // mean particle separation of the bounding box of the tracers and
+    // randoms, computed by otswap and reported with Detailed. 8
+    // realizations, which the example randoms are enough for, and a
+    // convergence threshold of 1e-2 keep the example fast; for an
+    // analysis, start from the defaults, 30 and 1e-3 (the guide's section
+    // "Choosing the parameters"). The report goes to std::cout, in order
+    // with this program's lines
     otswap::Config config;
     config.nRealizations = 8;
     config.convergence = 1.e-2;
@@ -120,15 +121,16 @@ int main (int argc, char** argv)
     const double bias = 1.91255;
     const unsigned axis = 1;
 
-    // sigma, the width of the gaussian average in Mpc/h: 10 Mpc/h is a
-    // reasonable starting value, to be checked in each analysis (the
+    // sigma, the width of the Gaussian average in Mpc/h: 10 Mpc/h is a
+    // starting value, and the value must be calibrated on the sample (the
     // guide's section "Choosing the parameters"). With
     // weightByRealizations, each neighbour would be weighted by its number
     // of valid realizations.
     //
     // The correction reads the tracers from the result. In a box without
-    // limits every tracer is valid and counts among its own neighbours, so every one is
-    // corrected; RealSpaceCatalog::status records what was done with each
+    // limits every tracer is valid and counts among its own neighbours, so
+    // every one is corrected; RealSpaceCatalog::status records what was
+    // done with each
     const double sigma = 10.;
     otswap::CorrectionConfig correction;
     correction.weightByRealizations = false;

@@ -26,12 +26,15 @@
  *
  *  The correction of object i is a shift along its line of sight,
  *
- *    s_i = f(z_i) / (b(z_i) + 3 f(z_i) / 5)  <Psi . r_hat>_i ,
+ *    shift_i = f(z_i) / (b(z_i) + 3 f(z_i) / 5)  <D . l_hat>_i ,
  *
- *  where Psi is the reconstructed displacement (Result::meanDisplacement,
- *  from the observed to the reconstructed position), r_hat the line of
- *  sight, f the linear growth rate, b the linear bias of the tracers, and
- *  < > a gaussian average over the neighbouring objects. realSpaceLightcone
+ *  where D is the mean displacement of the reconstruction
+ *  (Result::meanDisplacement, from the observed to the reconstructed
+ *  position, the opposite of the optimal transport displacement Psi_OT of
+ *  the method page), l_hat the line of sight, f the linear growth rate, b
+ *  the linear bias of the tracers, and < > a Gaussian average over the
+ *  neighbouring objects. A positive shift moves the object away from the
+ *  observer. realSpaceLightcone
  *  and realSpaceBox run the whole chain; its four steps are also available
  *  on their own.
  *
@@ -128,7 +131,7 @@ namespace otswap {
    *  @param values N entries; finite wherever validRealizations > 0, and
    *  not read elsewhere.
    *  @param validRealizations N entries.
-   *  @param sigma width of the gaussian, in the unit of the positions;
+   *  @param sigma width of the Gaussian, in the unit of the positions;
    *  finite and non-negative. For coordinates in Mpc/h, 10 Mpc/h is a
    *  reasonable starting value, to be checked in each analysis; advice on
    *  the choice: the guide, section "Choosing the parameters".
@@ -375,7 +378,7 @@ namespace otswap {
    *  The chain, for the tracers of the result:
    *  1. the projection of result.meanDisplacement on the line of sight of
    *     each tracer, at result.tracers (radialProjection);
-   *  2. its gaussian average of width sigma over the tracers with a valid
+   *  2. its Gaussian average of width sigma over the tracers with a valid
    *     realization (neighbourAverage); a tracer without one still receives
    *     the average around its own position;
    *  3. the factor f / (b + 3 f / 5) at each observed redshift, as
@@ -402,10 +405,9 @@ namespace otswap {
    *  A tracer that has a redshift is moved from the distance
    *  @p distances gives at that redshift, one without from its position's
    *  distance, so a Cartesian result built with a distance table and the
-   *  same result built without one can differ in the corrected positions.
-   *  The two distances agree within rounding, since redshifts and
-   *  distances are interpolated linearly between the same nodes of the
-   *  table, so the corrected positions can differ by rounding.
+   *  same result built without one can differ in the corrected positions,
+   *  by rounding only: redshifts and distances are interpolated linearly
+   *  between the same nodes of the table.
    *
    *  On a Result read by io::readDisplacementComplete the correction is
    *  that of the reconstruction itself, bit for bit, but for the right
@@ -415,8 +417,10 @@ namespace otswap {
    *  @param result a lightcone reconstruction, with its tracers and
    *  tracersSky, as reconstructLightcone returns it, from a sky or a
    *  Cartesian overload.
-   *  @param distances a table carrying the growth rate, covering the
-   *  corrected distances as well as the observed ones.
+   *  @param distances the table the result was reconstructed with, or one
+   *  with the same distances, in the unit of the coordinates; it must
+   *  carry the growth rate, and cover the corrected distances as well as
+   *  the observed ones.
    *  @param bias the b(z) table.
    *  @param sigma width of the average, in coordinate units; 0 for none.
    *  Advice on the choice: the guide, section "Choosing the parameters".

@@ -22,7 +22,7 @@
  *  @file include/otswap/OT.h
  *
  *  @brief Optimal transport reconstruction of the displacement field
- *  of a tracer catalog, by local swapping.
+ *  of a tracer catalogue, by local swapping.
  *
  *  Each realization pairs every tracer with one random, one to one, so
  *  that the sum of squared Euclidean distances in three dimensions
@@ -208,8 +208,7 @@ namespace otswap {
     double convergence = 1.e-3;
 
     /// Seed of the generator. 0 draws one from std::random_device, and the
-    /// result records the seed drawn (Result::config). Given a seed, the
-    /// result is the same bit for bit whatever the number of threads.
+    /// result records the seed drawn (Result::config).
     unsigned seed = 0;
 
     /// Grid cell size, in units of the representative mean particle
@@ -253,6 +252,11 @@ namespace otswap {
    *  coordinate units, for the Cartesian overloads of reconstructLightcone
    *  and measureMpsProfile: the counterpart of RedshiftCut. The default,
    *  (-inf, +inf), cuts nothing.
+   *
+   *  The cut tests the distance of the given positions, tracers and
+   *  randoms, before the reconstruction: the tracers outside it keep their
+   *  row, flagged in Result::outsideDistanceCut, and the randoms outside it
+   *  are dropped. A mean Lagrangian position may lie outside it.
    */
   struct DistanceCut {
     double min = -std::numeric_limits<double>::infinity();  ///< lower bound, in coordinate units
@@ -384,8 +388,9 @@ namespace otswap {
    *  for a profile in redshift, the distance table). Each bin must hold at
    *  least 1/(9 eps^2) tracers, eps = 0.02, that is 278: below that count
    *  the Poisson error on its mps exceeds 2%. A bin holding fewer is
-   *  refused, and the error names the largest number of bins the catalog
-   *  supports. The bin values are the nodes of a piecewise linear profile,
+   *  refused, and the error gives an upper bound on the number of bins,
+   *  the number of tracers kept divided by 278; the bins being uniform, a
+   *  sparse tail may need fewer. The bin values are the nodes of a piecewise linear profile,
    *  extrapolated linearly beyond the terminal ones; at() evaluates it.
    *  Empty in a box result.
    */
@@ -614,11 +619,12 @@ namespace otswap {
     bool periodic = false;
 
     /// The cell side of the neighbour grids actually used, in coordinate
-    /// units: config.cellSize times the mean particle separation (for a
-    /// lightcone, its representative value), or, in a periodic box, the
-    /// largest side not above that which divides the shortest side of the
-    /// box a whole number of times. NaN in a Result built by hand (Python
-    /// Result.from_arrays) or read from a file. Not written to files.
+    /// units. It is config.cellSize times the mean particle separation (for
+    /// a lightcone, its representative value). In a periodic box it is the
+    /// largest side, not above that value, that divides the shortest side
+    /// of the box a whole number of times. NaN in a Result built by hand
+    /// (Python Result.from_arrays) or read from a file. Not written to
+    /// files.
     double cellSide = std::numeric_limits<double>::quiet_NaN();
 
     /// Lightcone: the mean particle separation profile measured on the
@@ -785,10 +791,10 @@ namespace otswap {
    *  both sources.
    *
    *  NSIDE must be a power of 2 in the NESTED scheme. A map in memory may
-   *  have any NSIDE from 1 to 2^29, Healpix's limit; a FITS map, read 1024
-   *  pixels to a row, a multiple of 16 up to 2^29. The mask holds one byte per pixel,
-   *  12 NSIDE^2 bytes: 12.6 MB at NSIDE 1024, 805 MB at NSIDE 8192, 3.2 GB
-   *  at NSIDE 16384. A map too large for memory raises std::bad_alloc.
+   *  have any NSIDE from 1 to 2^29, Healpix's limit. A FITS map holds 1024
+   *  pixels to a row, so its NSIDE is a multiple of 16, up to 2^29. The
+   *  mask holds one byte per pixel, 12 NSIDE^2 bytes: 12.6 MB at NSIDE
+   *  1024, 805 MB at NSIDE 8192, 3.2 GB at NSIDE 16384. A map too large for memory raises std::bad_alloc.
    *
    *  The object is immutable once built.
    */
@@ -1109,8 +1115,9 @@ namespace otswap {
    *
    *  @exception Error if config is invalid (see Config), if nBins is 0, if
    *  skyAreaDeg2 is outside its range, if a bin holds too few tracers for
-   *  its density to be meaningful (the message reports how many bins the
-   *  catalog supports), or if every tracer kept lies at one redshift.
+   *  its density to be meaningful (the message gives an upper bound on the
+   *  number of bins: see MpsProfile), or if every tracer kept lies at one
+   *  redshift.
    *  Also if the profile extrapolates to a mps that is not positive at a
    *  tracer's redshift, if any array is malformed, if fewer than 114
    *  tracers are kept or more than 2^32 - 1 are given, if a declination
@@ -1422,12 +1429,14 @@ namespace otswap {
    *  to the Lagrangian one, the tracer plus its displacement, lies in the
    *  plane through the origin and both endpoints, so its projection on
    *  the sky is exactly the great circle arc between them. The arc is
-   *  bisected adaptively: a sub-arc whose ends fall in the same pixel is
-   *  not split further, nor one shorter than a millionth of the pixel
-   *  size, nor one shorter than a pixel whose end pixels share an edge
-   *  and have no common neighbour that could change a run: with both end
-   *  pixels unobserved, none at all; otherwise, no unobserved one. The
-   *  pixels of the midpoints are examined in order along the arc, and the
+   *  bisected adaptively. A sub-arc is not split further when:
+   *  - its ends fall in the same pixel;
+   *  - it is shorter than a millionth of the pixel size;
+   *  - it is shorter than a pixel, its end pixels share an edge, and they
+   *    have no common neighbour that could change a run: none at all when
+   *    both end pixels are unobserved, no unobserved one otherwise.
+   *
+   *  The pixels of the midpoints are examined in order along the arc, and the
    *  unobserved pixels met one after another, with no observed pixel
    *  between them, form a run; a run is counted in distinct pixels. The
    *  pixels holding the two endpoints are exempt, and end a run as an
@@ -1446,9 +1455,9 @@ namespace otswap {
    *  and applying it twice with the same mask and threshold changes
    *  nothing. The fields that follow from valid are then recomputed, as
    *  recomputeMeans does: validRealizations, meanDisplacement, lagrangian,
-   *  lagrangianSky and lagrangianDistance. On a result holding a mean (nRealizationsMean above
-   *  1, one realization), validRealizations keeps the counts of the objects
-   *  kept, and is 0 for those rejected.
+   *  lagrangianSky and lagrangianDistance. On a result holding a mean
+   *  (nRealizationsMean above 1, one realization), validRealizations keeps
+   *  the counts of the objects kept, and is 0 for those rejected.
    *
    *  Result::selection records the filter: maxUnobservedPixelsCrossed the
    *  threshold of this call, displacements the valid displacements before

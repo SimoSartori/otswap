@@ -24,9 +24,11 @@
  *  @brief Reading and writing ASCII and FITS tables.
  *
  *  The format of a file follows its extension: .fits, .fit and .fits.gz
- *  are FITS, anything else is ASCII. Both layouts, described in the group
- *  file_formats below, are stable, and a file written here reads back
- *  through io::read in either format.
+ *  are FITS, anything else is ASCII, whatever the case of the extension.
+ *  Both layouts are described in the group file_formats below, and a file
+ *  written here reads back through io::read in either format. A change to
+ *  either layout is listed in the changelog; the displacement readers read
+ *  the files of earlier versions, as each states.
  *
  *  Included by otswap/OT.h; either header may be included first.
  *
@@ -70,7 +72,8 @@
  *  tables.
  *
  *  The writers of a Result and of a RealSpaceCatalog write one row per
- *  input object, in input order, tracers left out of the reconstruction
+ *  input object (the complete displacement file, one per realization and
+ *  object), in input order, tracers left out of the reconstruction
  *  included, with NaN where nothing was computed, so row i of a file
  *  describes object i of the input. The id column, where written, holds
  *  the object's ID (Result::ids, RealSpaceCatalog::ids), or i when no IDs
@@ -78,10 +81,11 @@
  *  complete displacement file, which keeps it as given. Lengths are in
  *  coordinate units (see the coordinate layout), which otswap cannot know,
  *  so their columns carry no unit and their keywords say "in coordinate
- *  units". Each column has a description and, where it has one, a unit. Every header carries PRODUCT,
- *  what the file holds, and OTSWAPV, the library version; those of a Result
- *  or a RealSpaceCatalog also carry GEOMETRY, box or lightcone, and
- *  NOBJECTS; then those of the product, listed with each writer.
+ *  units". Each column has a description and, where it has one, a unit.
+ *  Every header carries PRODUCT, what the file holds, and OTSWAPV, the
+ *  library version; those of a Result or a RealSpaceCatalog also carry
+ *  GEOMETRY, box or lightcone, and NOBJECTS; then those of the product,
+ *  listed with each writer.
  */
 
 #ifndef OTSWAP_IO_H
@@ -430,9 +434,10 @@ namespace otswap {
       Lagrangian,         ///< lagrX, lagrY, lagrZ: Result::lagrangian
       Displacement,       ///< displX, displY, displZ: Result::meanDisplacement
       ValidRealizations,  ///< nValidRec (J): Result::validRealizations
-      Selection,          ///< outsideRedshiftCut, outsideMask (J, 0 or 1), and outsideDistanceCut for a
-                          ///< result whose profile is in distance or that flags a tracer in it; lightcone only
-      OutsideBox          ///< outsideBox (J, 0 or 1): Result::outsideBox; box only
+      Selection,          ///< outsideRedshiftCut, outsideMask (J, 0 or 1), and outsideDistanceCut for every
+                          ///< result of a Cartesian overload (its profile in distance), with or without a cut,
+                          ///< or one that flags a tracer in it; lightcone only
+      OutsideBox          ///< outsideBox (J, 0 or 1): Result::outsideBox; box only, all 0 in a periodic box
     };
 
     /**
@@ -442,11 +447,15 @@ namespace otswap {
      *  The default groups:
      *  - box: Tracer, Lagrangian, Displacement, ValidRealizations (10
      *    columns), and OutsideBox (11) when limits were given to
-     *    reconstructBox;
+     *    reconstructBox, a periodic box included, where it is all 0;
      *  - lightcone: TracerSky, LagrangianSky, Tracer, Lagrangian,
      *    Displacement, ValidRealizations, Selection (18 columns, 19 with
      *    outsideDistanceCut);
      *  - Id first (one more column) when Result::ids is not empty.
+     *
+     *  With groups given explicitly, the id column is written only when Id
+     *  is listed. readDisplacementMean needs Tracer, Displacement and
+     *  ValidRealizations, and TracerSky in a lightcone.
      *
      *  Precision: in ASCII, 'D' values are written with 9 significant
      *  digits, so a position or displacement read back equals the one
@@ -454,19 +463,21 @@ namespace otswap {
      *  non-periodic box are rounded outward to that precision, so the
      *  tracers as written lie within the limits as written; a periodic box
      *  keeps its limits exactly. FITS stores the doubles themselves. The
-     *  profile and the table below take 17 digits in ASCII and read back
-     *  identical.
+     *  profile and the distance table of a lightcone, described below, take
+     *  17 digits in ASCII and read back identical.
      *
      *  Keywords: those of the reconstruction, listed with
-     *  writeDisplacementComplete, and MPSPART = 1 and DISTPART = 1 when the
-     *  profile and the table are written. In FITS the table is named
-     *  DISPLACEMENTS.
+     *  writeDisplacementComplete, among them PERIODIC = 1, NTRWRAP and NRNWRAP
+     *  for a periodic box (the counts each omitted when 0), and MPSPART = 1
+     *  and DISTPART = 1 when the profile and the table are written. In FITS
+     *  the table is named DISPLACEMENTS.
      *
      *  A lightcone file also holds the mps profile and the distance table
      *  of the result, in the layout of writeDisplacementComplete, each with
      *  its own PRODUCT, mean displacements mps profile and mean
-     *  displacements distance table, under the same conditions; and
-     *  readDisplacementMean returns them.
+     *  displacements distance table, when lightconeTables is true and the
+     *  result holds them (a Cartesian result without a distance table has
+     *  none); readDisplacementMean returns them.
      *
      *  @param file the file to write; its extension sets the format.
      *  @param result a box or lightcone result.
@@ -512,14 +523,15 @@ namespace otswap {
      *  lightcone), outsideRedshiftCut, outsideMask and outsideDistanceCut
      *  (lightcone), outsideBox (box). Without them a flag is all 0, and
      *  lagrangian, lagrangianSky and lagrangianDistance are computed from
-     *  tracers + meanDisplacement as recomputeMeans does. The profile and the table are read when the main table
-     *  declares them (MPSPART, DISTPART), from the HDUs or twin files of
-     *  writeDisplacementMean; a file of otswap 0.2 has neither.
-     *  elapsedSeconds is 0.
+     *  tracers + meanDisplacement as recomputeMeans does. The profile and
+     *  the table are read when the main table declares them (MPSPART,
+     *  DISTPART), from the HDUs or twin files of writeDisplacementMean; a
+     *  file of otswap 0.2 has neither. elapsedSeconds is 0.
      *
-     *  The values read back within the precision of writeDisplacementMean;
-     *  the right ascension in [0, 360), as the writer folds it. recomputeMeans on the Result read sets validRealizations
-     *  to 0 or 1, the count of its one realization.
+     *  The values read are those written, within the precision of
+     *  writeDisplacementMean; the right ascension is in [0, 360), as the
+     *  writer folds it. recomputeMeans on the Result read sets
+     *  validRealizations to 0 or 1, the count of its one realization.
      *
      *  @param file a mean displacement file; its extension sets the format.
      *
@@ -551,8 +563,9 @@ namespace otswap {
      *  into [0, 360)); tracX..tracZ (Result::tracers); displX..displZ
      *  (Result::displacement); valid (J); outsideRedshiftCut, outsideMask,
      *  outsideBox (J, 0 or 1, in both geometries); outsideDistanceCut (J, 0
-     *  or 1) last, for a lightcone result whose mpsProfile is in distance or
-     *  that flags a tracer in outsideDistanceCut, and absent otherwise. The
+     *  or 1) last, for every result of a Cartesian overload (its mpsProfile
+     *  in distance), with or without a cut, or one that flags a tracer in
+     *  outsideDistanceCut, and absent otherwise. The
      *  columns of the tracer, id and flags are repeated in every
      *  realization.
      *
@@ -566,8 +579,9 @@ namespace otswap {
      *
      *  Keywords, those of writeDisplacementMean too: NREC and, when
      *  Result::nRealizationsMean is above 1, NRECMEAN, the realizations
-     *  averaged (NREC is then 1); SEED (the seed used), CONVERG, CELLSIZE, REJCROSS (0 or 1), CFMAXPIX, VERBOSE
-     *  (silent, normal or detailed): the configuration; MPS for a box;
+     *  averaged (NREC is then 1); SEED (the seed used), CONVERG, CELLSIZE,
+     *  REJCROSS (0 or 1), CFMAXPIX, VERBOSE (silent, normal or detailed):
+     *  the configuration; MPS for a box;
      *  BOXXLO, BOXXHI, BOXYLO, BOXYHI, BOXZLO, BOXZHI, Result::box when it
      *  is set, and BOXLIM = 1 when it holds the limits given to
      *  reconstructBox; PERIODIC = 1 when the box is periodic (the keyword is
@@ -578,8 +592,8 @@ namespace otswap {
      *  mask filter was applied (CFMAXPIX and MAXPIXCR are thresholds of
      *  rejectMaskCrossings, which states the rule); NTRAC, NTRCUT, NTRDCUT,
      *  NTRMASK, NTRBOTH, NTRBOX, NRAND, NRNCUT, NRNDCUT, NRNMASK, NRNBOTH,
-     *  NRNBOX, NTRWRAP,
-     *  NRNWRAP, NDISPL and NDISPCR, the counts of Result::selection, each when it is not 0.
+     *  NRNBOX, NTRWRAP, NRNWRAP, NDISPL and NDISPCR, the counts of
+     *  Result::selection, each when it is not 0.
      *  Doubles are written as the shortest decimal that reads back as the
      *  same value. Then MPSPART = 1 and DISTPART = 1 when the profile and
      *  the table are written.
@@ -681,12 +695,12 @@ namespace otswap {
     /// The column groups of writeRealSpaceCatalog.
     enum class CatalogGroup {
       Id,                 ///< id (K): RealSpaceCatalog::ids, or the row of the tracer in the input, from 0, when it is empty
-      Sky,                ///< tracRA, tracDec (deg), tracRed: RealSpaceCatalog::sky; lightcone only
-      Cartesian,          ///< tracX, tracY, tracZ: RealSpaceCatalog::cartesian
+      Sky,                ///< tracRA, tracDec (deg), tracRed: RealSpaceCatalog::sky, the corrected position; lightcone only
+      Cartesian,          ///< tracX, tracY, tracZ: RealSpaceCatalog::cartesian, the corrected position
       ValidRealizations,  ///< nValidRec (J)
       Neighbours,         ///< nNeighbours, nRealizationsAveraged (J)
-      Shift,              ///< shift, rsdFactor: RealSpaceCatalog::shift, factor
-      Status              ///< status (J): RealSpaceCatalog::status
+      Shift,              ///< shift (coordinate units), rsdFactor: RealSpaceCatalog::shift, factor
+      Status              ///< status (J): RealSpaceCatalog::status, the value of CorrectionStatus (0 to 3)
     };
 
     /**
@@ -698,9 +712,16 @@ namespace otswap {
      *  - box: Cartesian, ValidRealizations, Neighbours, Status (7 columns);
      *  - Id first (one more column) when RealSpaceCatalog::ids is not empty.
      *
+     *  The shift and the factor are written when Shift is listed in @p
+     *  groups. The columns tracX..tracZ and tracRA..tracRed hold the
+     *  corrected positions here, where the displacement files hold the
+     *  observed ones. The file has no reader of its own: io::read reads its
+     *  columns by name.
+     *
      *  'D' values are written with 9 significant digits in ASCII. Keywords:
      *  SIGMA, WEIGHTED (0 or 1); NEXTRAP for a lightcone; AXIS, ZBOX and BIAS
-     *  for a box.
+     *  for a box. A periodic box has no PERIODIC keyword here; its corrected
+     *  coordinate along the axis is wrapped into the box.
      *
      *  @param file the file to write; its extension sets the format.
      *  @param catalog a box or lightcone catalogue.
@@ -721,7 +742,8 @@ namespace otswap {
      *  ZMAX, MPSREPR (the representative value). A profile in distance has
      *  the column distance (the bin centre, in coordinate units) in place
      *  of redshift, and the keywords DISTMIN and DISTMAX in place of ZMIN
-     *  and ZMAX. MpsProfile::at gives the profile anywhere.
+     *  and ZMAX. MpsProfile::at gives the profile anywhere. The file has no
+     *  reader of its own: io::read reads its columns by name.
      *
      *  @exception Error if the profile is empty or malformed, holds both
      *  redshift and distance nodes, or as io::write.

@@ -1,46 +1,18 @@
 """Reading and writing ASCII and FITS tables.
 
-The format of a file follows its extension: ``.fits``, ``.fit`` and
-``.fits.gz`` are FITS, anything else is ASCII. The reading and writing are
-the C++ library's, so a file written here is the same, byte for byte, as the
-one the C++ library writes from the same values.
-
-ASCII layout::
-
-    ## PRODUCT = displacements / what the file holds
-    # tracX   comoving position of the tracer
-    # ...
-    #
-    ###   tracX   tracY   tracZ ...
-    269.123 ...
-
-one ``## NAME = value / comment`` line per keyword; one ``# name
-description [unit]`` line per column with a description or a unit; a line
-holding ``#`` alone after them, when there are any; the ``###`` line with the
-column names; then one line per row, values separated by single spaces:
-``"D"`` with ``precision`` significant digits, NaN as ``nan``, ``"J"`` and
-``"K"`` as integers. Every header line starts with ``#``, so ``read``,
-``numpy.loadtxt`` and most table readers skip them.
-
-FITS layout: the table in HDU 2, a binary table of 1D, 1J and 1K columns;
-descriptions in TCOMMn, units in TUNITn, keywords in the header of HDU 2. The
-displacement writers name that table DISPLACEMENTS (EXTNAME); the complete
-displacement file adds one HDU per further table, each named by its EXTNAME,
-which an ASCII file writes as twin files of its own.
+The format of a file follows its extension, whatever its case: ``.fits``,
+``.fit`` and ``.fits.gz`` are FITS, anything else is ASCII. The reading and
+writing are the C++ library's, so a file written here is the same, byte for
+byte, as the one the C++ library writes from the same values.
 
 The writers of a ``Result`` and of a ``RealSpaceCatalog`` write one row per
-input object, in input order, tracers left out of the reconstruction
-included, with NaN where nothing was computed, so row i of a file describes
-object i of the input. The id column, where written, holds the object's ID
-(``Result.ids``, ``RealSpaceCatalog.ids``), or i when no IDs were set. Angles
-are in degrees, right ascension in [0, 360) but in the complete displacement
-file, which keeps it as given. Lengths are in coordinate units (see the
-``otswap`` module), which otswap cannot know, so their columns carry no unit
-and their keywords say "in coordinate units". Each column has a description
-and, where it has one, a unit. Every header carries PRODUCT, what the file holds, and
-OTSWAPV, the library version; those of a ``Result`` or a
-``RealSpaceCatalog`` also carry GEOMETRY, box or lightcone, and NOBJECTS;
-then those of the product, listed with each writer.
+input object (the complete displacement file, one per realization and
+object), in input order, with NaN where nothing was computed. Angles in the
+files are in degrees; ``angle_unit`` sets the unit of the arrays a reader
+returns. Lengths are in coordinate units, so their columns carry no unit.
+
+The layouts, and the columns and keywords of every file, are on the "File
+formats" page of the documentation.
 """
 
 import os
@@ -393,20 +365,22 @@ def write_displacement_mean(
     - ``"displacement"``: displX, displY, displZ, ``Result.mean_displacement``;
     - ``"valid_realizations"``: nValidRec;
     - ``"selection"``: outsideRedshiftCut, outsideMask (0 or 1), and
-      outsideDistanceCut for a lightcone result whose ``mps_profile`` is in
-      distance or that flags a tracer in ``outside_distance_cut`` (as in
-      ``write_displacement_complete``); lightcone only;
-    - ``"outside_box"``: outsideBox (0 or 1), ``Result.outside_box``; box only.
+      outsideDistanceCut for every result of
+      ``reconstruct_lightcone_cartesian``, with or without a cut, or one that
+      flags a tracer in ``outside_distance_cut``; lightcone only;
+    - ``"outside_box"``: outsideBox (0 or 1), ``Result.outside_box``; box
+      only, all 0 in a periodic box.
 
     Parameters
     ----------
     groups : sequence of DisplacementGroup, optional
-        In output order; None for the default, CosmoBolognaLib's columns
-        first: box tracer, lagrangian, displacement, valid_realizations, and
-        outside_box when a ``box`` was given to ``reconstruct_box``;
-        lightcone tracer_sky, lagrangian_sky, tracer, lagrangian,
-        displacement, valid_realizations, selection; id first when IDs were
-        set.
+        In output order; None for the default: box tracer, lagrangian,
+        displacement, valid_realizations, and outside_box when a ``box`` was
+        given to ``reconstruct_box``; lightcone tracer_sky, lagrangian_sky,
+        tracer, lagrangian, displacement, valid_realizations, selection; id
+        first when IDs were set. With groups given, id is written only when
+        listed; ``read_displacement_mean`` needs tracer, displacement and
+        valid_realizations, and tracer_sky in a lightcone.
     lightcone_tables : bool, optional
         False to leave out the profile and the table of a lightcone result;
         no effect on a box result, which has neither.
@@ -421,17 +395,22 @@ def write_displacement_mean(
         or holds a value twice, if the result's realization count differs
         from its configuration's, if its count of realizations averaged is 0,
         or above 1 while it holds several realizations, if a box result's box
-        differs from the limits recorded in its selection, or if the profile
-        written does not have one mps and one count per node; or as
-        ``write``.
+        differs from the limits recorded in its selection, if a periodic
+        result is not a box result, has no recorded limits or flags a tracer
+        in ``outside_box``, or if the profile written does not have one mps
+        and one count per node; or as ``write``.
 
     Notes
     -----
     Floating values are written with 9 significant digits in ASCII, so a
     position or displacement read back from ASCII equals the one written
-    within that rounding; FITS stores the values themselves. Keywords: those
-    of the reconstruction, listed with ``write_displacement_complete``, and
-    MPSPART = 1 and DISTPART = 1 when the profile and the table are written.
+    within that rounding, and the box keywords of a box that is not periodic
+    are rounded outward to that precision, so that the tracers as written lie
+    within the box as written; a periodic box keeps its limits exactly. FITS
+    stores the values themselves. Keywords: those of the reconstruction,
+    listed with ``write_displacement_complete`` (PERIODIC, NTRWRAP and
+    NRNWRAP for a periodic box), and MPSPART = 1 and DISTPART = 1 when the
+    profile and the table are written.
     In FITS the table is named DISPLACEMENTS.
 
     A lightcone file also holds the mps(z) profile and the distance table of
@@ -463,7 +442,7 @@ def write_displacement_complete(
     tracX..tracZ (``Result.tracers``); displX..displZ
     (``Result.displacement``); valid; outsideRedshiftCut, outsideMask,
     outsideBox (0 or 1, in both geometries); outsideDistanceCut (0 or 1)
-    last, for a lightcone result whose ``mps_profile`` is in distance or
+    last, for every result of ``reconstruct_lightcone_cartesian`` or one
     that flags a tracer in ``outside_distance_cut``, absent otherwise. The
     columns of the tracer, id and flags are repeated in every realization.
 
@@ -621,12 +600,12 @@ def read_displacement_mean(file: Path, *, angle_unit: AngleUnit) -> Result:
     holds them: id (``ids``, as having no IDs when they are
     0..n_objects-1), lagrX..lagrZ (``lagrangian``), lagrRA..lagrRed
     (``lagrangian_sky``, in a lightcone), outsideRedshiftCut, outsideMask and
-    outsideDistanceCut (lightcone), outsideBox (box). Without them a flag is all false,
-    ``lagrangian`` is ``tracers`` + ``mean_displacement``, and
-    ``lagrangian_sky`` and ``lagrangian_distance`` are computed from it as
-    ``recompute_means`` does: with the distance table, or with NaN redshifts
-    for a profile in distance, and None with neither. In a lightcone,
-    ``lagrangian_distance`` is always computed from ``lagrangian``. The mps
+    outsideDistanceCut (lightcone), outsideBox (box). Without them a flag is
+    all false, and ``lagrangian`` is ``tracers`` + ``mean_displacement``. In
+    a lightcone, ``lagrangian_distance`` is always computed from
+    ``lagrangian``, and ``lagrangian_sky`` is computed from it as
+    ``recompute_means`` does: with the distance table, with NaN redshifts for
+    a profile in distance, and None with neither. The mps
     profile and the distance table are read when the file declares them
     (MPSPART, DISTPART), from the extensions or twin files of
     ``write_displacement_mean``; a file of otswap 0.2 has neither.
@@ -691,8 +670,7 @@ def write_real_space_catalog(
     Parameters
     ----------
     groups : sequence of CatalogGroup, optional
-        In output order; None for the default, CosmoBolognaLib's columns
-        first: lightcone sky, cartesian, valid_realizations, neighbours,
+        In output order; None for the default: lightcone sky, cartesian, valid_realizations, neighbours,
         status; box the same without sky; id first when IDs were set.
 
     Raises

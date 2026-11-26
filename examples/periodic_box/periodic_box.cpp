@@ -64,7 +64,7 @@ int main (int argc, char** argv)
     // ---------------------------------------------------
 
     // Halos of a simulation at redshift 0 in a cube of side 1000 Mpc/h,
-    // [0, 1000) on each axis, comoving coordinates in Mpc/h. The file holds
+    // [0, 1000] on each axis, comoving coordinates in Mpc/h. The file holds
     // x, y and z in real space, then z in redshift space, with the line of
     // sight along the z axis: the positions observed are x, y and the
     // fourth column, those in real space the first three
@@ -98,8 +98,9 @@ int main (int argc, char** argv)
     config.seed = 12345;
 
     // The grid cell, in units of mps, affects the speed only, never the
-    // result. In a periodic box the cells divide the shortest side a whole
-    // number of times, so the cell used can be smaller: Result::cellSide
+    // result; the default is 3. In a periodic box the cells divide the
+    // shortest side a whole number of times, so the cell used can be
+    // smaller: Result::cellSide
     config.cellSize = 3.;
 
     config.verbosity = otswap::Verbosity::Normal;
@@ -112,13 +113,16 @@ int main (int argc, char** argv)
 
     // The box is periodic: the limits are required, and the mean particle
     // separation, (V/N)^(1/3) with V the volume of the limits, comes from
-    // them. A tracer outside the limits would be wrapped into the box and
-    // counted in Result::selection; here none is
+    // them. The limits are closed: a tracer on an upper face stays there,
+    // and one outside the limits would be wrapped into the box and counted
+    // in Result::selection; here none is. The empty array {} in place of
+    // the randoms lets otswap draw them
     otswap::BoxLimits box;
     box.lower = {0., 0., 0.};
     box.upper = {side, side, side};
+    const bool periodic = true;
 
-    const otswap::Result result = otswap::reconstructBox(tracers, {}, config, box, true);
+    const otswap::Result result = otswap::reconstructBox(tracers, {}, config, box, periodic);
 
 
     // ----------------------------------------------
@@ -147,11 +151,12 @@ int main (int argc, char** argv)
     // ------------ Write the output ------------
     // ------------------------------------------
 
-    // One row per tracer, in the order of the input: its position, its
-    // mean Lagrangian position, wrapped into the box, the mean
-    // displacement and the number of valid realizations, with a header
-    // describing the columns (lengths in coordinate units), the box, the
-    // periodicity and the parameters of the run
+    // One row per tracer, in the order of the input: its position and its
+    // mean Lagrangian position, both wrapped into the box, the mean
+    // displacement, the number of valid realizations and the flag
+    // outsideBox, always 0 in a periodic box, with a header describing the
+    // columns (lengths in coordinate units), the box, the periodicity and
+    // the parameters of the run
     otswap::io::writeDisplacementMean(output + "/displacement_periodic_box.dat", result);
 
     std::cout << "Written: output/displacement_periodic_box.dat" << std::endl;

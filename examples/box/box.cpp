@@ -22,12 +22,13 @@
   catalogue's IDs, reads it back, and uses the realizations to check
   whether their number is enough.
 
-  Without the periodic option the box is not periodic: nothing flows through its faces, so modes on
-  the scale of the box itself are not reconstructed, and the
-  displacements are least reliable near the faces. A box cut from a
-  periodic simulation is treated as a plain sub-volume; a whole
-  simulation box with periodic boundary conditions is reconstructed
-  with the periodic option: see the periodic_box example.
+  Without the periodic option, the box is not periodic: nothing flows
+  through its faces, so modes on the scale of the box itself are not
+  reconstructed, and the displacements are least reliable near the
+  faces. A box cut from a periodic simulation is treated as a plain
+  sub-volume; a whole simulation box with periodic boundary conditions
+  is reconstructed with the periodic option: see the periodic_box
+  example.
 
   Usage: box [data_dir]. The catalogues are read from data_dir, by
   default the examples' data folder; the output is written to the
