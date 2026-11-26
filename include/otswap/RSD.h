@@ -375,11 +375,14 @@ namespace otswap {
    *  or result.outsideMask are left out: they take no part in any average,
    *  are not moved, have diagnostics 0, and the status LeftOut.
    *
-   *  For a result of a Cartesian overload of reconstructLightcone, one whose
-   *  mpsProfile is in distance, the observed redshift of each tracer is not
-   *  read from tracersSky: it is the redshift at which @p distances reaches
-   *  the tracer's distance from the origin, which is also the d(z_i) of
-   *  step 4. The right ascension and declination are those of tracersSky.
+   *  The observed redshift of a tracer is read from tracersSky when it is
+   *  not NaN. A tracer whose redshift is NaN, as in a result of a Cartesian
+   *  overload of reconstructLightcone built without a distance table, or
+   *  whose distance fell outside it, or one read from a file with no
+   *  redshift, takes it from its position: it is the redshift at which
+   *  @p distances reaches the tracer's distance from the origin, which is
+   *  also the d(z_i) of step 4. The right ascension and declination are
+   *  always those of tracersSky.
    *
    *  On a Result read by io::readDisplacementComplete the correction is
    *  that of the reconstruction itself, bit for bit, but for the right
@@ -387,8 +390,8 @@ namespace otswap {
    *  within the rounding of the file's conversion to degrees and back.
    *
    *  @param result a lightcone reconstruction, with its tracers and
-   *  tracersSky, as reconstructLightcone returns it; from a Cartesian
-   *  overload, with or without a distance table.
+   *  tracersSky, as reconstructLightcone returns it, from a sky or a
+   *  Cartesian overload.
    *  @param distances a table carrying the growth rate, covering the
    *  corrected distances as well as the observed ones.
    *  @param bias the b(z) table.
@@ -403,7 +406,7 @@ namespace otswap {
    *  per object or hold a value twice, if a tracer kept is not finite or is
    *  at the origin, if the table carries no growth rate, if the bias table
    *  is malformed or extrapolates to a bias that is not positive, if the
-   *  distance of a tracer of a Cartesian result lies outside the distance
+   *  distance of a tracer with no redshift lies outside the distance
    *  table, or if a corrected comoving distance is not positive or lies
    *  outside the distance table; the message names the object, and in the
    *  last two cases suggests a table covering a wider redshift range.

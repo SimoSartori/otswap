@@ -296,8 +296,8 @@ def compute():
                                ("table", dict(sky_area_deg2=900.0, distances=lc_table)),
                                ("cut", dict(sky_area_deg2=900.0, distance_cut=distance_cut)),
                                ("mask_cut", dict(mask=mask, distance_cut=distance_cut, distances=lc_table))):
-            c = otswap.reconstruct_lightcone(tracers=xyz_tracers, randoms=xyz_randoms, n_bins=2,
-                                             angle_unit="deg", config=lc_config, **options)
+            c = otswap.reconstruct_lightcone_cartesian(xyz_tracers, xyz_randoms, n_bins=2,
+                                                       angle_unit="deg", config=lc_config, **options)
             key = f"reconstruct_lightcone.cartesian.{label}"
             out[key + ".displacement"] = digest(c.displacement)
             out[key + ".valid"] = digest(c.valid)

@@ -192,8 +192,8 @@ class RedshiftCut:
 
 class DistanceCut:
     """A closed range of comoving distance from the origin, in coordinate
-    units, for ``reconstruct_lightcone`` and ``measure_mps_profile`` given
-    Cartesian ``tracers``, as ``otswap::DistanceCut``: the counterpart of
+    units, for ``reconstruct_lightcone_cartesian`` and
+    ``measure_mps_profile_cartesian``, as ``otswap::DistanceCut``: the counterpart of
     ``RedshiftCut``. The default, (-inf, +inf), cuts nothing. Wherever a
     DistanceCut is taken, a ``(min, max)`` pair is accepted too.
 
@@ -455,7 +455,7 @@ class Result:
     @property
     def outside_distance_cut(self) -> NDArray[np.bool_]:
         """Whether each tracer lay outside the ``distance_cut`` of
-        ``reconstruct_lightcone``, given Cartesian ``tracers``, and took no
+        ``reconstruct_lightcone_cartesian`` and took no
         part in the reconstruction, shape (n_objects,). All false without a
         cut, and for sky tracers or a box. A flagged tracer's rows are as for
         a cut one."""
@@ -556,10 +556,11 @@ class MpsProfile:
         """The count-weighted median of ``mps``, which sizes the grids of the
         reconstruction."""
 
-    def at(self, z: ArrayLike) -> NDArray[np.float64]:
-        """The mps at each redshift, or at each distance of a profile in
-        distance, in coordinate units, the shape of ``z`` kept: the value
-        the reconstruction used at a tracer of that redshift or distance. Raises if the
+    def at(self, value: ArrayLike) -> NDArray[np.float64]:
+        """The mps at each ``value``, in coordinate units, the shape of
+        ``value`` kept: a redshift for a profile in redshift, a comoving
+        distance for a profile in distance. It is the value the
+        reconstruction used at a tracer of that redshift or distance. Raises if the
         profile is empty, or where the extrapolation is not positive."""
 
 
@@ -1037,50 +1038,37 @@ def reconstruct_box(
 
 
 def reconstruct_lightcone(
-    tracers_sky: Optional[ArrayLike] = None,
-    randoms_sky: Optional[ArrayLike] = None,
+    tracers_sky: ArrayLike,
+    randoms_sky: ArrayLike,
     *,
     sky_area_deg2: Optional[float] = None,
     mask: Optional[Mask] = None,
     n_bins: int,
-    distances: Optional[DistanceTable] = None,
+    distances: DistanceTable,
     angle_unit: AngleUnit,
-    tracers: Optional[ArrayLike] = None,
-    randoms: Optional[ArrayLike] = None,
     redshift_cut: Optional[Union[RedshiftCut, tuple[float, float]]] = None,
-    distance_cut: Optional[Union[DistanceCut, tuple[float, float]]] = None,
     config: Config = Config(),
 ) -> Result:
-    """Reconstruct in lightcone geometry, from sky coordinates or from
-    Cartesian ones.
+    """Reconstruct in lightcone geometry, from sky coordinates.
 
     The mean particle separation is measured from the tracers: n_bins
     uniform redshift bins over the observed range, mps = (N / V)^(-1/3) in
     each, with V the shell volume implied by the sky area. The bin values
     are joined by linear interpolation and extrapolated linearly beyond the
     outermost bins. Raises if a bin holds too few tracers for a 2% accuracy
-    on its mps.
-
-    Give either ``tracers_sky`` and ``randoms_sky``, or ``tracers`` and
-    ``randoms``, Cartesian comoving coordinates with the observer at the
-    origin. From Cartesian coordinates no cosmology is needed: the bins are
-    uniform in comoving distance from the origin, ``Result.mps_profile`` is
-    a profile in distance, the objects are selected on the angles and
-    distance of ``point_to_sky``, ``distance_cut`` takes the place of
-    ``redshift_cut``, and ``distances`` is optional: it only fills the
-    redshifts of ``Result.tracers_sky`` and ``Result.lagrangian_sky``, NaN
-    without it, and the result is otherwise the same with or without it.
+    on its mps. For Cartesian coordinates, see
+    ``reconstruct_lightcone_cartesian``.
 
     Randoms are required: they carry the survey geometry, the selection
     function and the completeness.
 
     Parameters
     ----------
-    tracers_sky : array_like, shape (N, 3), optional
+    tracers_sky : array_like, shape (N, 3)
         Sky coordinates of the tracers.
-    randoms_sky : array_like, shape (M, 3), optional
+    randoms_sky : array_like, shape (M, 3)
         Sky coordinates of the randoms. Their number is checked after the
-        redshift cut (the distance cut for ``randoms``) and the mask: the randoms kept must number at least
+        redshift cut and the mask: the randoms kept must number at least
         ``config.n_realizations`` times the tracers kept, which is
         M >= R * N, with R ``config.n_realizations``, when nothing is left
         out.
@@ -1097,34 +1085,22 @@ def reconstruct_lightcone(
         ``config.max_unobserved_pixels_crossed``. The mask and the redshift
         cut are both evaluated on every object; the objects kept pass both.
     n_bins : int
-        Redshift bins used to measure mps(z), or distance bins for mps(d).
-    distances : DistanceTable, optional
+        Redshift bins used to measure mps(z).
+    distances : DistanceTable
         The redshift to distance relation, with which the sky coordinates
         are converted and the shell volumes computed; it must cover the
-        redshifts of the objects kept. Required with ``tracers_sky``;
-        optional with ``tracers``, as above.
+        redshifts of the objects kept.
     angle_unit : AngleUnit
         Unit of right ascension and declination, of the sky arrays given and
         of those of the result. A declination outside [-90, 90] degrees
         ([-pi/2, pi/2] radians) raises, the message giving it in this unit.
-    tracers, randoms : array_like, optional
-        Cartesian coordinates of the tracers and the randoms, shape (N, 3)
-        and (M, 3), in coordinate units, in place of ``tracers_sky`` and
-        ``randoms_sky``. Give both.
     redshift_cut : RedshiftCut or (min, max), optional
-        With ``tracers_sky``: tracers and randoms whose redshift lies outside
-        this closed range are left out of the reconstruction, before
-        anything else: the randoms are dropped, and the tracers keep their
-        row, flagged in ``Result.outside_redshift_cut``. mps(z) is measured
-        on the tracers kept, and only their redshifts need lie in the
-        distance table. None, the default, and ``RedshiftCut()`` cut
-        nothing.
-    distance_cut : DistanceCut or (min, max), optional
-        With ``tracers``: the redshift cut in comoving distance from the
-        origin, in coordinate units. The objects outside it are left out as
-        by ``redshift_cut``, the tracers flagged in
-        ``Result.outside_distance_cut``, and mps(d) is measured on the
-        tracers kept. None, the default, and ``DistanceCut()`` cut nothing.
+        Tracers and randoms whose redshift lies outside this closed range
+        are left out of the reconstruction, before anything else: the
+        randoms are dropped, and the tracers keep their row, flagged in
+        ``Result.outside_redshift_cut``. mps(z) is measured on the tracers
+        kept, and only their redshifts need lie in the distance table.
+        None, the default, and ``RedshiftCut()`` cut nothing.
     config : Config, optional
         Every field; ``reject_crossings`` and
         ``max_unobserved_pixels_crossed`` are read only with a mask.
@@ -1139,23 +1115,15 @@ def reconstruct_lightcone(
             otswap: rejected <r> of <D> displacements crossing more than <L> unobserved pixels in a row
             otswap: reconstructLightcone: <R> realizations of <N> tracers in <T> s; <K> without a valid displacement
 
-        ``"detailed"`` adds the mps(z) profile before the last line. With
-        a distance cut, the cut reads ``<a> outside the distance cut
-        [<dmin>, <dmax>] in coordinate units``, and ``"detailed"`` adds
-        mps(d).
+        ``"detailed"`` adds the mps(z) profile before the last line.
 
     Raises
     ------
     Error
-        If both or neither of the sky pair and the Cartesian pair are given,
-        or one array of a pair alone; if ``redshift_cut`` is given with
-        ``tracers``, or ``distance_cut`` with ``tracers_sky``; if
-        ``distances`` is missing with ``tracers_sky``.
-    Error
-        If an array is not of shape (N, 3), or a Cartesian coordinate is not
-        finite; if a declination is out of range, or a redshift falls
-        outside the distance table; if the randoms are too few; if both or
-        neither of ``sky_area_deg2`` and ``mask`` are given.
+        If an array is not of shape (N, 3), if a declination is out of
+        range, or a redshift falls outside the distance table; if the
+        randoms are too few; if both or neither of ``sky_area_deg2`` and
+        ``mask`` are given.
     Error
         If a bound of the cut is NaN or its minimum exceeds its maximum, or
         if too few tracers or randoms remain inside the cut and the mask;
@@ -1164,8 +1132,7 @@ def reconstruct_lightcone(
         If a bin holds too few tracers for its density to be meaningful, the
         message reporting how many bins the catalogue supports, or if the
         profile extrapolates to an mps that is not positive at a tracer's
-        redshift or distance, or, with ``tracers``, if every tracer kept lies
-        at the same distance.
+        redshift.
     Error
         If a field of ``config`` is out of range, as in ``reconstruct_box``.
     Error
@@ -1174,28 +1141,79 @@ def reconstruct_lightcone(
     """
 
 
-def measure_mps_profile(
-    tracers_sky: Optional[ArrayLike] = None,
+def reconstruct_lightcone_cartesian(
+    tracers: ArrayLike,
+    randoms: ArrayLike,
     *,
     sky_area_deg2: Optional[float] = None,
     mask: Optional[Mask] = None,
     n_bins: int,
     distances: Optional[DistanceTable] = None,
-    redshift_cut: Optional[Union[RedshiftCut, tuple[float, float]]] = None,
-    angle_unit: Optional[AngleUnit] = None,
-    verbosity: Verbosity = "normal",
-    tracers: Optional[ArrayLike] = None,
+    angle_unit: AngleUnit,
     distance_cut: Optional[Union[DistanceCut, tuple[float, float]]] = None,
-) -> MpsProfile:
-    """Measure the mps(z) profile of a lightcone without reconstructing,
-    or the mps(d) profile of Cartesian tracers.
+    config: Config = Config(),
+) -> Result:
+    """Reconstruct in lightcone geometry, from Cartesian coordinates.
 
-    Give either ``tracers_sky``, with ``distances``, ``angle_unit`` and
-    optionally ``redshift_cut``, or ``tracers``, Cartesian, with
-    optionally ``distance_cut`` and neither ``distances`` nor
-    ``angle_unit``: the profile in distance ``reconstruct_lightcone``
-    measures from ``tracers``, bit for bit, with the same tracers, sky area
-    or mask, ``n_bins`` and ``distance_cut``.
+    ``tracers`` and ``randoms`` are comoving coordinates with the observer
+    at the origin, in coordinate units. No cosmology is needed: the mean
+    particle separation is measured in ``n_bins`` uniform bins of comoving
+    distance from the origin, ``Result.mps_profile`` is a profile in
+    distance, the objects are selected on the angles and distance of
+    ``point_to_sky``, ``distance_cut`` is the counterpart of
+    ``reconstruct_lightcone``'s ``redshift_cut``, and ``distances`` is
+    optional: it only fills the redshifts of ``Result.tracers_sky`` and
+    ``Result.lagrangian_sky``, NaN without it, and the result is otherwise
+    the same with or without it. Everything else is as in
+    ``reconstruct_lightcone``, which see.
+
+    Parameters
+    ----------
+    tracers, randoms : array_like, shape (N, 3) and (M, 3)
+        Cartesian coordinates, finite. The randoms kept must number at least
+        ``config.n_realizations`` times the tracers kept.
+    sky_area_deg2, mask : optional
+        As in ``reconstruct_lightcone``; give exactly one.
+    n_bins : int
+        Distance bins used to measure mps(d).
+    distances : DistanceTable, optional
+        Only to fill the redshifts of the result, as above.
+    angle_unit : AngleUnit
+        Unit of the right ascension and declination of the sky arrays of the
+        result.
+    distance_cut : DistanceCut or (min, max), optional
+        Objects whose comoving distance from the origin lies outside this
+        closed range are left out, in coordinate units: the randoms are
+        dropped, and the tracers keep their row, flagged in
+        ``Result.outside_distance_cut``. mps(d) is measured on the tracers
+        kept. None, the default, and ``DistanceCut()`` cut nothing.
+    config : Config, optional
+        As in ``reconstruct_lightcone``. With a distance cut, the report
+        names it: ``<a> outside the distance cut [<dmin>, <dmax>] in
+        coordinate units``, and ``"detailed"`` adds mps(d).
+
+    Raises
+    ------
+    Error
+        As ``reconstruct_lightcone``, with the same messages, for the
+        arrays, the cut, the mask, the numbers of tracers and randoms, the
+        profile and ``config``; also if every tracer kept lies at the same
+        distance.
+    """
+
+
+def measure_mps_profile(
+    tracers_sky: ArrayLike,
+    *,
+    sky_area_deg2: Optional[float] = None,
+    mask: Optional[Mask] = None,
+    n_bins: int,
+    distances: DistanceTable,
+    redshift_cut: Optional[Union[RedshiftCut, tuple[float, float]]] = None,
+    angle_unit: AngleUnit,
+    verbosity: Verbosity = "normal",
+) -> MpsProfile:
+    """Measure the mps(z) profile of a lightcone without reconstructing.
 
     The steps of ``reconstruct_lightcone`` that concern the tracers, in the
     same order and with the same code: the checks of the sky coordinates
@@ -1209,7 +1227,7 @@ def measure_mps_profile(
 
     Parameters
     ----------
-    tracers_sky : array_like, shape (N, 3), optional
+    tracers_sky : array_like, shape (N, 3)
         Sky coordinates of the tracers.
     sky_area_deg2 : float, optional
         Effective survey area, when no mask is given, as in
@@ -1220,18 +1238,18 @@ def measure_mps_profile(
         the tracers on unobserved pixels are left out, as
         ``reconstruct_lightcone`` leaves them out.
     n_bins : int
-        Redshift bins used to measure mps(z), or distance bins for mps(d).
-    distances : DistanceTable, optional
-        With ``tracers_sky``, required: the redshift to distance relation;
-        it must cover the redshifts of the tracers kept.
+        Redshift bins used to measure mps(z).
+    distances : DistanceTable
+        The redshift to distance relation; it must cover the redshifts of
+        the tracers kept.
     redshift_cut : RedshiftCut or (min, max), optional
         As in ``reconstruct_lightcone``: the tracers whose redshift lies
         outside this closed range are left out. None, the default, cuts
         nothing.
-    angle_unit : AngleUnit, optional
-        With ``tracers_sky``, required: the unit of right ascension and
-        declination. A declination outside [-90, 90] degrees ([-pi/2, pi/2]
-        radians) raises, the message giving it in this unit.
+    angle_unit : AngleUnit
+        The unit of right ascension and declination. A declination outside
+        [-90, 90] degrees ([-pi/2, pi/2] radians) raises, the message giving
+        it in this unit.
     verbosity : Verbosity, optional
         What the call prints; see ``Verbosity``. With ``"normal"``, when a
         mask or a cut with a finite bound is applied, the tracer line of the
@@ -1241,14 +1259,7 @@ def measure_mps_profile(
             otswap: kept <n> of <N> tracers: <a> outside the redshift cut [<zmin>, <zmax>], <b> outside the mask (<c> outside both)
             otswap: measureMpsProfile: <B> bins over [<zmin>, <zmax>]
 
-        ``"detailed"`` adds the mps(z) profile before the last line. With
-        ``tracers``, the last line reads ``otswap: measureMpsProfile: <B>
-        bins over [<dmin>, <dmax>] in coordinate units``, the cut as in
-        ``reconstruct_lightcone``.
-    tracers : array_like, shape (N, 3), optional
-        Cartesian coordinates of the tracers, in place of ``tracers_sky``.
-    distance_cut : DistanceCut or (min, max), optional
-        With ``tracers``: as in ``reconstruct_lightcone``.
+        ``"detailed"`` adds the mps(z) profile before the last line.
 
     Returns
     -------
@@ -1263,11 +1274,53 @@ def measure_mps_profile(
         the cut is NaN or its minimum exceeds its maximum, if a cut or the
         mask keeps too few tracers, if a bin holds too few tracers, or if a
         redshift kept falls outside the distance table; also if both or
-        neither of ``sky_area_deg2`` and ``mask`` are given, if both or
-        neither of ``tracers_sky`` and ``tracers`` are given, or if
-        ``tracers`` comes with ``distances``, ``angle_unit`` or
-        ``redshift_cut``, or ``tracers_sky`` with ``distance_cut``. With
-        ``tracers``, also if every tracer kept lies at the same distance.
+        neither of ``sky_area_deg2`` and ``mask`` are given.
+    """
+
+
+def measure_mps_profile_cartesian(
+    tracers: ArrayLike,
+    *,
+    sky_area_deg2: Optional[float] = None,
+    mask: Optional[Mask] = None,
+    n_bins: int,
+    distance_cut: Optional[Union[DistanceCut, tuple[float, float]]] = None,
+    verbosity: Verbosity = "normal",
+) -> MpsProfile:
+    """Measure the mps(d) profile of Cartesian tracers without
+    reconstructing.
+
+    The profile in distance that ``reconstruct_lightcone_cartesian``
+    measures from the same tracers, sky area or mask, ``n_bins`` and
+    ``distance_cut``, bit for bit, with the same checks and messages. It
+    needs neither a distance table nor an angle unit.
+
+    Parameters
+    ----------
+    tracers : array_like, shape (N, 3)
+        Cartesian coordinates of the tracers, with the observer at the
+        origin, in coordinate units.
+    sky_area_deg2, mask : optional
+        As in ``measure_mps_profile``; give exactly one.
+    n_bins : int
+        Distance bins used to measure mps(d).
+    distance_cut : DistanceCut or (min, max), optional
+        As in ``reconstruct_lightcone_cartesian``.
+    verbosity : Verbosity, optional
+        What the call prints; see ``Verbosity``. The last line reads
+        ``otswap: measureMpsProfile: <B> bins over [<dmin>, <dmax>] in
+        coordinate units``, the cut as in ``reconstruct_lightcone_cartesian``.
+
+    Returns
+    -------
+    MpsProfile
+        The profile, in distance.
+
+    Raises
+    ------
+    Error
+        As ``measure_mps_profile`` for the tracer array, the cut, the mask
+        and the bins; also if every tracer kept lies at the same distance.
     """
 
 
@@ -1632,10 +1685,11 @@ def real_space_lightcone(
     without a valid realization still moves with the average of its
     neighbours; only one with no valid tracer within 3 sigma is not moved.
 
-    For a result of Cartesian ``tracers`` (its ``mps_profile`` in distance),
-    the observed redshift of each tracer is the redshift at which
-    ``distances`` reaches the tracer's distance from the origin, whether or
-    not the reconstruction was given a table.
+    The observed redshift of a tracer is that of ``result.tracers_sky``
+    when it is not NaN. Where it is NaN, as for the tracers of a result of
+    ``reconstruct_lightcone_cartesian`` built without a table, it is the
+    redshift at which ``distances`` reaches the tracer's distance from the
+    origin.
 
     Parameters
     ----------

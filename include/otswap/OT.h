@@ -389,7 +389,7 @@ namespace otswap {
     double distanceMax = std::numeric_limits<double>::quiet_NaN();
 
     /**
-     *  @brief The mps at x, in coordinate units: x a redshift for a profile
+     *  @brief The mps at @p value, in coordinate units: a redshift for a profile
      *  in redshift, a comoving distance for a profile in distance. Linear
      *  between the nodes, extrapolated linearly beyond the terminal ones
      *  along the terminal segment, constant with a single node. This is the
@@ -399,7 +399,7 @@ namespace otswap {
      *  distance nodes, or if the value is not positive, which only an
      *  extrapolation can give.
      */
-    double at (double x) const;
+    double at (double value) const;
   };
 
   /**

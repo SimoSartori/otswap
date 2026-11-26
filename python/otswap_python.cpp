@@ -383,30 +383,6 @@ namespace {
     return mask.is_none() ? nullptr : &instance<otswap::Mask>(mask, "mask", "Mask");
   }
 
-  /// Whether reconstruct_lightcone was given Cartesian tracers and randoms
-  /// rather than sky ones, each pair complete and with its own cut.
-  bool lightcone_input (nb::handle tracersSky, nb::handle randomsSky, nb::handle tracers,
-                        nb::handle randoms, nb::handle redshiftCut, nb::handle distanceCut)
-  {
-    const bool sky = !tracersSky.is_none() || !randomsSky.is_none();
-    const bool cartesian = !tracers.is_none() || !randoms.is_none();
-    if (sky && cartesian)
-      throw otswap::Error("give tracers_sky and randoms_sky, or tracers and randoms, not both");
-    if (!sky && !cartesian)
-      throw otswap::Error("give tracers_sky and randoms_sky, or tracers and randoms; one pair is required");
-    if (sky && (tracersSky.is_none() || randomsSky.is_none()))
-      throw otswap::Error("give both tracers_sky and randoms_sky");
-    if (cartesian && (tracers.is_none() || randoms.is_none()))
-      throw otswap::Error("give both tracers and randoms");
-    if (cartesian && !redshiftCut.is_none())
-      throw otswap::Error("redshift_cut selects tracers_sky and randoms_sky; with tracers and randoms, "
-                          "give distance_cut");
-    if (sky && !distanceCut.is_none())
-      throw otswap::Error("distance_cut selects tracers and randoms; with tracers_sky and randoms_sky, "
-                          "give redshift_cut");
-    return cartesian;
-  }
-
   /// The redshift cut from None, an otswap.RedshiftCut or a (min, max)
   /// pair.
   otswap::RedshiftCut to_cut (nb::handle value)
@@ -1166,7 +1142,7 @@ NB_MODULE(_otswap, m)
 
   nb::class_<otswap::DistanceCut>(m, "DistanceCut",
       "A closed range of comoving distance from the origin, in coordinate units, for "
-      "reconstruct_lightcone and measure_mps_profile given Cartesian tracers, as otswap::DistanceCut. "
+      "reconstruct_lightcone_cartesian and measure_mps_profile_cartesian, as otswap::DistanceCut. "
       "The default, (-inf, +inf), cuts nothing. Wherever a DistanceCut is taken, a (min, max) pair is "
       "accepted too.")
     .def("__init__", [] (otswap::DistanceCut* self, nb::handle min, nb::handle max) {
@@ -1320,9 +1296,9 @@ NB_MODULE(_otswap, m)
     .def_ro("distance_min", &otswap::MpsProfile::distanceMin)
     .def_ro("distance_max", &otswap::MpsProfile::distanceMax)
     .def_ro("representative", &otswap::MpsProfile::representative)
-    .def("at", [] (const otswap::MpsProfile& p, nb::handle z) {
-          return elementwise(z, "z", [&p] (const double v) { return p.at(v); });
-        }, "z"_a.none(), "The mps at each redshift, or each distance for a profile in distance, linear "
+    .def("at", [] (const otswap::MpsProfile& p, nb::handle value) {
+          return elementwise(value, "value", [&p] (const double v) { return p.at(v); });
+        }, "value"_a.none(), "The mps at each redshift, or each distance for a profile in distance, linear "
                          "between the nodes and beyond them.");
 
   // ==========================================================================
@@ -1712,89 +1688,98 @@ NB_MODULE(_otswap, m)
 
   m.def("reconstruct_lightcone",
       [] (nb::handle tracersSky, nb::handle randomsSky, nb::handle skyAreaDeg2, nb::handle mask,
-          nb::handle nBins, nb::handle distances, nb::handle angleUnit, nb::handle tracers,
-          nb::handle randoms, nb::handle redshiftCut, nb::handle distanceCut, nb::handle configArg) {
-        const bool cartesian = lightcone_input(tracersSky, randomsSky, tracers, randoms, redshiftCut, distanceCut);
-        const otswap::DistanceTable* table =
-          !cartesian || !distances.is_none()
-            ? &instance<otswap::DistanceTable>(distances, "distances", "DistanceTable") : nullptr;
+          nb::handle nBins, nb::handle distances, nb::handle angleUnit, nb::handle redshiftCut,
+          nb::handle configArg) {
+        const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
         const bool degrees = in_degrees(angleUnit);
-        std::vector<double> ts, rs;
-        if (!cartesian) {
-          ts = rows3(tracersSky, "tracers_sky");
-          rs = rows3(randomsSky, "randoms_sky");
-          if (degrees) { sky_to_radians(ts, "tracers_sky"); sky_to_radians(rs, "randoms_sky"); }
-        }
-        else {
-          ts = rows3(tracers, "tracers");
-          rs = rows3(randoms, "randoms");
-        }
+        std::vector<double> ts = rows3(tracersSky, "tracers_sky");
+        std::vector<double> rs = rows3(randomsSky, "randoms_sky");
+        if (degrees) { sky_to_radians(ts, "tracers_sky"); sky_to_radians(rs, "randoms_sky"); }
         const otswap::Mask* footprint = area_or_mask(skyAreaDeg2, mask);
         const double area = footprint ? 0. : to_double(skyAreaDeg2, "sky_area_deg2");
         const unsigned bins = to_unsigned(nBins, "n_bins");
         LiveReport report;
         const otswap::Config config = config_of(configArg, report.log());
         const otswap::RedshiftCut cut = to_cut(redshiftCut);
+
+        return result_object(report.run([&] {
+          return footprint ? otswap::reconstructLightcone(ts, rs, *footprint, bins, table, config, cut)
+                           : otswap::reconstructLightcone(ts, rs, area, bins, table, config, cut);
+        }), degrees);
+      },
+      "tracers_sky"_a.none(), "randoms_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(),
+      "mask"_a = nb::none(), "n_bins"_a.none(), "distances"_a.none(), "angle_unit"_a.none(),
+      "redshift_cut"_a = nb::none(), "config"_a.none() = otswap::Config(),
+      "Reconstruct in lightcone geometry, from sky coordinates.");
+
+  m.def("reconstruct_lightcone_cartesian",
+      [] (nb::handle tracers, nb::handle randoms, nb::handle skyAreaDeg2, nb::handle mask,
+          nb::handle nBins, nb::handle distances, nb::handle angleUnit, nb::handle distanceCut,
+          nb::handle configArg) {
+        const otswap::DistanceTable* table =
+          distances.is_none() ? nullptr : &instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
+        const bool degrees = in_degrees(angleUnit);
+        const std::vector<double> ts = rows3(tracers, "tracers");
+        const std::vector<double> rs = rows3(randoms, "randoms");
+        const otswap::Mask* footprint = area_or_mask(skyAreaDeg2, mask);
+        const double area = footprint ? 0. : to_double(skyAreaDeg2, "sky_area_deg2");
+        const unsigned bins = to_unsigned(nBins, "n_bins");
+        LiveReport report;
+        const otswap::Config config = config_of(configArg, report.log());
         const otswap::DistanceCut dcut = to_distance_cut(distanceCut);
 
         return result_object(report.run([&] {
-          if (cartesian)
-            return footprint ? otswap::reconstructLightcone(ts, rs, *footprint, bins, config, table, dcut)
-                             : otswap::reconstructLightcone(ts, rs, area, bins, config, table, dcut);
-          return footprint ? otswap::reconstructLightcone(ts, rs, *footprint, bins, *table, config, cut)
-                           : otswap::reconstructLightcone(ts, rs, area, bins, *table, config, cut);
+          return footprint ? otswap::reconstructLightcone(ts, rs, *footprint, bins, config, table, dcut)
+                           : otswap::reconstructLightcone(ts, rs, area, bins, config, table, dcut);
         }), degrees);
       },
-      "tracers_sky"_a = nb::none(), "randoms_sky"_a = nb::none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(),
+      "tracers"_a.none(), "randoms"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(),
       "mask"_a = nb::none(), "n_bins"_a.none(), "distances"_a = nb::none(), "angle_unit"_a.none(),
-      "tracers"_a = nb::none(), "randoms"_a = nb::none(), "redshift_cut"_a = nb::none(),
       "distance_cut"_a = nb::none(), "config"_a.none() = otswap::Config(),
-      "Reconstruct in lightcone geometry, from sky coordinates or from Cartesian ones.");
+      "Reconstruct in lightcone geometry, from Cartesian coordinates with the observer at the origin.");
 
   m.def("measure_mps_profile",
       [] (nb::handle tracersSky, nb::handle skyAreaDeg2, nb::handle mask, nb::handle nBins,
-          nb::handle distances, nb::handle redshiftCut, nb::handle angleUnit, nb::handle verbosity,
-          nb::handle tracers, nb::handle distanceCut) {
-        if (tracersSky.is_none() == tracers.is_none())
-          throw otswap::Error("give tracers_sky or tracers; one is required, not both");
-        const bool cartesian = !tracers.is_none();
-        if (cartesian) {
-          if (!redshiftCut.is_none())
-            throw otswap::Error("redshift_cut selects tracers_sky; with tracers, give distance_cut");
-          if (!distances.is_none() || !angleUnit.is_none())
-            throw otswap::Error("distances and angle_unit describe tracers_sky; the profile of tracers "
-                                "needs neither");
-        }
-        else if (!distanceCut.is_none())
-          throw otswap::Error("distance_cut selects tracers; with tracers_sky, give redshift_cut");
-        const otswap::DistanceTable* table =
-          cartesian ? nullptr : &instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
-        std::vector<double> ts;
-        if (cartesian) ts = rows3(tracers, "tracers");
-        else {
-          const bool degrees = in_degrees(angleUnit);
-          ts = rows3(tracersSky, "tracers_sky");
-          if (degrees) sky_to_radians(ts, "tracers_sky");
-        }
+          nb::handle distances, nb::handle redshiftCut, nb::handle angleUnit, nb::handle verbosity) {
+        const otswap::DistanceTable& table = instance<otswap::DistanceTable>(distances, "distances", "DistanceTable");
+        const bool degrees = in_degrees(angleUnit);
+        std::vector<double> ts = rows3(tracersSky, "tracers_sky");
+        if (degrees) sky_to_radians(ts, "tracers_sky");
         const otswap::Mask* footprint = area_or_mask(skyAreaDeg2, mask);
         const double area = footprint ? 0. : to_double(skyAreaDeg2, "sky_area_deg2");
         const unsigned bins = to_unsigned(nBins, "n_bins");
         const otswap::Verbosity level = to_verbosity(verbosity);
         LiveReport report;
         const otswap::RedshiftCut cut = to_cut(redshiftCut);
-        const otswap::DistanceCut dcut = to_distance_cut(distanceCut);
         return report.run([&] {
-          if (cartesian)
-            return footprint ? otswap::measureMpsProfile(ts, *footprint, bins, dcut, level, &report.log())
-                             : otswap::measureMpsProfile(ts, area, bins, dcut, level, &report.log());
-          return footprint ? otswap::measureMpsProfile(ts, *footprint, bins, *table, cut, level, &report.log())
-                           : otswap::measureMpsProfile(ts, area, bins, *table, cut, level, &report.log());
+          return footprint ? otswap::measureMpsProfile(ts, *footprint, bins, table, cut, level, &report.log())
+                           : otswap::measureMpsProfile(ts, area, bins, table, cut, level, &report.log());
         });
       },
-      "tracers_sky"_a = nb::none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(), "mask"_a = nb::none(),
-      "n_bins"_a.none(), "distances"_a = nb::none(), "redshift_cut"_a = nb::none(), "angle_unit"_a = nb::none(),
-      "verbosity"_a.none() = "normal", "tracers"_a = nb::none(), "distance_cut"_a = nb::none(),
-      "Measure the mps(z) profile of a lightcone, or mps(d) of Cartesian tracers, without reconstructing.");
+      "tracers_sky"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(), "mask"_a = nb::none(),
+      "n_bins"_a.none(), "distances"_a.none(), "redshift_cut"_a = nb::none(), "angle_unit"_a.none(),
+      "verbosity"_a.none() = "normal",
+      "Measure the mps(z) profile of a lightcone without reconstructing.");
+
+  m.def("measure_mps_profile_cartesian",
+      [] (nb::handle tracers, nb::handle skyAreaDeg2, nb::handle mask, nb::handle nBins,
+          nb::handle distanceCut, nb::handle verbosity) {
+        const std::vector<double> ts = rows3(tracers, "tracers");
+        const otswap::Mask* footprint = area_or_mask(skyAreaDeg2, mask);
+        const double area = footprint ? 0. : to_double(skyAreaDeg2, "sky_area_deg2");
+        const unsigned bins = to_unsigned(nBins, "n_bins");
+        const otswap::Verbosity level = to_verbosity(verbosity);
+        LiveReport report;
+        const otswap::DistanceCut dcut = to_distance_cut(distanceCut);
+        return report.run([&] {
+          return footprint ? otswap::measureMpsProfile(ts, *footprint, bins, dcut, level, &report.log())
+                           : otswap::measureMpsProfile(ts, area, bins, dcut, level, &report.log());
+        });
+      },
+      "tracers"_a.none(), nb::kw_only(), "sky_area_deg2"_a = nb::none(), "mask"_a = nb::none(),
+      "n_bins"_a.none(), "distance_cut"_a = nb::none(), "verbosity"_a.none() = "normal",
+      "Measure the mps(d) profile of Cartesian tracers, with the observer at the origin, without "
+      "reconstructing.");
 
   m.def("reject_mask_crossings",
       [] (nb::handle result, nb::handle mask, nb::handle maxUnobservedPixelsCrossed) {

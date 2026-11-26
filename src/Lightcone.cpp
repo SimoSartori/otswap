@@ -254,7 +254,7 @@ otswap::internal::mps_profile_distance (const std::vector<double>& distance,
 // ============================================================================
 
 
-double otswap::MpsProfile::at (const double x) const
+double otswap::MpsProfile::at (const double value) const
 {
   const bool inDistance = !distance.empty();
   const std::vector<double>& nodes = inDistance ? distance : redshift;
@@ -269,18 +269,18 @@ double otswap::MpsProfile::at (const double x) const
                 " distances and " + std::to_string(mps.size()) + " values; it must hold redshifts "
                 "or distances, as many as values");
 
-  const double value = internal::profile_at(nodes, mps, x);
+  const double atValue = internal::profile_at(nodes, mps, value);
 
-  if (!(value > 0.)) {
+  if (!(atValue > 0.)) {
     const std::string name = inDistance ? "d" : "z";
     throw Error("the mean particle separation profile, extrapolated linearly from its "
                 "terminal nodes at " + name + " = " + std::to_string(nodes.front()) + " and " + name +
-                " = " + std::to_string(nodes.back()) + ", gives " + std::to_string(value) +
-                " at " + name + " = " + std::to_string(x) + "; it must be positive. Use fewer " +
+                " = " + std::to_string(nodes.back()) + ", gives " + std::to_string(atValue) +
+                " at " + name + " = " + std::to_string(value) + "; it must be positive. Use fewer " +
                 (inDistance ? "distance" : "redshift") + " bins, so that the terminal bins are less noisy");
   }
 
-  return value;
+  return atValue;
 }
 
 
