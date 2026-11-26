@@ -32,7 +32,9 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <iomanip>
 #include <limits>
@@ -111,6 +113,31 @@ namespace {
     }
   }
 
+  /// value rounded to kPrecision significant digits in the given direction:
+  /// down, or up. A value that already has that many digits or fewer is kept.
+  double round_outward (const double value, const bool up)
+  {
+    if (value == 0. || !std::isfinite(value)) return value;
+    char text[64];
+    std::snprintf(text, sizeof text, "%.*e", kPrecision - 1, value);
+    const double nearest = std::strtod(text, nullptr);
+    if (up ? nearest >= value : nearest <= value) return nearest;
+    // one unit of the last digit, taken on the decimal mantissa
+    const char* e = std::strchr(text, 'e');
+    const long exponent = std::strtol(e + 1, nullptr, 10);
+    std::string digits;
+    for (const char* c = text; c != e; ++c)
+      if (*c >= '0' && *c <= '9') digits += *c;
+    long long mantissa = std::stoll(digits);
+    const bool negative = text[0] == '-';
+    // one unit of magnitude: away from zero when rounding up a positive or
+    // down a negative value
+    mantissa += (up != negative) ? 1 : -1;
+    const std::string shifted = (negative ? "-" : "") + std::to_string(mantissa) + "e" +
+                                std::to_string(exponent - (kPrecision - 1));
+    return std::strtod(shifted.c_str(), nullptr);
+  }
+
   template <typename T>
   std::string integer (const T value)
   {
@@ -147,7 +174,10 @@ namespace {
 
   /// The keywords of a reconstruction, shared by both displacement
   /// writers.
-  std::vector<Keyword> result_keywords (const std::string& product, const otswap::Result& r)
+  /// With outwardBox, the box keywords are rounded outward to the precision
+  /// of the tracer coordinates, so that the tracers as written lie inside.
+  std::vector<Keyword> result_keywords (const std::string& product, const otswap::Result& r,
+                                        const bool outwardBox = false)
   {
     std::vector<Keyword> k = common(product, r.geometry, r.nObjects);
     k.push_back({"NREC", integer(r.nRealizations), "realizations"});
@@ -165,9 +195,11 @@ namespace {
     if (r.box) {
       static const char* const axis[3] = {"X", "Y", "Z"};
       for (int c = 0; c < 3; ++c) {
-        k.push_back({std::string("BOX") + axis[c] + "LO", number(r.box->lower[c]),
+        const double lo = outwardBox ? round_outward(r.box->lower[c], false) : r.box->lower[c];
+        const double hi = outwardBox ? round_outward(r.box->upper[c], true) : r.box->upper[c];
+        k.push_back({std::string("BOX") + axis[c] + "LO", number(lo),
                      std::string("lower ") + (char)('x' + c) + " of the box, in coordinate units"});
-        k.push_back({std::string("BOX") + axis[c] + "HI", number(r.box->upper[c]),
+        k.push_back({std::string("BOX") + axis[c] + "HI", number(hi),
                      std::string("upper ") + (char)('x' + c) + " of the box, in coordinate units"});
       }
     }
@@ -813,7 +845,8 @@ void otswap::io::writeDisplacementMean (const std::string& file, const Result& r
 
   WriteOptions options;
   options.precision = kPrecision;
-  options.keywords = result_keywords("displacements", result);
+  options.keywords = result_keywords("displacements", result,
+                                     !internal::fits_name(file) && !result.periodic);
   const std::vector<internal::TablePart> parts =
     lightcone_parts(result, kMeanProduct, lightconeTables, options.keywords);
   write_groups(file, out, n, options, kMainExtname, parts);

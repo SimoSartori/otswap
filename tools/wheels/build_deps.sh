@@ -21,16 +21,20 @@
 # Usage: build_deps.sh PREFIX
 #
 # A prefix already built with the same versions is left alone. cfitsio is
-# downloaded from HEASARC or, failing that, from Fedora's lookaside cache;
-# either copy must have the same SHA-256.
+# downloaded from HEASARC or, failing that, from Fedora's lookaside cache,
+# and zlib from zlib.net, its fossils or GitHub; every copy must have the same
+# SHA-256.
 
 set -euo pipefail
 
 PREFIX=$1
 
 ZLIB_VERSION=1.3.2
-ZLIB_URL=https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz
 ZLIB_SHA256=bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
+# zlib.net keeps only the newest release at its top level, and older ones in fossils/
+ZLIB_URLS=(https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz
+           https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz
+           https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz)
 
 CFITSIO_VERSION=4.7.0
 CFITSIO_SHA256=ce573bbea8e75b429f8c3d3e86498741ba3dc9628a1530d2f65268397ad059e8
@@ -98,7 +102,7 @@ jobs=$( (nproc || sysctl -n hw.ncpu) 2> /dev/null )
 
 # --------------------------------------------------------------------- zlib
 
-archive=$(fetch "$ZLIB_SHA256" "$ZLIB_URL")
+archive=$(fetch "$ZLIB_SHA256" "${ZLIB_URLS[@]}")
 tar -xzf "$archive" -C "$WORK"
 cmake -S "$WORK/zlib-$ZLIB_VERSION" -B "$WORK/zlib-build" "${CMAKE_COMMON[@]}" \
   -DZLIB_BUILD_SHARED=OFF -DZLIB_BUILD_STATIC=ON -DZLIB_BUILD_TESTING=OFF

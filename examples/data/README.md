@@ -12,6 +12,8 @@ purpose.
 | `box_randoms.dat` | randoms uniform in the cube, 8 per halo | 404,376 | x y z, Mpc/h |
 | `lightcone_tracers.dat` | tracers in a lightcone, redshift 0.885 to 1.10 | 29,579 | RA Dec (degrees), z |
 | `lightcone_randoms.dat` | randoms with the same footprint and redshift distribution | 242,548 | RA Dec (degrees), z |
+| `lightcone_tracers_cartesian.dat` | the same tracers, row by row, in comoving Cartesian coordinates (flat cosmology, Omega_m = 0.286, h = 0.7; observer at the origin) | 29,579 | x y z, Mpc/h |
+| `lightcone_randoms_cartesian.dat` | the same randoms, in the same coordinates | 242,548 | x y z, Mpc/h |
 | `lightcone_mask.fits` | the footprint: a full-sky HEALPix map, NSIDE 1024, RING, 1 observed and 0 unobserved | 12,582,912 pixels | |
 | `lightcone_bias.dat` | the tracers' linear bias, five redshift nodes from 0.600 to 1.114 | 5 | z b |
 

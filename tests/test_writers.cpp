@@ -30,6 +30,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -609,6 +610,66 @@ int main ()
           "a malformed result is refused");
   }
 
+  group("writeDisplacementMean in ASCII: the box keywords of a non-periodic box are rounded outward to the "
+        "precision of the tracers, so the tracers as written lie inside; FITS and periodic boxes keep them exact");
+  {
+    Result odd = box;
+    odd.selection.boxLimits.reset();
+    odd.box = BoxLimits{{-1.234567891234, 0.1000000000001, 12345.678912345},
+                        {1.234567891234, 7.7777777777777, 12345.678912346}};
+    odd.box->lower[2] = 12345.678912345;
+    auto limits = [] (const std::string& file) {
+      const std::vector<io::Keyword> k = internal::read_keywords(file);
+      std::array<double, 6> v{};
+      const char* const names[6] = {"BOXXLO", "BOXXHI", "BOXYLO", "BOXYHI", "BOXZLO", "BOXZHI"};
+      for (int i = 0; i < 6; ++i) v[i] = std::strtod(value_of(k, names[i]).c_str(), nullptr);
+      return v;
+    };
+    const std::string ascii = temporary("outward.dat"), fits = temporary("outward.fits");
+    io::writeDisplacementMean(ascii, odd);
+    io::writeDisplacementMean(fits, odd);
+    const std::array<double, 6> a = limits(ascii), f = limits(fits);
+    bool outward = true, exact = true, near = true;
+    for (int c = 0; c < 3; ++c) {
+      outward = outward && a[2*c] <= odd.box->lower[c] && a[2*c+1] >= odd.box->upper[c];
+      near = near && std::fabs(a[2*c] - odd.box->lower[c]) <= 1.e-8 * std::fabs(odd.box->lower[c]) &&
+                     std::fabs(a[2*c+1] - odd.box->upper[c]) <= 1.e-8 * std::fabs(odd.box->upper[c]);
+      exact = exact && f[2*c] == odd.box->lower[c] && f[2*c+1] == odd.box->upper[c];
+    }
+    check(outward, "ASCII: every lower limit written is not above the box's, every upper not below");
+    check(near, "ASCII: the limits move by less than one unit of the ninth digit");
+    check(exact, "FITS: the limits are the box's, exactly");
+    std::remove(ascii.c_str());
+    std::remove(fits.c_str());
+
+    // the tracers as written lie within the limits as written
+    Result inside = odd;
+    inside.box = BoxLimits{{0.123456789123, 0.123456789123, 0.123456789123},
+                           {9.87654321987, 9.87654321987, 9.87654321987}};
+    for (std::size_t i = 0; i < 3; ++i) {
+      inside.tracers[i] = inside.box->lower[i];
+      inside.tracers[3+i] = inside.box->upper[i];
+    }
+    const std::string file = temporary("outward_tracers.dat");
+    io::writeDisplacementMean(file, inside);
+    const std::array<double, 6> w = limits(file);
+    const io::Table t = io::read(file, {"tracX", "tracY", "tracZ"});
+    bool lie = true;
+    for (int c = 0; c < 3; ++c)
+      lie = lie && t.values[0*3+c] >= w[2*c] && t.values[1*3+c] <= w[2*c+1];
+    check(lie, "ASCII: tracers on the limits, as written, lie within the limits as written");
+    std::remove(file.c_str());
+
+    const std::string periodicFile = temporary("outward_periodic.dat");
+    io::writeDisplacementMean(periodicFile, periodicBox);
+    const std::array<double, 6> p = limits(periodicFile);
+    bool same = true;
+    for (int c = 0; c < 3; ++c)
+      same = same && p[2*c] == periodicBox.box->lower[c] && p[2*c+1] == periodicBox.box->upper[c];
+    check(same, "ASCII, periodic: the limits are exact");
+    std::remove(periodicFile.c_str());
+  }
+
   group("Both displacement writers: the reconstruction's keywords, in their order, each read back as written");
   {
     const char* const order[] = {"PRODUCT", "OTSWAPV", "GEOMETRY", "NOBJECTS", "NREC", "NRECMEAN", "SEED", "CONVERG",
@@ -630,16 +691,21 @@ int main ()
           return false;
       return true;
     };
-    // The box keywords read back as the bounds, exactly.
-    auto box_matches = [] (const std::vector<io::Keyword>& k, const std::optional<BoxLimits>& b) {
+    // The box keywords read back as the bounds, exactly; in an ASCII mean
+    // file, rounded outward at 9 digits.
+    auto box_matches = [] (const std::vector<io::Keyword>& k, const std::optional<BoxLimits>& b,
+                           const bool rounded = false) {
       const char* const names[3][2] = {{"BOXXLO", "BOXXHI"}, {"BOXYLO", "BOXYHI"}, {"BOXZLO", "BOXZHI"}};
       for (int c = 0; c < 3; ++c) {
         if (!b) {
           if (value_of(k, names[c][0]) != "missing" || value_of(k, names[c][1]) != "missing") return false;
           continue;
         }
-        if (std::strtod(value_of(k, names[c][0]).c_str(), nullptr) != b->lower[c] ||
-            std::strtod(value_of(k, names[c][1]).c_str(), nullptr) != b->upper[c]) return false;
+        const double lo = std::strtod(value_of(k, names[c][0]).c_str(), nullptr);
+        const double hi = std::strtod(value_of(k, names[c][1]).c_str(), nullptr);
+        if (rounded ? (lo > b->lower[c] || hi < b->upper[c] || b->lower[c] - lo > 1.e-8 * std::fabs(b->lower[c]) ||
+                       hi - b->upper[c] > 1.e-8 * std::fabs(b->upper[c]))
+                    : (lo != b->lower[c] || hi != b->upper[c])) return false;
       }
       return true;
     };
@@ -699,12 +765,12 @@ int main ()
               label + "the parts of the lightcone declared; no NRECMEAN for a reconstruction");
 
         const std::vector<io::Keyword> b = keywords_of(box);
-        check(box_matches(b, box.box) && value_of(b, "BOXLIM") == "missing" && counts_match(b, box.selection) &&
+        check(box_matches(b, box.box, extension == ".dat" && !complete) && value_of(b, "BOXLIM") == "missing" && counts_match(b, box.selection) &&
               value_of(b, "NTRAC") == "missing" && value_of(b, "MPSPART") == "missing" &&
               value_of(b, "DISTPART") == "missing" && std::strtod(value_of(b, "MPS").c_str(), nullptr) == box.mps,
               label + "a box without limits: its bounding box, MPS, no count");
         const std::vector<io::Keyword> l = keywords_of(limited);
-        check(box_matches(l, limited.box) && value_of(l, "BOXLIM") == "1" && counts_match(l, limited.selection) &&
+        check(box_matches(l, limited.box, extension == ".dat" && !complete) && value_of(l, "BOXLIM") == "1" && counts_match(l, limited.selection) &&
               value_of(l, "NTRAC") == "900" && limited.selection.tracersOutsideBox > 0,
               label + "a box with limits: the limits, BOXLIM, the counts");
         const std::vector<io::Keyword> h = keywords_of(hand);
@@ -1280,7 +1346,24 @@ int main ()
     }
     return true;
   };
-  auto mean_difference = [&close9] (Result read, const Result& expected, const bool ascii) -> std::string {
+  // An ASCII mean file of a non-periodic box holds its limits rounded outward
+  // at 9 digits: the limits read must enclose the expected, within 1e-8
+  // relative. True when so, or when the comparison does not apply; the read
+  // limits are then replaced by the expected ones.
+  auto outward_box = [] (Result& read, const Result& expected, const bool ascii) {
+    if (!ascii || expected.periodic || !expected.box || !read.box) return true;
+    for (int c = 0; c < 3; ++c) {
+      const double lo = expected.box->lower[c], hi = expected.box->upper[c];
+      if (read.box->lower[c] > lo || read.box->upper[c] < hi ||
+          lo - read.box->lower[c] > 1.e-8 * std::fabs(lo) || read.box->upper[c] - hi > 1.e-8 * std::fabs(hi))
+        return false;
+    }
+    read.box = expected.box;
+    if (read.selection.boxLimits && expected.selection.boxLimits) read.selection.boxLimits = expected.selection.boxLimits;
+    return true;
+  };
+  auto mean_difference = [&close9, &outward_box] (Result read, const Result& expected, const bool ascii) -> std::string {
+    if (!outward_box(read, expected, ascii)) return "box";
     const std::pair<const char*, std::vector<double> Result::*> fields[] = {
       {"tracers", &Result::tracers}, {"displacement", &Result::displacement},
       {"meanDisplacement", &Result::meanDisplacement}, {"lagrangian", &Result::lagrangian},
@@ -1446,7 +1529,8 @@ int main ()
         remove_with_twins(fresh);
         io::writeDisplacementMean(fresh, *r.second, {}, false);
         const Result old = io::readDisplacementMean(fixture);
-        const std::string d = difference(old, io::readDisplacementMean(fresh));
+        Result freshRead = io::readDisplacementMean(fresh);
+        const std::string d = outward_box(freshRead, old, ext == ".dat") ? difference(old, freshRead) : "box";
         const std::string e = mean_difference(old, mean_of(*r.second, false), ext == ".dat");
         check(value_of(internal::read_keywords(fixture), "OTSWAPV") == "0.2.1" && old.mpsProfile.redshift.empty() &&
               old.distances == nullptr && old.nRealizationsMean == 2 && d.empty() && e.empty(),
